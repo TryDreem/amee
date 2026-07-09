@@ -75,7 +75,7 @@ The backend is organized into four layers with strict responsibility boundaries,
 |---|---|
 | **API layer** (FastAPI routes) | Request/response validation only. No business logic. |
 | **Service layer** | Orchestrates pipeline steps (extract → transcribe → split → style → export). Must be callable identically from an HTTP handler or from a background task — meaning its functions take and return plain, serializable data (ids, paths, primitives), never framework-specific request/response objects. |
-| **Data access layer** | Repositories for videos, transcripts, jobs, caption documents, style presets. Hides the underlying storage technology (PostgreSQL from the MVP for structured data; local disk via storage.py for files, S3/R2 potentially later) from the service layer. |
+| **Data access layer** | Repositories for videos, transcripts, jobs, caption documents, style presets. Hides the underlying storage technology (PostgreSQL from the MVP for structured data; local disk via storage.py for files, S3/R2 potentially later) from the service layer. The repository layer is async SQLAlchemy end-to-end, including inside Celery tasks (each task wraps its body in `asyncio.run()`) — not a separate sync client for workers, to avoid maintaining two data-access implementations of the same repositories. |
 | **Integration layer** | Wrappers around external tools/services: ffmpeg, WhisperX, and — later — a payment provider and the task queue. |
  
 The reason for this separation: each of the "grow into a product" requirements below becomes a localized change instead of a rewrite, *because* the layers don't leak into each other.

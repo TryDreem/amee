@@ -68,7 +68,8 @@ engine, or any endpoint. The four that get broken most often:
 api/          FastAPI routes. Validation in/out. Zero business logic.
 services/     Orchestration. Takes and returns plain serializable data (ids, paths, primitives).
               Never sees a Request object. This is what makes Celery adapters thin.
-repositories/ Storage-technology-hiding. PostgreSQL from the MVP (architecture.md §2.1).
+repositories/ Storage-technology-hiding. PostgreSQL from the MVP (architecture.md §2.1),
+              async SQLAlchemy, including inside Celery tasks via asyncio.run().
 integrations/ ffmpeg, WhisperX, Celery, storage.py.
 ```
 
