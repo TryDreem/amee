@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff:*)",
+      "Bash(pnpm:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git fetch:*)",
+      "Bash(git rebase origin/main)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(docker compose:*)",
+      "Bash(scripts/wt-env.sh:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pip install:*)",
+      "Bash(uv add:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git merge:*)",
+      "Bash(rm -rf:*)",
+      "Edit(docs/architecture.md)",
+      "Edit(docs/api-contract.md)",
+      "Edit(.claude/skills/amee-arch-check/references/architecture.md)",
+      "Edit(.claude/skills/amee-arch-check/references/api-contract.md)",
+      "Edit(frontend/src/api/types.gen.ts)",
+      "Read(.env.secrets)"
+    ]
+  },
+  "worktree": { "baseRef": "fresh" },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/guard-protected-paths.sh" }
+        ]
+      }
+    ]
+  }
+}

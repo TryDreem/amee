@@ -1,0 +1,10 @@
+.claude/worktrees/
+.env.local
+.env.secrets
+.data/
+__pycache__/
+.venv/
+node_modules/
+dist/
+.pytest_cache/
+.ruff_cache/

@@ -1,0 +1,20 @@
+# Ports come from .env.local, which scripts/wt-env.sh generates per worktree.
+# COMPOSE_PROJECT_NAME is also set there, so each worktree gets its own containers.
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 5
+
+  # Optional. Cache / rate-limit counters / job-status push only.
+  # NEVER a source of truth for anything (api-contract §14).
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"

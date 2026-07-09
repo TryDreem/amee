@@ -1,0 +1,7 @@
+# Gitignored files copied into every new worktree (.gitignore syntax).
+# Only gitignored files are copied; tracked files are never duplicated.
+#
+# NOTE: .env.local is deliberately NOT listed. It is generated per-worktree by
+# scripts/wt-env.sh and carries that worktree's port slot. Copying it would give
+# every agent the same ports.
+.env.secrets
