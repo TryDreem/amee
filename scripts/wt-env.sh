@@ -57,6 +57,7 @@ case "${1:---write}" in
     echo "web      : $((base+1))"
     echo "rabbitmq : $((base+2))  (mgmt $((base+3)))"
     echo "redis    : $((base+4))"
+    echo "postgres : $((base+5))"
     exit 0 ;;
 esac
 
@@ -73,9 +74,10 @@ WEB_PORT=$((BASE + 1))
 RABBITMQ_PORT=$((BASE + 2))
 RABBITMQ_MGMT_PORT=$((BASE + 3))
 REDIS_PORT=$((BASE + 4))
+POSTGRES_PORT=$((BASE + 5))
 
 CELERY_BROKER_URL=amqp://guest:guest@localhost:$((BASE + 2))//
-AMEE_DB_URL=sqlite:///./.data/amee.sqlite
+AMEE_DB_URL=postgresql://amee:amee@localhost:$((BASE + 5))/amee
 AMEE_STORAGE_DIR=./.data/storage
 
 VITE_API_BASE=http://localhost:$BASE/api/v1

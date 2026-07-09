@@ -1,13 +1,13 @@
 ---
 name: amee-worktree-env
-description: Bring up an isolated dev environment inside a git worktree so parallel Claude Code sessions don't collide on ports, the RabbitMQ broker, the SQLite database, or the storage directory. Use this at the start of every session in a worktree, when `make dev` fails with "address already in use", when Celery jobs land in the wrong worktree's worker, or when two agents appear to be sharing a database.
+description: Bring up an isolated dev environment inside a git worktree so parallel Claude Code sessions don't collide on ports, the RabbitMQ broker, the Postgres database, or the storage directory. Use this at the start of every session in a worktree, when `make dev` fails with "address already in use", when Celery jobs land in the wrong worktree's worker, or when two agents appear to be sharing a database.
 ---
 
 # Isolated dev environment per worktree
 
 Git worktrees isolate **files**. They do not isolate **runtime resources**. Two agents running
-`make dev` both bind port 8000, both talk to the same RabbitMQ broker, and both write the same
-SQLite file. Files stay clean; the running system does not.
+`make dev` both bind port 8000, both talk to the same RabbitMQ broker, and both write to the same
+Postgres database. Files stay clean; the running system does not.
 
 ## Every session, first command
 
@@ -21,9 +21,9 @@ shared git directory, and writes `.env.local` with derived ports:
 ```
 base = 8000 + slot*100
 API_PORT=base   WEB_PORT=base+1   RABBITMQ_PORT=base+2
-RABBITMQ_MGMT_PORT=base+3   REDIS_PORT=base+4
+RABBITMQ_MGMT_PORT=base+3   REDIS_PORT=base+4   POSTGRES_PORT=base+5
 COMPOSE_PROJECT_NAME=amee-<slot>
-AMEE_DB_URL=sqlite:///./.data/amee.sqlite
+AMEE_DB_URL=postgresql://amee:amee@localhost:POSTGRES_PORT/amee
 AMEE_STORAGE_DIR=./.data/storage
 ```
 
@@ -46,10 +46,12 @@ worktree, by `scripts/wt-env.sh`.
 
 ## Database and storage
 
-`AMEE_DB_URL` and `AMEE_STORAGE_DIR` are relative paths under `./.data/`, which is gitignored and
-therefore per-worktree by construction. No two agents share a database. This means each worktree
-needs its own transcription run before it has an ECS to edit — that is correct and intended, not a
-bug to route around by pointing at a shared `.data/`.
+`AMEE_STORAGE_DIR` is a relative path under `./.data/`, which is gitignored and therefore
+per-worktree by construction. `AMEE_DB_URL` isolates the same way `RABBITMQ_PORT` does instead of
+by path: each worktree gets its own Postgres container (`COMPOSE_PROJECT_NAME=amee-<slot>`) on its
+own `POSTGRES_PORT`. No two agents share a database or its container. This means each worktree needs
+its own `make migrate` and its own transcription run before it has an ECS to edit — that is correct
+and intended, not a bug to route around by pointing at a shared Postgres.
 
 ## Celery
 

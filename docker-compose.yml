@@ -1,6 +1,23 @@
 # Ports come from .env.local, which scripts/wt-env.sh generates per worktree.
 # COMPOSE_PROJECT_NAME is also set there, so each worktree gets its own containers.
 services:
+  # PostgreSQL from the MVP, not SQLite (architecture.md §2.1) — the app's
+  # database of record. Not optional, not profile-gated, same as rabbitmq.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: amee
+      POSTGRES_PASSWORD: amee
+      POSTGRES_DB: amee
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amee"]
+      interval: 5s
+      retries: 5
+
   rabbitmq:
     image: rabbitmq:3-management
     ports:
@@ -18,3 +35,8 @@ services:
     profiles: ["redis"]
     ports:
       - "${REDIS_PORT:-6379}:6379"
+
+volumes:
+  # Named, not bind-mounted — COMPOSE_PROJECT_NAME namespaces this per worktree,
+  # same isolation as the containers themselves.
+  postgres_data:

@@ -26,7 +26,7 @@ Run the `amee-arch-check` skill. Specifically confirm you are not about to:
 api/          route: parse, validate, delegate, serialize. Zero business logic.
 services/     orchestration. Plain serializable args and returns (ids, paths, primitives).
               No fastapi import. No Request object. Ever.
-repositories/ persistence. Hides SQLite. The service must not know what a table is.
+repositories/ persistence. Hides Postgres. The service must not know what a table is.
 integrations/ ffmpeg, WhisperX, Celery, storage.py.
 ```
 

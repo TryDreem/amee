@@ -8,7 +8,7 @@ How to run 2–3 Claude Code sessions on this repo at once without them fighting
 
 Git worktrees isolate **files**. They do not isolate:
 
-- **Runtime resources** — ports 8000/5173, the RabbitMQ broker, the SQLite file, `.data/storage/`.
+- **Runtime resources** — ports 8000/5173, the RabbitMQ broker, the Postgres database, `.data/storage/`.
   Two agents running `make dev` will collide instantly. Solved by `scripts/wt-env.sh` (port slots).
 - **Logical conflicts** — two agents making incompatible assumptions about the same interface.
   Merges cleanly, breaks at runtime. Solved by **shared seams frozen before parallel work starts**
@@ -106,7 +106,8 @@ file. The frontend cannot drift from the contract, because it never hand-writes 
 
 **B — backend**
 - `storage.py` abstraction; ffmpeg probe (width/height/duration) at upload
-- repositories (SQLite), `owner_id` placeholder everywhere
+- repositories (Postgres); Alembic migrations land here, not deferred (`make migrate`)
+- `owner_id` placeholder everywhere
 - `POST /projects`, `GET /projects`, `GET /projects/{id}`
 - Job model + Celery + `transcribe` queue; status written to the app DB
 - WhisperX integration; Raw Transcript persisted immutably

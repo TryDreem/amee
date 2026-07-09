@@ -68,7 +68,7 @@ engine, or any endpoint. The four that get broken most often:
 api/          FastAPI routes. Validation in/out. Zero business logic.
 services/     Orchestration. Takes and returns plain serializable data (ids, paths, primitives).
               Never sees a Request object. This is what makes Celery adapters thin.
-repositories/ Storage-technology-hiding. SQLite today, Postgres later.
+repositories/ Storage-technology-hiding. PostgreSQL from the MVP (architecture.md §2.1).
 integrations/ ffmpeg, WhisperX, Celery, storage.py.
 ```
 
@@ -89,6 +89,7 @@ A route that touches a repository directly is a bug. A service that imports `fas
 make dev        # docker compose up + backend + frontend, ports derived from this worktree's slot
 make check      # ruff + mypy + pytest + tsc + eslint + vitest  (must pass before any PR)
 make types      # regenerate frontend/src/api/types.gen.ts from backend OpenAPI
+make migrate    # run Alembic migrations (backend/alembic) — lands in M1, not deferred
 scripts/wt-env.sh   # allocate this worktree's port slot, write .env.local
 ```
 
@@ -114,3 +115,27 @@ TypeScript: strict mode, no `any`, no default exports except React components.
 Tests: pytest for backend, vitest for frontend. New endpoint ⇒ new test. New invariant ⇒ new test.
 
 Small, reviewable diffs. If a task grows past ~400 changed lines, stop and split it.
+
+## Talking to the human
+
+Respond in Russian, in plain, direct language -- short sentences, no bureaucratic phrasing, no filler
+before the point. Keep identifiers exactly as they appear in code and docs, always in English and
+unchanged: variable/function/class/file names, commands, flags, config keys, HTTP methods, section
+numbers (§4.2), invariant ids (D5, E3), and anything quoted from architecture.md/api-contract.md.
+Don't translate these into Russian and don't transliterate them.
+
+If a technical term has no natural short Russian equivalent (e.g. "worktree", "webhook"), leave it in
+English rather than forcing an awkward translation -- clarity over purity.
+
+## Self-check before finishing
+
+Before presenting any code or ending a turn that changed code, re-read your own diff once, specifically for:
+
+- did I touch anything in the "Settled" or "Still open" lists above without flagging it?
+- does every changed file still satisfy the invariants in `docs/INVARIANTS.md` that it touches?
+- did tests actually get written for what changed, not just left to a future task?
+- is there a simpler version of this diff that does the same thing?
+
+If the self-check finds something, fix it before responding -- don't report the problem and leave it
+for the next turn. Say briefly what you checked and what (if anything) you changed as a result; don't
+narrate the check step by step.

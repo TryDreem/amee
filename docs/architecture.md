@@ -64,7 +64,8 @@ This section is scaffolding, not the core of the document — but it constrains 
  
 - **Backend:** Python + FastAPI. Chosen because the ML tooling required (WhisperX, ffmpeg orchestration) is native to the Python ecosystem.
 - **Frontend:** React + TypeScript + Vite. Chosen as an industry-standard choice, partly with future hiring in mind if the project grows beyond a personal tool.
-- **File storage:** currently local disk, but accessed exclusively through a storage abstraction (a single module, referred to as `storage.py`) so that switching to S3/R2 later is a matter of swapping the implementation behind that interface, not rewriting call sites.
+- **Database:** PostgreSQL from the MVP, not SQLite. Reasoning: owner_id/user_id is already reserved on every entity for future multi-user support (§2.4) — Postgres avoids a database migration exactly when real auth lands, matching the same "expensive to retrofit, made correctly now" rule as §1.2. SQLite's single-writer lock also doesn't fit well with Celery workers writing job status concurrently (§2.3) even at MVP scale.
+- **File storage:** still local disk via storage.py — this axis is unaffected, only the DB choice changes.
  
 ### 2.2 Layered backend architecture
  
@@ -74,7 +75,7 @@ The backend is organized into four layers with strict responsibility boundaries,
 |---|---|
 | **API layer** (FastAPI routes) | Request/response validation only. No business logic. |
 | **Service layer** | Orchestrates pipeline steps (extract → transcribe → split → style → export). Must be callable identically from an HTTP handler or from a background task — meaning its functions take and return plain, serializable data (ids, paths, primitives), never framework-specific request/response objects. |
-| **Data access layer** | Repositories for videos, transcripts, jobs, caption documents, style presets. Hides the underlying storage technology (disk/SQLite today, Postgres/S3 potentially later) from the service layer. |
+| **Data access layer** | Repositories for videos, transcripts, jobs, caption documents, style presets. Hides the underlying storage technology (PostgreSQL from the MVP for structured data; local disk via storage.py for files, S3/R2 potentially later) from the service layer. |
 | **Integration layer** | Wrappers around external tools/services: ffmpeg, WhisperX, and — later — a payment provider and the task queue. |
  
 The reason for this separation: each of the "grow into a product" requirements below becomes a localized change instead of a rewrite, *because* the layers don't leak into each other.
@@ -106,6 +107,25 @@ Three outputs are produced per project, decided explicitly (see also §14 for th
 3. **Internal project JSON** — the full-fidelity project data (ECS + CaptionStyleSpec), for re-import into this same tool or for programmatic use.
  
 A known limitation was explicitly acknowledged and accepted: standard SRT has no concept of word-level timing — it only supports phrase-level start/end. Since word-level highlighting is central to this product, exporting to plain SRT necessarily **loses** word-level timing data; the internal JSON is what preserves it. A richer subtitle format (ASS, which supports karaoke-style word timing and is the same format likely used internally as an intermediate step before the ffmpeg/libass burn-in render) was discussed and **deliberately deferred** — it can be added later as an additional export option without affecting anything else in the architecture.
+
+### 2.6 Logging
+
+Structured logging (JSON lines), written to stdout only — not to a file, not to a database. Docker
+and Celery already capture stdout, so a separate log-storage pipeline is complexity with no MVP
+payoff (same rule as §1.2: don't stand up infrastructure the single-user MVP doesn't need). If log
+retention or search becomes necessary later, it's a collector configured outside the app (e.g. a
+log-shipping sidecar) — the application code doesn't change, because it already writes to stdout.
+
+Mechanism: not a decorator on every function — a middleware plus `contextvars`. The API layer sets
+a `request_id` in a context variable at the start of each request. A logging filter reads whatever
+context variables are set (`request_id`, `project_id`, `job_id`, `owner_id`) and attaches them to
+every log line automatically, so a call like `logger.info("splitter ran", extra={"project_id": pid})`
+doesn't need to pass `request_id` by hand. Celery tasks set `job_id` in the same way at task start —
+there is no `request_id` inside a task, since no HTTP request is in flight there, and that's expected.
+
+Log levels: `INFO` for pipeline stage transitions (job started/finished, WhisperX invoked, splitter
+ran), `WARNING` for recoverable oddities (a validation retry, a slow ffmpeg probe), `ERROR` for
+anything that sets `Job.status = "failed"`. Nothing more granular is needed for MVP.
  
 ---
  
@@ -461,6 +481,7 @@ These are the decisions intentionally left open by this document. None of them b
 11. **Queue granularity beyond the current two queues** (`transcribe`, `export`) — no further subdivision has been considered; the current two-queue split (§2.3) is the only decision made so far.
 12. **Payment/quota integration point** — architecturally anticipated as a service-layer boundary check before expensive operations (§2.4), but no quota model, pricing structure, or provider has been chosen.
 13. **Authentication mechanism** — the data model reserves `owner_id`/`user_id` on every entity from day one (§2.4), but the actual auth mechanism (sessions, JWT, a specific provider) has not been chosen.
+14. **Metrics/observability** — not part of the MVP. RabbitMQ's own management UI gives queue-level metrics (message counts, consumer counts) but nothing about application behavior (job duration,failure rate). If usage grows past single-user, a Prometheus/Grafana-style setup is the natural next step, and it slots in next to §2.6's logging module rather than replacing it — both would read from the same request_id/job_id context. Not needed to design now; flagged so it isn't forgotten.
  
 ---
  
