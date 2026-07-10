@@ -43,3 +43,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# One event loop for the whole test session — app/db.py's `engine` is a
+# module-level singleton (matching how it runs in the real app, one loop per
+# process), and asyncpg's pooled connections are loop-bound. Per-test loops
+# (pytest-asyncio's default) hand connections to a stale loop and asyncpg
+# raises "another operation is in progress".
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
