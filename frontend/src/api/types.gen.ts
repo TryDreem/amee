@@ -198,6 +198,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_create_project_api_v1_projects_post */
+        Body_create_project_api_v1_projects_post: {
+            /** File */
+            file: string;
+            /** Name */
+            name?: string | null;
+        };
         /** Bounds */
         Bounds: {
             /** Min */
@@ -590,7 +597,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_project_api_v1_projects_post"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             201: {
@@ -599,6 +610,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -698,6 +718,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Job"];
                 };
+            };
+            /** @description Job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
