@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 
 class Base(DeclarativeBase):
@@ -28,7 +29,16 @@ def get_database_url() -> str:
 
 
 def make_engine(url: str | None = None) -> AsyncEngine:
-    return create_async_engine(to_async_url(url or get_database_url()))
+    """NullPool, not the default pool: this engine is a module-level
+    singleton shared by both the FastAPI app (one long-lived event loop) and
+    Celery tasks (a fresh loop per task, via asyncio.run() — arch §2.2). A
+    pooled asyncpg connection is bound to the loop it was opened on; reused
+    from a later, different loop it raises "another operation is in
+    progress". NullPool opens a fresh physical connection per checkout, so
+    there's never a stale one left over from a loop that already closed."""
+    return create_async_engine(
+        to_async_url(url or get_database_url()), poolclass=NullPool
+    )
 
 
 engine: AsyncEngine = make_engine()

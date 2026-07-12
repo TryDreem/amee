@@ -40,13 +40,20 @@ strict = true
 module = ["celery.*", "kombu.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# celery.Celery.task isn't typed precisely enough for strict mode to see
+# through the decorator — real bug risk here is low (it's one line, wraps an
+# already-typed function), not worth losing strict mode repo-wide over.
+module = "app.workers.tasks"
+disallow_untyped_decorators = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-# One event loop for the whole test session — app/db.py's `engine` is a
-# module-level singleton (matching how it runs in the real app, one loop per
-# process), and asyncpg's pooled connections are loop-bound. Per-test loops
-# (pytest-asyncio's default) hand connections to a stale loop and asyncpg
-# raises "another operation is in progress".
+# One event loop for the whole test session, matching how the real app runs
+# (one process, one loop) rather than pytest-asyncio's per-test default.
+# app/db.py's engine uses NullPool specifically so it *doesn't* need this —
+# every checkout is a fresh connection, safe across loops either way — but
+# there's no reason to fight the grain of "async def test" = "async def app".
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"

@@ -35,7 +35,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
+      - name: install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - run: pip install -e "backend[dev]"
+      - name: run migrations
+        run: cd backend && alembic upgrade head
       - run: pnpm -C frontend install --frozen-lockfile
 
       - name: backend
