@@ -1,30 +1,8 @@
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from app.integrations.ffmpeg import FfprobeError, probe_video
-
-
-@pytest.fixture
-def sample_video(tmp_path: Path) -> Path:
-    path = tmp_path / "sample.mp4"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc=duration=1:size=320x240:rate=10",
-            "-pix_fmt",
-            "yuv420p",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-    )
-    return path
 
 
 async def test_probe_video_reads_dimensions_and_duration(sample_video: Path) -> None:

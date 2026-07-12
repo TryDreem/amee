@@ -15,7 +15,12 @@ async def create(
     video_width: int,
     video_height: int,
     video_duration_seconds: float,
+    project_id: uuid.UUID | None = None,
 ) -> ProjectModel:
+    """`project_id` is optional: the column defaults to a fresh uuid4 if
+    omitted (used by repository-level tests), but the service layer mints one
+    up front — it needs the id before this call, to namespace the uploaded
+    file on disk (app/services/projects.py)."""
     project = ProjectModel(
         owner_id=owner_id,
         name=name,
@@ -24,6 +29,8 @@ async def create(
         video_height=video_height,
         video_duration_seconds=video_duration_seconds,
     )
+    if project_id is not None:
+        project.id = project_id
     session.add(project)
     await session.commit()
     await session.refresh(project)

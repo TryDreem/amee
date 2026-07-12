@@ -7,7 +7,10 @@ from uuid import UUID
 
 
 def storage_dir() -> Path:
-    return Path(os.environ["AMEE_STORAGE_DIR"])
+    """Falls back to the same default scripts/wt-env.sh writes into
+    .env.local — so `app.main` stays importable (make types, CI's drift
+    check) without every environment needing this var set explicitly."""
+    return Path(os.environ.get("AMEE_STORAGE_DIR", "./.data/storage"))
 
 
 def project_dir(project_id: UUID) -> Path:

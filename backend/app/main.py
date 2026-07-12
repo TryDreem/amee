@@ -2,8 +2,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
+from app.integrations import storage
 from app.schemas.common import ErrorBody, ErrorDetail, ErrorResponse
 
 app = FastAPI(title="Amee API", version="0.1.0")
@@ -16,6 +18,11 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+# video_url / json_url / etc. (contract §4, §12) point here — storage.py is
+# still the only thing that decides the actual disk layout.
+storage.storage_dir().mkdir(parents=True, exist_ok=True)
+app.mount("/files", StaticFiles(directory=storage.storage_dir()), name="files")
 
 _STATUS_CODES = {
     404: "not_found",

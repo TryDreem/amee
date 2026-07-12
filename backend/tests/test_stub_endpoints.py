@@ -6,9 +6,8 @@ from fastapi.testclient import TestClient
 SAMPLE_UUID = str(uuid.uuid4())
 
 ROUTES: list[tuple[str, str, dict[str, object] | None]] = [
-    ("POST", "/api/v1/projects", None),
-    ("GET", "/api/v1/projects", None),
-    ("GET", f"/api/v1/projects/{SAMPLE_UUID}", None),
+    # POST/GET /projects and GET /projects/{id} are real now (M1 step 3) -
+    # see test_projects_endpoint.py instead.
     ("POST", f"/api/v1/projects/{SAMPLE_UUID}/transcribe", None),
     ("GET", f"/api/v1/jobs/{SAMPLE_UUID}", None),
     ("GET", f"/api/v1/projects/{SAMPLE_UUID}/raw-transcript", None),

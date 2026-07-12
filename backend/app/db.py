@@ -1,4 +1,5 @@
 import os
+from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -36,3 +37,9 @@ async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 def get_session() -> AsyncSession:
     return async_session_factory()
+
+
+async def get_db() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency — one session per request, closed when the request ends."""
+    async with async_session_factory() as session:
+        yield session
