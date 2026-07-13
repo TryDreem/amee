@@ -28,3 +28,12 @@ def save_video(project_id: UUID, filename: str, content: bytes) -> tuple[Path, s
     dest = directory / f"source{ext}"
     dest.write_bytes(content)
     return dest, f"/files/projects/{project_id}/{dest.name}"
+
+
+def resolve_url(url: str) -> Path:
+    """Maps a `/files/...` URL (as returned by save_video, or anything else
+    stored this way) back to its real disk path — the only other place
+    besides save_video that's allowed to know the mapping."""
+    if not url.startswith("/files/"):
+        raise ValueError(f"not a storage URL: {url}")
+    return storage_dir() / url.removeprefix("/files/")

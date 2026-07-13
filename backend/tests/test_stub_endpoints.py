@@ -10,7 +10,7 @@ ROUTES: list[tuple[str, str, dict[str, object] | None]] = [
     # see test_projects_endpoint.py instead.
     ("POST", f"/api/v1/projects/{SAMPLE_UUID}/transcribe", None),
     # GET /jobs/{id} is real now (M1 step 4) - see test_jobs_endpoint.py.
-    ("GET", f"/api/v1/projects/{SAMPLE_UUID}/raw-transcript", None),
+    # GET /raw-transcript is real now (M1 step 5) - see test_raw_transcript_endpoint.py.
     ("GET", f"/api/v1/projects/{SAMPLE_UUID}/ecs", None),
     ("PUT", f"/api/v1/projects/{SAMPLE_UUID}/ecs", {"segments": []}),
     ("GET", f"/api/v1/projects/{SAMPLE_UUID}/style", None),

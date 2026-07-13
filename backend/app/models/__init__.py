@@ -1,4 +1,5 @@
 from app.models.job import JobModel
 from app.models.project import ProjectModel
+from app.models.raw_transcript import RawTranscriptModel
 
-__all__ = ["JobModel", "ProjectModel"]
+__all__ = ["JobModel", "ProjectModel", "RawTranscriptModel"]
