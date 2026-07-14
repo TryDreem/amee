@@ -8,7 +8,7 @@ SAMPLE_UUID = str(uuid.uuid4())
 ROUTES: list[tuple[str, str, dict[str, object] | None]] = [
     # POST/GET /projects and GET /projects/{id} are real now (M1 step 3) -
     # see test_projects_endpoint.py instead.
-    ("POST", f"/api/v1/projects/{SAMPLE_UUID}/transcribe", None),
+    # POST /transcribe is real now (M1 step 7) - see test_transcribe_endpoint.py.
     # GET /jobs/{id} is real now (M1 step 4) - see test_jobs_endpoint.py.
     # GET /raw-transcript is real now (M1 step 5) - see test_raw_transcript_endpoint.py.
     # GET /ecs is real now (M1 step 6) - see test_ecs_endpoint.py.

@@ -35,3 +35,26 @@ def sample_video(tmp_path: Path) -> Path:
         capture_output=True,
     )
     return path
+
+
+@pytest.fixture
+def tall_sample_video(tmp_path: Path) -> Path:
+    """A real mp4 above the 1080p proxy threshold (arch §2.8d) — used by
+    tests that need the preview-proxy branch to actually trigger."""
+    path = tmp_path / "tall_sample.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=1:size=1920x1440:rate=10",
+            "-pix_fmt",
+            "yuv420p",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return path

@@ -30,6 +30,28 @@ def save_video(project_id: UUID, filename: str, content: bytes) -> tuple[Path, s
     return dest, f"/files/projects/{project_id}/{dest.name}"
 
 
+def thumbnail_path(project_id: UUID) -> tuple[Path, str]:
+    """Destination for the midpoint-frame thumbnail (arch §2.8c) — the
+    caller (app/workers/tasks.py) passes this straight to
+    ffmpeg.extract_thumbnail as its `dest`, same two-value shape as
+    save_video so both live disk-path/URL pairs are computed the same way."""
+    directory = project_dir(project_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    dest = directory / "thumbnail.jpg"
+    return dest, f"/files/projects/{project_id}/{dest.name}"
+
+
+def proxy_path(project_id: UUID) -> tuple[Path, str]:
+    """Destination for the conditional 1080p preview proxy (arch §2.8d) —
+    only ever passed to ffmpeg.transcode_proxy when `probe.height > 1080`;
+    if no proxy is generated, the caller uses video_url directly instead of
+    this path."""
+    directory = project_dir(project_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    dest = directory / "proxy.mp4"
+    return dest, f"/files/projects/{project_id}/{dest.name}"
+
+
 def resolve_url(url: str) -> Path:
     """Maps a `/files/...` URL (as returned by save_video, or anything else
     stored this way) back to its real disk path — the only other place

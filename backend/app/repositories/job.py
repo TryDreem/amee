@@ -1,9 +1,13 @@
 import uuid
+from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import JobModel
-from app.schemas.job import JobStatus, JobType
+from app.schemas.job import JobProgress, JobStatus, JobType
+
+_UNSET: Any = object()
 
 
 async def create(
@@ -37,13 +41,20 @@ async def update_status(
     job_id: uuid.UUID,
     *,
     status: JobStatus,
+    progress: JobProgress | None = _UNSET,
     error: str | None = None,
     result: dict[str, str] | None = None,
 ) -> JobModel:
+    """`progress` defaults to the `_UNSET` sentinel rather than `None` so a
+    caller can explicitly clear it (pass `progress=None` on done/failed)
+    without that being indistinguishable from "didn't pass progress at all"
+    (arch §2.8 — progress is only meaningful mid-`processing`)."""
     job = await session.get(JobModel, job_id)
     if job is None:
         raise ValueError(f"job {job_id} not found")
     job.status = status
+    if progress is not _UNSET:
+        job.progress = progress
     if error is not None:
         job.error = error
     if result is not None:
@@ -51,3 +62,15 @@ async def update_status(
     await session.commit()
     await session.refresh(job)
     return job
+
+
+async def get_latest_by_project(
+    session: AsyncSession, project_id: uuid.UUID, job_type: JobType
+) -> JobModel | None:
+    result = await session.execute(
+        select(JobModel)
+        .where(JobModel.project_id == project_id, JobModel.type == job_type)
+        .order_by(JobModel.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()

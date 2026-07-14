@@ -9,6 +9,8 @@ class Project(BaseModel):
     owner_id: UUID
     name: str
     video_url: str
+    thumbnail_url: str | None
+    preview_video_url: str | None
     video_width: int
     video_height: int
     video_duration_seconds: float

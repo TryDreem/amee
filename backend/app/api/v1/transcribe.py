@@ -1,6 +1,11 @@
-from fastapi import APIRouter, HTTPException
+import uuid
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import get_db
 from app.schemas.job import Job
+from app.services import transcribe as transcribe_service
 
 router = APIRouter(prefix="/projects", tags=["transcription"])
 
@@ -13,7 +18,16 @@ router = APIRouter(prefix="/projects", tags=["transcription"])
         409: {"description": "A transcribe job is already queued/processing/done"}
     },
 )
-def transcribe_project(project_id: str) -> Job:
-    raise HTTPException(
-        status_code=501, detail="POST /projects/{id}/transcribe not implemented"
-    )
+async def transcribe_project(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> Job:
+    try:
+        job = await transcribe_service.start_transcription(session, project_id)
+    except transcribe_service.TranscribeAlreadyInProgress as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="A transcribe job is already queued/processing/done",
+        ) from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return job

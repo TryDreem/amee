@@ -164,6 +164,7 @@ One shape, shared by both queues (architecture doc §2.3 — status is applicati
   "type": "transcribe" | "export",
   "status": "queued" | "processing" | "done" | "failed",
   "progress": "preparing" | "transcribing" | "generating_preview" | null,
+  "thumbnail_url": "string | null",
   "created_at": "ISO8601 string",
   "updated_at": "ISO8601 string",
   "error": "string | null",

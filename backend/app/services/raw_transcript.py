@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +37,11 @@ async def create_raw_transcript(
         raise ValueError(f"project {project_id} not found")
 
     video_path = storage.resolve_url(project.video_url)
-    words = transcribe_video(video_path)
+    # WhisperX is a synchronous, CPU-bound call — run it off the event loop
+    # so the other three branches of the transcribe job (arch §2.8b-d), all
+    # genuinely async ffmpeg subprocesses, can actually run concurrently
+    # with it rather than waiting behind a blocked loop.
+    words = await asyncio.to_thread(transcribe_video, video_path)
 
     model = await raw_transcript_repo.create(
         session,

@@ -51,3 +51,48 @@ async def probe_video(path: Path) -> VideoProbe:
         height=int(stream["height"]),
         duration_seconds=duration,
     )
+
+
+class FfmpegError(RuntimeError):
+    pass
+
+
+async def _run_ffmpeg(*args: str) -> None:
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-y",
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise FfmpegError(stderr.decode().strip())
+
+
+async def extract_thumbnail(path: Path, duration_seconds: float, dest: Path) -> None:
+    """Single frame at the video's midpoint (arch §2.8c) — not the first
+    frame, which is frequently black or a title card."""
+    midpoint = duration_seconds / 2
+    await _run_ffmpeg(
+        "-ss", str(midpoint), "-i", str(path), "-frames:v", "1", str(dest)
+    )
+
+
+async def transcode_proxy(path: Path, dest: Path) -> None:
+    """Downscale to 1080p height, aspect ratio preserved, H.264/CRF 23 (arch
+    §2.8d) — only called by the caller when `probe.height > 1080`; this
+    function itself has no opinion on when it should run."""
+    await _run_ffmpeg(
+        "-i",
+        str(path),
+        "-vf",
+        "scale=-2:1080",
+        "-c:v",
+        "libx264",
+        "-crf",
+        "23",
+        "-c:a",
+        "copy",
+        str(dest),
+    )

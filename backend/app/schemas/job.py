@@ -20,6 +20,16 @@ class JobStatus(str, Enum):
     failed = "failed"
 
 
+class JobProgress(str, Enum):
+    """Best-effort "current bottleneck" signal across the transcribe job's
+    four parallel branches (arch §2.8) — meaningful only while
+    status="processing", null at every other status."""
+
+    preparing = "preparing"
+    transcribing = "transcribing"
+    generating_preview = "generating_preview"
+
+
 class ExportResult(BaseModel):
     video_url: str
     srt_url: str
@@ -32,6 +42,8 @@ class Job(BaseModel):
     owner_id: UUID
     type: JobType
     status: JobStatus
+    progress: JobProgress | None
+    thumbnail_url: str | None
     created_at: datetime
     updated_at: datetime
     error: str | None

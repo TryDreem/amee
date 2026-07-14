@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
-from app.schemas.job import JobStatus, JobType
+from app.schemas.job import JobProgress, JobStatus, JobType
 
 
 class JobModel(Base):
@@ -29,6 +29,9 @@ class JobModel(Base):
     )
     status: Mapped[JobStatus] = mapped_column(
         SAEnum(JobStatus, name="job_status"), nullable=False, default=JobStatus.queued
+    )
+    progress: Mapped[JobProgress | None] = mapped_column(
+        SAEnum(JobProgress, name="job_progress"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
