@@ -21,8 +21,22 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=5
+      # test_transcribe_endpoint.py calls the real POST /transcribe route,
+      # which really enqueues via transcribe_task.delay() (not mocked) - it
+      # needs a broker to publish to, same as local dev's docker-compose
+      # rabbitmq service.
+      rabbitmq:
+        image: rabbitmq:3-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
     env:
       AMEE_DB_URL: postgresql://amee:amee@localhost:5432/amee
+      CELERY_BROKER_URL: amqp://guest:guest@localhost:5672//
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

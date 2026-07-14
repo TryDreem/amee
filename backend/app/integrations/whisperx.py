@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-import whisperx
-
 # "tiny" + CPU + int8: small enough to run without a GPU, which is what MVP
 # scale (arch §1.2) actually needs — swap via a bigger model name later if
 # transcription quality demands it, without touching the interface below.
@@ -20,7 +18,17 @@ class TranscribedWord:
 
 def transcribe_video(path: Path) -> list[TranscribedWord]:
     """Word-level transcript via WhisperX (arch §1.3) — called exactly once
-    per video (P1), never re-invoked by later edits."""
+    per video (P1), never re-invoked by later edits.
+
+    Imports whisperx lazily, inside the function, rather than at module
+    level: it's a dev-only extra (backend/pyproject.toml's "ml" group, not
+    installed in CI — see tests/conftest.py), and this function is the only
+    thing in the module that actually needs it. A module-level import would
+    force every caller of app.main (including `make types`' plain
+    `python -c "import app.main"` OpenAPI dump, which never touches this
+    function) to have the package installed just to boot."""
+    import whisperx
+
     model = whisperx.load_model(_MODEL_NAME, _DEVICE, compute_type=_COMPUTE_TYPE)
     audio = whisperx.load_audio(str(path))
     result = model.transcribe(audio)

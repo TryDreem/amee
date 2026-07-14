@@ -23,6 +23,12 @@ export const projectFixture: Project = {
   owner_id: OWNER_ID,
   name: "Demo project",
   video_url: "/files/projects/9f2b7e10/source.mp4",
+  // Fixture represents a project whose transcribe job already finished
+  // (arch §2.8) — non-null media fields, not the just-uploaded null state.
+  thumbnail_url: "/files/projects/9f2b7e10/thumbnail.jpg",
+  // video_height (1920) > 1080, so the real pipeline would have generated a
+  // downscaled proxy rather than reusing video_url.
+  preview_video_url: "/files/projects/9f2b7e10/proxy.mp4",
   video_width: 1080,
   video_height: 1920,
   video_duration_seconds: 12.5,
@@ -37,6 +43,11 @@ export const transcribeJobFixture: Job = {
   owner_id: OWNER_ID,
   type: "transcribe",
   status: "done",
+  // progress is only meaningful mid-processing (contract §5) — null once done.
+  progress: null,
+  // Mirrors projectFixture.thumbnail_url once the probe/thumbnail branch
+  // finishes, which it has here (status: done).
+  thumbnail_url: "/files/projects/9f2b7e10/thumbnail.jpg",
   created_at: "2026-07-08T09:58:00Z",
   updated_at: "2026-07-08T09:59:30Z",
   error: null,
@@ -49,6 +60,10 @@ export const exportJobFixture: Job = {
   owner_id: OWNER_ID,
   type: "export",
   status: "done",
+  progress: null,
+  // Always null for type: export (contract §5) - thumbnail_url only ever
+  // mirrors the transcribe job's probe/thumbnail branch.
+  thumbnail_url: null,
   created_at: "2026-07-08T10:00:00Z",
   updated_at: "2026-07-08T10:02:14Z",
   error: null,
