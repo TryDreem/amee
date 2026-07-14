@@ -15,9 +15,6 @@ async def _make_project() -> uuid.UUID:
             owner_id=uuid.uuid4(),
             name="Raw transcript repo test",
             video_url="/files/projects/z/source.mp4",
-            video_width=100,
-            video_height=100,
-            video_duration_seconds=1.0,
         )
         return project.id
 

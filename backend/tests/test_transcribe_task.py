@@ -60,11 +60,6 @@ async def _create_queued_job(video_path: Path) -> uuid.UUID:
             owner_id=uuid.uuid4(),
             name="Transcribe task test",
             video_url=video_url,
-            # Placeholder values — overwritten for real by the probe branch;
-            # not the thing under test here.
-            video_width=1,
-            video_height=1,
-            video_duration_seconds=1.0,
         )
         job = await job_repo.create(
             session,

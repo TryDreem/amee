@@ -23,14 +23,12 @@ class ProjectModel(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     video_url: Mapped[str] = mapped_column(String, nullable=False)
-    video_width: Mapped[int] = mapped_column(Integer, nullable=False)
-    video_height: Mapped[int] = mapped_column(Integer, nullable=False)
-    video_duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
-    # Populated by the transcribe job's probe/thumbnail/proxy branches (arch
-    # §2.8b-d), not at upload time — null until each branch finishes. The
-    # video_width/height/video_duration_seconds nullable conversion is a
-    # separate migration (M1 step 8); brought forward here only because
-    # GET /jobs/{id}.thumbnail_url (contract §5) needs this column to exist.
+    # All four of these are populated by the transcribe job's probe/
+    # thumbnail/proxy branches (arch §2.8b-d), not at upload time — null
+    # until each branch finishes (contract §4).
+    video_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    video_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    video_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     thumbnail_url: Mapped[str | None] = mapped_column(String, nullable=True)
     preview_video_url: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

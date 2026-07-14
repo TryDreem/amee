@@ -2,7 +2,6 @@ import uuid
 from pathlib import Path
 
 import httpx
-import pytest
 from httpx import ASGITransport
 
 from app.main import app
@@ -22,9 +21,14 @@ async def test_create_list_get_project_roundtrip(sample_video: Path) -> None:
         assert create_response.status_code == 201
         created = create_response.json()
         assert created["name"] == "My Project"
-        assert created["video_width"] == 320
-        assert created["video_height"] == 240
-        assert created["video_duration_seconds"] == pytest.approx(1.0, abs=0.2)
+        # Upload only saves the file (arch §2.8) — no ffmpeg on the request
+        # path, so these all start null and are filled in later by the
+        # transcribe job.
+        assert created["video_width"] is None
+        assert created["video_height"] is None
+        assert created["video_duration_seconds"] is None
+        assert created["thumbnail_url"] is None
+        assert created["preview_video_url"] is None
         assert created["video_url"].startswith(f"/files/projects/{created['id']}/")
         assert created["latest_transcribe_job_id"] is None
         assert created["export_job_ids"] == []

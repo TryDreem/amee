@@ -312,6 +312,9 @@ export interface components {
             owner_id: string;
             type: components["schemas"]["JobType"];
             status: components["schemas"]["JobStatus"];
+            progress: components["schemas"]["JobProgress"] | null;
+            /** Thumbnail Url */
+            thumbnail_url: string | null;
             /**
              * Created At
              * Format: date-time
@@ -326,6 +329,14 @@ export interface components {
             error: string | null;
             result: components["schemas"]["ExportResult"] | null;
         };
+        /**
+         * JobProgress
+         * @description Best-effort "current bottleneck" signal across the transcribe job's
+         *     four parallel branches (arch §2.8) — meaningful only while
+         *     status="processing", null at every other status.
+         * @enum {string}
+         */
+        JobProgress: "preparing" | "transcribing" | "generating_preview";
         /**
          * JobStatus
          * @enum {string}
@@ -404,12 +415,16 @@ export interface components {
             name: string;
             /** Video Url */
             video_url: string;
+            /** Thumbnail Url */
+            thumbnail_url: string | null;
+            /** Preview Video Url */
+            preview_video_url: string | null;
             /** Video Width */
-            video_width: number;
+            video_width: number | null;
             /** Video Height */
-            video_height: number;
+            video_height: number | null;
             /** Video Duration Seconds */
-            video_duration_seconds: number;
+            video_duration_seconds: number | null;
             /**
              * Created At
              * Format: date-time

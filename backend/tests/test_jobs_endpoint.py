@@ -17,9 +17,6 @@ async def test_get_job_returns_created_job() -> None:
             owner_id=uuid.uuid4(),
             name="Jobs endpoint test",
             video_url="/files/projects/z/source.mp4",
-            video_width=100,
-            video_height=100,
-            video_duration_seconds=1.0,
         )
         job = await job_repo.create(
             session,

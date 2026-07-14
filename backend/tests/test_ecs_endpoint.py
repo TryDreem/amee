@@ -17,9 +17,6 @@ async def test_get_ecs_not_found_before_transcription() -> None:
             owner_id=uuid.uuid4(),
             name="ECS endpoint test",
             video_url="/files/projects/z/source.mp4",
-            video_width=100,
-            video_height=100,
-            video_duration_seconds=1.0,
         )
 
     async with httpx.AsyncClient(
@@ -38,9 +35,6 @@ async def test_get_ecs_returns_persisted_segments() -> None:
             owner_id=uuid.uuid4(),
             name="ECS endpoint test 2",
             video_url="/files/projects/z/source.mp4",
-            video_width=100,
-            video_height=100,
-            video_duration_seconds=1.0,
         )
         await ecs_service.create_initial_ecs(
             session,

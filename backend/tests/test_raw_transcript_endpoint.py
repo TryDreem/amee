@@ -16,9 +16,6 @@ async def test_get_raw_transcript_not_found_before_transcription() -> None:
             owner_id=uuid.uuid4(),
             name="Raw transcript endpoint test",
             video_url="/files/projects/z/source.mp4",
-            video_width=100,
-            video_height=100,
-            video_duration_seconds=1.0,
         )
 
     async with httpx.AsyncClient(
@@ -39,9 +36,6 @@ async def test_get_raw_transcript_returns_persisted_words() -> None:
             owner_id=uuid.uuid4(),
             name="Raw transcript endpoint test 2",
             video_url="/files/projects/z/source.mp4",
-            video_width=100,
-            video_height=100,
-            video_duration_seconds=1.0,
         )
         await raw_transcript_repo.create(
             session, project_id=project.id, owner_id=project.owner_id, words=words

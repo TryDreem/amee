@@ -32,9 +32,6 @@ async def _create_project(sample_video: Path) -> uuid.UUID:
             owner_id=uuid.uuid4(),
             name="Transcribe endpoint test",
             video_url=video_url,
-            video_width=1,
-            video_height=1,
-            video_duration_seconds=1.0,
         )
         return project.id
 
