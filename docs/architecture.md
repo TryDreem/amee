@@ -84,7 +84,9 @@ The reason for this separation: each of the "grow into a product" requirements b
  
 Unlike other product-readiness concerns, background job processing is **not deferred** — Celery with RabbitMQ is part of the MVP, not a future upgrade. Two separate queues are used from day one:
  
-- `transcribe` — WhisperX transcription (and the initial segmentation step, see §5.1, which runs synchronously inside this same job since it's cheap).
+
+- `transcribe` — the full post-upload processing job: WhisperX transcription and the initial segmentation step (§5.1, synchronous within this same job since it's cheap), running alongside video-probe, thumbnail, and preview-proxy generation as three more parallel steps within the same job (§2.8).
+
 - `export` — final rendering (burning captions into video via ffmpeg).
  
 These are kept as two distinct queues because they have very different load profiles (ML inference vs. video encoding), and separating them now costs almost nothing but preserves the ability to scale or prioritize them independently later, without a migration.
@@ -126,6 +128,47 @@ there is no `request_id` inside a task, since no HTTP request is in flight there
 Log levels: `INFO` for pipeline stage transitions (job started/finished, WhisperX invoked, splitter
 ran), `WARNING` for recoverable oddities (a validation retry, a slow ffmpeg probe), `ERROR` for
 anything that sets `Job.status = "failed"`. Nothing more granular is needed for MVP.
+
+### 2.7 Input constraints (MVP)
+
+Format: mp4/mov, H.264/HEVC codec — matches what ffmpeg/WhisperX handle reliably. Resolution up to
+4K (3840×2160). File size up to 2GB. No fixed duration cap tied to aspect ratio — center-only
+horizontal positioning (§9.1) applies regardless of whether the source video is vertical, horizontal,
+or square; nothing in the pipeline assumes a particular orientation.
+
+ `POST /projects` should reject an upload exceeding these limits with a clear error rather than
+ silently accepting it and failing deep in the pipeline.
+
+### 2.8 Post-upload processing: one async job, four parallel steps
+
+Uploading a video (`POST /projects`) does exactly one thing: stores the file via storage.py and returns the new `Project` id. Nothing about the video's content — dimensions, thumbnail, preview copy, or transcript — is known yet; every one of those fields starts `null` and is filled in by the
+async job below. This is the same "not available until the job says so" pattern already established for the caption document (`GET /ecs` 404s until the transcribe job is done) — now extended to cover the video's own metadata too.
+
+`POST /projects/{id}/transcribe` enqueues exactly one job on the `transcribe` queue (§2.3). Inside that job, four steps run **concurrently** (`asyncio.gather` not four separate Celery tasks — one job, one worker slot, one status row):
+
+a. **Audio extraction → WhisperX → Raw Transcript → Initial Splitter → ECS.** The existing pipeline (§1.3, §5.1), unchanged in substance — it's simply no longer the only thing the job does. Always runs against the *original* upload at full audio quality, never against the downscaled proxy from step (d).
+b. **ffmpeg probe** — width/height/duration. The same probe as before; only its *location* moved — it previously ran synchronously inside `POST /projects` (see the reopened question at the end of this section).
+c. **Thumbnail extraction** — a single frame via ffmpeg, taken at the video's midpoint (`duration/2`), not the first frame — opening frames are frequently black or a title card, and the midpoint is more representative of the actual content. Saved via storage.py, same as the source video.
+d. **Preview proxy, conditionally.** If `video_height > 1080`, transcode a downscaled copy (1080p height, aspect ratio preserved, H.264/CRF 23) for the editor's preview player — the standard "proxy editing" pattern (Premiere, Filmora, etc.). Justification: the editor's most common
+interaction — clicking a word to jump the player to its timestamp — is exactly the scrubbing/seeking workload a browser struggles to keep smooth against a large source file, so the *editing* session reads a lighter file while the original is untouched and used exactly once, at
+final export. (This is a new concern, distinct from §12's preview/export *caption-rendering* parity — §12 doesn't cover video-playback smoothness, and didn't claim to.) If the source is already ≤1080p, no proxy is generated — `preview_video_url` is simply set equal to `video_url`;
+transcoding here would cost time for no measurable benefit.
+
+**Why one job, not four, and why async at all:** the same cost-asymmetry argument §1.3 makes for WhisperX now applies to a second step — a full-video transcode is not "fast, local, deterministic" the way the Initial Splitter is; its duration scales with source file size/duration, which is
+exactly the kind of unpredictable-length work §2.3 already keeps off the request/response cycle. Bundling probe and thumbnail into the same job, rather than leaving them synchronous, is a consequence of that — once *any* step has to be async, `POST /projects` returning a half-populated
+`Project` is unavoidable, and there's no benefit to carving the fast steps back out into their own synchronous call when the two slow steps already force the client into a polling wait regardless.
+
+**Progress reporting.** `Job` gains a `progress` field (contract §5), meaningful only while `status: "processing"`:
+- `"preparing"` — audio extraction, the ffmpeg probe, and thumbnail extraction are in flight. All fast; at a ~2s poll interval this state is often never actually observed.
+- `"transcribing"` — WhisperX is running. The longest of the four branches in every case seen so far; the Initial Splitter and ECS persistence that immediately follow it are fast enough not to warrant their own state.
+- `"generating_preview"` — set only once every other branch has finished and the preview-proxy transcode (d) is still the sole thing outstanding. Skipped entirely when no proxy is needed, or when the proxy finishes before transcription does. `progress` is a best-effort "what's the current bottleneck" signal over four genuinely concurrent branches, not a strict state machine — it does not attempt to represent more than one branch being active at once.
+
+Once every branch completes, `status` moves to `done` (or `failed`, `error` set, if any branch
+raised — the existing failure handling, now covering four failure sources instead of one).
+
+**What this reopens from contract §4:** `video_width`, `video_height`, `video_duration_seconds`,
+`thumbnail_url`, and `preview_video_url` are now all nullable and populated asynchronously — the existing rationale for probing at upload time ("the Layout Engine needs them... so there's no reason to make the user wait on WhisperX before they can see style options") no longer holds for these fields specifically. `CaptionStyleSpec` itself is still created and editable immediately (§6 — style doesn't depend on any video content), but *fit calculations* (§8.1), which need real pixel dimensions, now wait on the same job the caption editor does. Flagging this rather than quietly
+leaving the old rationale in place unqualified.
  
 ---
  
@@ -264,6 +307,8 @@ When a user edits an entire segment's text as one block (rather than word-by-wor
 - **Interface contract:** `Words[] → Segments[]`. Any splitter implementation — current or future — must conform to this same interface, so the model itself has no dependency on which algorithm produced the grouping.
  
 ### 5.2 Recalculate Groups
+
+**MVP status:** the backend endpoint and splitter logic exist, but there is no UI entry point in the MVP — scene grouping is edited manually (merge/split/scene-duration), not re-derived. This mirrors the rate-limiting pattern (api-contract §1): the capability is built and the contract is fixed, it's simply not surfaced yet. Flagged optional so a future session doesn't treat the missing button as an oversight. Everything below still holds for when it's turned on.
  
 This is a user-triggered action, never an automatic side effect of anything.
  

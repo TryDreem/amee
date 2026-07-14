@@ -98,11 +98,13 @@ Project management beyond create/list (rename, delete, sharing) is intentionally
 ### `POST /projects`
 `multipart/form-data`: video file, optional `name`.
 
-Creates the `Project` and stores the video via the storage abstraction (architecture doc §2.1). **Does not start transcription** — that's a separate, explicit call. This is a genuine design fork, not something forced by the architecture doc: an equally valid design would auto-start transcription on upload. Kept separate here because transcription is a real cost-incurring, exactly-once action (§1.3), and an explicit trigger makes that visible rather than implicit in an upload call — flagged in §13 as worth a second look, not a forced conclusion.
+Creates the `Project` and stores the video via the storage abstraction (architecture doc §2.1) — nothing more. **Does not start processing** — that's a separate, explicit call. This is a genuine design fork, not something forced by the architecture doc: an equally valid design would auto-start processing on upload. Kept separate here because processing (transcription, probing, thumbnail, preview proxy — architecture doc §2.8) is a real cost-incurring action, and an explicit trigger makes that visible rather than implicit in an upload call — flagged in §13 as worth a second look, not a forced conclusion.
 
 `CaptionStyleSpec` is initialized immediately, using the preset flagged `"default": true` (§9) — style doesn't depend on transcription at all (architecture doc §6 treats them as fully independent axes), so there's no reason to make the user wait on WhisperX before they can see style options.
 
-Video width/height/duration are probed via ffmpeg (already an integration-layer dependency, architecture doc §2.2) at upload time — the Layout Engine needs them for its fit calculations (architecture doc §8.1).
+Video width/height/duration, a thumbnail, and (conditionally) a preview proxy are all produced by the same async job that runs WhisperX (architecture doc §2.8) — **not** at upload time. `POST /projects` returns immediately with those fields `null`; the Layout Engine's fit calculations (architecture doc §8.1) wait on `GET /jobs/{id}` reaching `status: "done"`, same as the caption editor does.
+
+**Validation:** rejects the upload against the limits in architecture doc §2.7 — format not mp4/mov, codec not H.264/HEVC, resolution over 4K (3840×2160), or file size over 2GB. **422** with `error.details` identifying which limit was exceeded (§1's envelope — no separate shape for uploads).
 
 **201** →
 ```json
@@ -111,14 +113,24 @@ Video width/height/duration are probed via ffmpeg (already an integration-layer 
   "owner_id": "uuid",
   "name": "string",
   "video_url": "string",
-  "video_width": "number",
-  "video_height": "number",
-  "video_duration_seconds": "number",
+  "thumbnail_url": "string | null",
+  "preview_video_url": "string | null",
+  "video_width": "number | null",
+  "video_height": "number | null",
+  "video_duration_seconds": "number | null",
   "created_at": "ISO8601 string",
   "latest_transcribe_job_id": "uuid | null",
   "export_job_ids": "uuid[]"
 }
 ```
+
+`thumbnail_url` and `video_width`/`video_height`/`video_duration_seconds` are all populated by the
+same ffmpeg-probe-and-thumbnail step (architecture doc §2.8) and become non-null together, once that
+step completes.
+
+`preview_video_url` is populated once the preview-proxy step completes (architecture doc §2.8):
+equals `video_url` if the source is ≤1080p (no separate file was ever generated), or the downscaled
+proxy's URL otherwise. Also `null` until that step finishes.
 
 Note what's **not** here: no `transcription_status` field. Status lives only on the `Job` record (§5) — duplicating it onto `Project` would recreate exactly the "two divergent sources of truth" problem the architecture doc explicitly designed the job system to avoid (§2.3). The client resolves status via `latest_transcribe_job_id` → `GET /jobs/{id}`.
 
@@ -126,7 +138,12 @@ Note what's **not** here: no `transcription_status` field. Status lives only on 
 Same shape as above. List / single fetch. `404` if not found.
 
 ### `POST /projects/{id}/transcribe`
-No body. Creates a `Job` (`type: "transcribe"`) on the `transcribe` queue — WhisperX, then the Initial Splitter synchronously inside the same job (architecture doc §2.3, §5.1).
+No body. Creates a `Job` (`type: "transcribe"`) on the `transcribe` queue. Despite the name, this job
+now orchestrates four parallel steps, not just transcription: WhisperX (then the Initial Splitter
+synchronously in the same branch), the ffmpeg probe, thumbnail extraction, and the conditional
+preview-proxy transcode (architecture doc §2.8). `type: "transcribe"` and the queue name are kept as
+they are — this is still one `Job`, still governed by the same `transcribe`/`export` two-queue split
+(architecture doc §2.3) — the name just now covers more than the literal word suggests.
 
 **Guard:** if `latest_transcribe_job_id` points at a job whose status is `queued`, `processing`, or `done`, this returns **409** — transcription runs exactly once per video (architecture doc §1.3), and the API enforces that, not just the frontend's own discipline. A prior `failed` job doesn't count against that budget (it never produced a result), so retrying after a failure is allowed.
 
@@ -146,12 +163,19 @@ One shape, shared by both queues (architecture doc §2.3 — status is applicati
   "owner_id": "uuid",
   "type": "transcribe" | "export",
   "status": "queued" | "processing" | "done" | "failed",
+  "progress": "preparing" | "transcribing" | "generating_preview" | null,
   "created_at": "ISO8601 string",
   "updated_at": "ISO8601 string",
   "error": "string | null",
   "result": null | { "video_url": "string", "srt_url": "string", "json_url": "string" }
 }
 ```
+
+`progress` (architecture doc §2.8) is only meaningful while `status: "processing"` — `null` at every
+other status. It names the current bottleneck across the transcribe job's four parallel steps on a
+best-effort basis, not a strict per-step state machine; clients poll `GET /jobs/{id}` (~2s interval)
+the same way they already poll for status (contract §14 — the app database stays the source of
+truth either way).
 
 `result` is always `null` for `type: "transcribe"` — a completed transcription is signaled by `status: "done"` alone; the actual data is fetched via `GET /ecs` and `GET /raw-transcript` once that's true, not duplicated into the job. `result` is populated only for `type: "export"`, and only once `status: "done"`.
 
@@ -283,6 +307,11 @@ Not project-scoped, no `owner_id` — global and shared, not user content (§1).
 
 ## 10. Recalculate Groups
 
+**MVP status:** endpoint implemented, no frontend caller in the MVP (grouping is edited manually).
+Same "built, contract-fixed, not surfaced" stance as rate-limiting (§1). Kept because it's a thin
+wrapper over the Initial Splitter (§5.1) that already has to exist — removing it would save nothing
+and cost a rewrite if reintroduced.
+
 ### `POST /projects/{id}/recalculate-groups`
 
 Body:
@@ -409,7 +438,7 @@ This doesn't reopen the ECS/Style split decision (§1) — that decision is abou
 
 **New judgment calls in this document worth a second look** (not forced by the architecture doc the way most of the above is):
 - **Preset+delta wire shape** (§8) — inferred, not re-derived from something written down.
-- **`POST /projects` vs. `POST /projects/{id}/transcribe` as two separate calls**, rather than upload auto-triggering transcription (§4).
+- **`POST /projects` vs. `POST /projects/{id}/transcribe` as two separate calls**, rather than upload auto-triggering transcription (§4). Leaning toward **keeping them separate**: the retry-after-failure path (§4's 409 guard) needs an explicit trigger to call again regardless of what upload does, so merging the calls wouldn't remove the need for this endpoint — it would only add a combined-response shape to design and build for the first-call case alone. Not a forced conclusion; revisit if the two-call frontend flow turns out to be awkward in practice.
 - **Export bundling `ecs`+`style` into its own request body and persisting them as a side effect** (§12) — a reading of architecture doc §6's "saves or exports" phrasing, not something stated unambiguously.
 
 ---
