@@ -1,6 +1,11 @@
-from fastapi import APIRouter, HTTPException
+import uuid
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import get_db
 from app.schemas.ecs import ECS, ECSPutBody
+from app.services import ecs as ecs_service
 
 router = APIRouter(prefix="/projects", tags=["ecs"])
 
@@ -10,10 +15,13 @@ router = APIRouter(prefix="/projects", tags=["ecs"])
     response_model=ECS,
     responses={404: {"description": "Not transcribed yet"}},
 )
-def get_ecs(project_id: str) -> ECS:
-    raise HTTPException(
-        status_code=501, detail="GET /projects/{id}/ecs not implemented"
-    )
+async def get_ecs(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> ECS:
+    ecs = await ecs_service.get_ecs(session, project_id)
+    if ecs is None:
+        raise HTTPException(status_code=404, detail="Not transcribed yet")
+    return ecs
 
 
 @router.put(
