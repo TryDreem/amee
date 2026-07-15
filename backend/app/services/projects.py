@@ -9,6 +9,7 @@ from app.repositories import job as job_repo
 from app.repositories import project as project_repo
 from app.schemas.job import JobType
 from app.schemas.project import Project
+from app.services import style as style_service
 
 
 async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
@@ -51,6 +52,11 @@ async def create_project(
         owner_id=PLACEHOLDER_OWNER_ID,
         name=name or filename,
         video_url=video_url,
+    )
+    # CaptionStyleSpec is initialized immediately, using the default preset
+    # (contract §4) — style doesn't depend on transcription (arch §6).
+    await style_service.create_default_style(
+        session, project_id=project_id, owner_id=PLACEHOLDER_OWNER_ID
     )
     return await _to_schema(session, model)
 

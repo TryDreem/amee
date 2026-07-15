@@ -4,7 +4,9 @@ from pathlib import Path
 import httpx
 from httpx import ASGITransport
 
+from app.db import async_session_factory
 from app.main import app
+from app.repositories import style as style_repo
 
 
 async def test_create_list_get_project_roundtrip(sample_video: Path) -> None:
@@ -44,6 +46,13 @@ async def test_create_list_get_project_roundtrip(sample_video: Path) -> None:
 
         file_response = await client.get(created["video_url"])
         assert file_response.status_code == 200
+
+    # CaptionStyleSpec is initialized immediately on upload (contract §4) -
+    # GET /style isn't wired yet (M2 step 3), so check the repo directly.
+    async with async_session_factory() as session:
+        style = await style_repo.get(session, uuid.UUID(project_id))
+    assert style is not None
+    assert style.overrides == {}
 
 
 async def test_get_project_not_found() -> None:
