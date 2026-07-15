@@ -19,7 +19,7 @@ ROUTES: list[tuple[str, str, dict[str, object] | None]] = [
         f"/api/v1/projects/{SAMPLE_UUID}/style",
         {"presetId": SAMPLE_UUID, "overrides": {}},
     ),
-    ("GET", "/api/v1/presets", None),
+    # GET /presets is real now (M2 step 1) - see test_presets_endpoint.py.
     (
         "POST",
         f"/api/v1/projects/{SAMPLE_UUID}/recalculate-groups",
