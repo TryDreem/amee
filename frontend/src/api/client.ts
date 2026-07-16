@@ -1,6 +1,7 @@
 import type { components } from "./types.gen";
 
 export type Project = components["schemas"]["Project"];
+export type Job = components["schemas"]["Job"];
 
 export class ApiError extends Error {
   readonly status: number;
@@ -44,4 +45,18 @@ export async function createProject(file: File, name?: string): Promise<Project>
     formData.append("name", name);
   }
   return apiFetch<Project>("/projects", { method: "POST", body: formData });
+}
+
+export async function getProject(projectId: string): Promise<Project> {
+  return apiFetch<Project>(`/projects/${projectId}`);
+}
+
+// A 409 means a transcribe job already exists for this project (queued/processing/done) —
+// callers should treat it as "already in progress", not a hard failure (api-contract §4).
+export async function transcribeProject(projectId: string): Promise<Job> {
+  return apiFetch<Job>(`/projects/${projectId}/transcribe`, { method: "POST" });
+}
+
+export async function getJob(jobId: string): Promise<Job> {
+  return apiFetch<Job>(`/jobs/${jobId}`);
 }

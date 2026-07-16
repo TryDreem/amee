@@ -23,6 +23,15 @@ export interface Strings {
   upTo4k: string;
   upTo2gb: string;
   upTo10min: string;
+
+  procQueued: string;
+  procPreparing: string;
+  procTranscribing: string;
+  procGeneratingPreview: string;
+  procDone: string;
+  procDoneSub: string;
+  procFailed: string;
+  retry: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -50,6 +59,15 @@ export const STR: Record<Lang, Strings> = {
     upTo4k: "до 4K",
     upTo2gb: "до 2 ГБ",
     upTo10min: "до 10 минут",
+
+    procQueued: "Ждём очереди…",
+    procPreparing: "Готовим ваше видео…",
+    procTranscribing: "Распознаём речь…",
+    procGeneratingPreview: "Собираем превью…",
+    procDone: "Всё готово!",
+    procDoneSub: "Черновые субтитры готовы",
+    procFailed: "Не получилось обработать видео",
+    retry: "Повторить",
   },
   en: {
     themeLabel: "Theme",
@@ -74,5 +92,14 @@ export const STR: Record<Lang, Strings> = {
     upTo4k: "up to 4K",
     upTo2gb: "up to 2GB",
     upTo10min: "up to 10 min",
+
+    procQueued: "Waiting in queue…",
+    procPreparing: "Preparing your video…",
+    procTranscribing: "Transcribing speech…",
+    procGeneratingPreview: "Building the preview…",
+    procDone: "All done!",
+    procDoneSub: "Draft captions are ready",
+    procFailed: "Something went wrong processing your video",
+    retry: "Retry",
   },
 };
