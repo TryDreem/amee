@@ -1,4 +1,4 @@
-from app.integrations.whisperx import TranscribedWord
+from typing import Protocol, TypeVar
 
 # Coarse heuristic only (arch §5.1) — no style input, ever (INVARIANTS P4). These
 # numbers aren't tuned against real subtitle-readability research; they just keep
@@ -8,11 +8,27 @@ _MAX_WORDS_PER_SEGMENT = 8
 _MAX_CHARS_PER_SEGMENT = 42
 
 
-def split_words(words: list[TranscribedWord]) -> list[list[TranscribedWord]]:
+class _HasText(Protocol):
+    # A read-only property, not a plain attribute — a plain `text: str`
+    # would implicitly require the attribute to be settable too, which a
+    # frozen dataclass (TranscribedWord) structurally fails even though it
+    # obviously has a readable .text.
+    @property
+    def text(self) -> str: ...
+
+
+# Generic over anything with `.text` — the heuristic never reads .start/.end,
+# so this works unchanged for both the transcribe job's TranscribedWord
+# (no id) and POST /recalculate-groups' wire-schema Word (has a client id
+# that must survive regrouping untouched, contract §10).
+T = TypeVar("T", bound=_HasText)
+
+
+def split_words(words: list[T]) -> list[list[T]]:
     """`Words[] -> Segments[]` (arch §5.1, §5.3) — the only interface any
     splitter implementation, current or future, is allowed to depend on."""
-    groups: list[list[TranscribedWord]] = []
-    current: list[TranscribedWord] = []
+    groups: list[list[T]] = []
+    current: list[T] = []
     current_chars = 0
 
     for word in words:

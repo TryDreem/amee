@@ -15,11 +15,7 @@ ROUTES: list[tuple[str, str, dict[str, object] | None]] = [
     # PUT /ecs is real now (M2 step 4) - see test_ecs_endpoint.py.
     # GET/PUT /style are real now (M2 step 3) - see test_style_endpoint.py.
     # GET /presets is real now (M2 step 1) - see test_presets_endpoint.py.
-    (
-        "POST",
-        f"/api/v1/projects/{SAMPLE_UUID}/recalculate-groups",
-        {"words": []},
-    ),
+    # POST /recalculate-groups is real now (M2 step 5) - see test_recalculate_groups_endpoint.py.
     ("POST", f"/api/v1/projects/{SAMPLE_UUID}/reset-to-raw", None),
     (
         "POST",
