@@ -1046,13 +1046,6 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Not transcribed yet */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
             /** @description Validation Error */
             422: {
                 headers: {
