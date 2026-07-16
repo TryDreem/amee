@@ -12,7 +12,7 @@ ROUTES: list[tuple[str, str, dict[str, object] | None]] = [
     # GET /jobs/{id} is real now (M1 step 4) - see test_jobs_endpoint.py.
     # GET /raw-transcript is real now (M1 step 5) - see test_raw_transcript_endpoint.py.
     # GET /ecs is real now (M1 step 6) - see test_ecs_endpoint.py.
-    ("PUT", f"/api/v1/projects/{SAMPLE_UUID}/ecs", {"segments": []}),
+    # PUT /ecs is real now (M2 step 4) - see test_ecs_endpoint.py.
     # GET/PUT /style are real now (M2 step 3) - see test_style_endpoint.py.
     # GET /presets is real now (M2 step 1) - see test_presets_endpoint.py.
     (

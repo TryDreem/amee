@@ -32,7 +32,12 @@ async def get_ecs(
         422: {"description": "Validation failed (V1-V5)"},
     },
 )
-def put_ecs(project_id: str, body: ECSPutBody) -> ECS:
-    raise HTTPException(
-        status_code=501, detail="PUT /projects/{id}/ecs not implemented"
-    )
+async def put_ecs(
+    project_id: uuid.UUID,
+    body: ECSPutBody,
+    session: AsyncSession = Depends(get_db),
+) -> ECS:
+    ecs = await ecs_service.put_ecs(session, project_id, body)
+    if ecs is None:
+        raise HTTPException(status_code=404, detail="Not transcribed yet")
+    return ecs

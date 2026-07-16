@@ -2,10 +2,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import DomainValidationError
 from app.integrations.whisperx import TranscribedWord
 from app.models.ecs import SegmentModel
 from app.repositories import ecs as ecs_repo
-from app.schemas.ecs import ECS, Segment, Word
+from app.schemas.ecs import ECS, ECSPutBody, Segment, Word
+from app.services.ecs_validation import validate_segments
 from app.services.splitter import split_words
 
 
@@ -50,3 +52,21 @@ async def get_ecs(session: AsyncSession, project_id: uuid.UUID) -> ECS | None:
     if segments is None:
         return None
     return _to_schema(project_id, segments[0].owner_id, segments)
+
+
+async def put_ecs(
+    session: AsyncSession, project_id: uuid.UUID, body: ECSPutBody
+) -> ECS | None:
+    existing = await ecs_repo.get_by_project(session, project_id)
+    if existing is None:
+        return None  # not transcribed yet - same 404 condition as GET (contract §7)
+
+    details = validate_segments(body.segments)
+    if details:
+        raise DomainValidationError(details)
+
+    owner_id = existing[0].owner_id
+    updated = await ecs_repo.replace(
+        session, project_id=project_id, owner_id=owner_id, segments=body.segments
+    )
+    return _to_schema(project_id, owner_id, updated)
