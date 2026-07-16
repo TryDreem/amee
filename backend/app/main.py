@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
+from app.exceptions import DomainValidationError
 from app.integrations import storage
 from app.schemas.common import ErrorBody, ErrorDetail, ErrorResponse
 
@@ -40,6 +41,20 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         error=ErrorBody(code=code, message=str(exc.detail), details=[])
     )
     return JSONResponse(status_code=exc.status_code, content=body.model_dump())
+
+
+@app.exception_handler(DomainValidationError)
+async def domain_validation_exception_handler(
+    request: Request, exc: DomainValidationError
+) -> JSONResponse:
+    body = ErrorResponse(
+        error=ErrorBody(
+            code="validation_error",
+            message="Validation failed",
+            details=exc.details,
+        )
+    )
+    return JSONResponse(status_code=422, content=body.model_dump())
 
 
 @app.exception_handler(RequestValidationError)

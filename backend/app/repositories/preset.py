@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +12,10 @@ from app.models.preset import PresetModel
 async def list_all(session: AsyncSession) -> list[PresetModel]:
     result = await session.execute(select(PresetModel).order_by(PresetModel.name))
     return list(result.scalars().all())
+
+
+async def get(session: AsyncSession, preset_id: uuid.UUID) -> PresetModel | None:
+    return await session.get(PresetModel, preset_id)
 
 
 async def get_default(session: AsyncSession) -> PresetModel | None:

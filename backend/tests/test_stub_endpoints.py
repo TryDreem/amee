@@ -13,12 +13,7 @@ ROUTES: list[tuple[str, str, dict[str, object] | None]] = [
     # GET /raw-transcript is real now (M1 step 5) - see test_raw_transcript_endpoint.py.
     # GET /ecs is real now (M1 step 6) - see test_ecs_endpoint.py.
     ("PUT", f"/api/v1/projects/{SAMPLE_UUID}/ecs", {"segments": []}),
-    ("GET", f"/api/v1/projects/{SAMPLE_UUID}/style", None),
-    (
-        "PUT",
-        f"/api/v1/projects/{SAMPLE_UUID}/style",
-        {"presetId": SAMPLE_UUID, "overrides": {}},
-    ),
+    # GET/PUT /style are real now (M2 step 3) - see test_style_endpoint.py.
     # GET /presets is real now (M2 step 1) - see test_presets_endpoint.py.
     (
         "POST",
