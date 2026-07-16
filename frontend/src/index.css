@@ -1,0 +1,101 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: #0b0b0d;
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+input[type="file"] {
+  display: none;
+}
+
+/* Hover micro-interactions ported from the design's `style-hover` attributes —
+   plain React inline styles can't express :hover, so these live here as classes. */
+.amee-logo-mark {
+  transform: scale(1) rotate(0deg);
+  transition: transform 0.5s cubic-bezier(0.36, 0, 0.66, -0.56);
+}
+.amee-logo-mark:hover {
+  transform: scale(1.15) rotate(720deg);
+  transition: transform 0.75s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.amee-icon-btn,
+.amee-cta-btn,
+.amee-project-card,
+.amee-back-link {
+  transform: scale(1);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.amee-icon-btn:hover {
+  transform: scale(1.12);
+}
+.amee-cta-btn:hover {
+  transform: scale(1.07);
+}
+.amee-project-card:hover {
+  transform: scale(1.03);
+}
+.amee-back-link:hover {
+  transform: scale(1.05);
+}
+
+@keyframes homeFrameIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes homeItemIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes homeListOut {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-36px) scale(0.97);
+  }
+}
+
+@keyframes homeUploadIn {
+  from {
+    opacity: 0;
+    transform: translateX(36px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes menuPanelIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
