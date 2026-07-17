@@ -1,6 +1,8 @@
+import { Link } from "react-router-dom";
+
 import { STR } from "../i18n";
 import { resolveTheme, UI_MODES, type Prefs } from "../theme";
-import type { Project } from "../api/client";
+import { resolveMediaUrl, type Project } from "../api/client";
 
 interface ProjectGridProps {
   prefs: Prefs;
@@ -84,9 +86,8 @@ export default function ProjectGrid({ prefs, projects, onCreateClick }: ProjectG
               key={p.id}
               style={{ animation: `homeItemIn .45s ease-out ${0.26 + Math.min(i, 12) * 0.06}s both` }}
             >
-            <a
-              href="#"
-              onClick={(e) => e.preventDefault()}
+            <Link
+              to={`/projects/${p.id}`}
               className="amee-project-card"
               style={{
                 display: "flex",
@@ -114,7 +115,7 @@ export default function ProjectGrid({ prefs, projects, onCreateClick }: ProjectG
               >
                 {p.thumbnail_url ? (
                   <img
-                    src={p.thumbnail_url}
+                    src={resolveMediaUrl(p.thumbnail_url)}
                     alt=""
                     style={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
@@ -146,7 +147,7 @@ export default function ProjectGrid({ prefs, projects, onCreateClick }: ProjectG
                   {formatDate(p.created_at, prefs.lang)}
                 </div>
               </div>
-            </a>
+            </Link>
             </div>
           ))}
         </div>

@@ -1,16 +1,25 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { projectFixture, transcribeJobFixture } from "../mocks/fixtures";
 import { server } from "../mocks/server";
 import Home from "./Home";
 
+function renderHome() {
+  return render(
+    <MemoryRouter>
+      <Home />
+    </MemoryRouter>
+  );
+}
+
 describe("Home", () => {
   it("shows the empty state, then uploads and auto-transcribes through to a populated list", async () => {
     server.use(http.get("*/api/v1/projects", () => HttpResponse.json([]), { once: true }));
 
-    render(<Home />);
+    renderHome();
 
     expect(await screen.findByText("You don't have any projects yet")).toBeInTheDocument();
 
@@ -39,7 +48,7 @@ describe("Home", () => {
       )
     );
 
-    render(<Home />);
+    renderHome();
     await screen.findByText(projectFixture.name);
 
     fireEvent.click(screen.getByText("Create project"));
@@ -63,7 +72,7 @@ describe("Home", () => {
       })
     );
 
-    render(<Home />);
+    renderHome();
     await screen.findByText(projectFixture.name);
 
     fireEvent.click(screen.getByText("Create project"));
@@ -82,7 +91,7 @@ describe("Home", () => {
       )
     );
 
-    render(<Home />);
+    renderHome();
     await screen.findByText(projectFixture.name);
 
     fireEvent.click(screen.getByText("Create project"));
@@ -107,7 +116,7 @@ describe("Home", () => {
       )
     );
 
-    render(<Home />);
+    renderHome();
     await screen.findByText(projectFixture.name);
 
     fireEvent.click(screen.getByText("Create project"));

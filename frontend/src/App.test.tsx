@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import App from "./App";
@@ -9,5 +9,15 @@ describe("App", () => {
     render(<App />);
     expect(screen.getByRole("img", { name: "Amee" })).toBeInTheDocument();
     expect(await screen.findByText(projectFixture.name)).toBeInTheDocument();
+  });
+
+  it("navigates to a project's editor route when its card is clicked", async () => {
+    render(<App />);
+    const card = await screen.findByText(projectFixture.name);
+
+    fireEvent.click(card);
+
+    expect(await screen.findByText("Back to projects")).toBeInTheDocument();
+    expect(await screen.findAllByText(projectFixture.name)).not.toHaveLength(0);
   });
 });

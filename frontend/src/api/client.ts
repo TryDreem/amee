@@ -34,6 +34,17 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+// Project/Job media fields (video_url, thumbnail_url, preview_video_url, result.*_url) are
+// root-relative paths served at the backend's origin (e.g. "/files/projects/..."), not under
+// /api/v1 — resolve them against the API's origin, not the frontend's own.
+export function resolveMediaUrl(path: string): string {
+  if (/^https?:\/\//.test(path)) {
+    return path;
+  }
+  const origin = apiBase().replace(/\/api\/v1\/?$/, "");
+  return `${origin}${path}`;
+}
+
 export async function listProjects(): Promise<Project[]> {
   return apiFetch<Project[]>("/projects");
 }
