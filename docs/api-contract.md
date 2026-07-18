@@ -239,6 +239,13 @@ No `id` per word. The architecture doc is explicit that a `Word` in the ECS carr
 
 Body: `{ "segments": [...] }` — same shape as the `GET` response, minus `project_id`/`owner_id` (those come from the URL/session, not the body; a client shouldn't be able to set `owner_id` by hand once real auth exists, even though it's a no-op today).
 
+- **Per-segment edit limits:** every segment's word count and joined text length are checked against
+  `EDIT_MAX_WORDS_PER_SEGMENT` / `EDIT_MAX_CHARS_PER_SEGMENT` (architecture doc §7.1) — **422** if
+  either is exceeded. Same numeric values as the Initial Splitter's own constants today, but validated
+  independently — this is not the splitter running again, just a defensively-duplicated check of what
+  the frontend already prevents interactively.
+
+
 **`Word.id` lifecycle:** ids are opaque, client-supplied UUIDs. This contract does **not** require that a retokenization-style edit (architecture doc §4.2) reuse existing `Word.id` values where possible versus regenerating the whole list — that choice is left to editor implementation, to be decided alongside the text-editing UX. The only requirement is that ids are unique within the document. Nothing about validation, storage, or any other endpoint depends on which strategy the editor ends up using.
 
 **Validation (server-side), directly from architecture doc §4.2:**

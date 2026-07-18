@@ -449,8 +449,28 @@ A practical consequence of this separation, made explicit in the project: **styl
 | Drag a word boundary | Adjacent words' `start`/`end` updated together, clamped to neighbors. | Immediate. |
 | Split a segment | `Segments[]` updated — words redistributed into two segments; both inherit the parent's `overrides` unchanged. | Explicit user action. |
 | Merge two segments | `Segments[]` updated — words combined into one segment; the result takes the earlier (lower-start) segment's `overrides`, the later one's is discarded. | Explicit user action. |
+| Delete a segment | `Segments[]` updated — the segment and all of its words are removed entirely (not just cleared to empty). | Explicit user action, gated by an inline confirmation before it takes effect. |
 | Recalculate Groups | `Segments[]` fully replaced by the splitter over current `Words[]`. `CaptionStyleSpec` untouched. | Explicit user action only — **never automatic**, regardless of whether the preceding change was to style or content (see §5.2 for why it would be a no-op after a style-only change anyway). |
 | Undo / Redo | Reverts / reapplies whichever of the above was last applied, including Recalculate Groups. | Explicit user action (button or keyboard shortcut). |
+
+### 7.1 Edit-time segment limits (distinct from the Initial Splitter's heuristic)
+
+Live editing enforces its own `EDIT_MAX_WORDS_PER_SEGMENT` / `EDIT_MAX_CHARS_PER_SEGMENT` limits when
+a word is added to a segment via "Add word" — today numerically the same as the Initial Splitter's own
+`_MAX_WORDS_PER_SEGMENT` / `_MAX_CHARS_PER_SEGMENT` (§5.1, `backend/app/services/splitter.py`), but a
+logically separate pair of constants. The splitter's constants are a coarse heuristic for grouping
+words at transcribe time, before any style exists (§5.1) — they are not a promise about what fits on
+screen. Edit-time limits exist purely to stop "Add word" from silently producing a segment the Layout
+Engine would already flag as overflowing (§8.1-§8.3) — they are a fast, preemptive, word/char-count
+proxy, not a replacement for the real pixel-measurement fit check, which remains the only source of
+truth for whether text actually fits (L1, §8.1). Re-tuning one pair must not be assumed to affect the
+other.
+
+Checked in two places: the frontend blocks the edit immediately (no round-trip needed for this kind of
+feedback); `PUT /projects/{id}/ecs` (contract §7) also validates every segment against the same two
+numbers, rejecting with **422** if any segment in the submitted document exceeds them — this covers a
+stale frontend build, a direct API call, or a future editing path that bypasses the live UI check.
+
  
 ---
  
