@@ -561,7 +561,9 @@ export interface components {
         /**
          * Segment
          * @description No `start`/`end` — segment bounds are derived from words, never stored
-         *     (INVARIANTS D5).
+         *     (INVARIANTS D5). `overrides` is the one deliberate exception to Data
+         *     never carrying Style (INVARIANTS D11, arch §4.2) — only meaningful when
+         *     the project's `CaptionStyleSpec.perPhraseStyle` is true.
          */
         Segment: {
             /**
@@ -571,6 +573,7 @@ export interface components {
             id: string;
             /** Words */
             words: components["schemas"]["Word"][];
+            overrides?: components["schemas"]["StyleOverrides"] | null;
         };
         /**
          * StyleOverrides

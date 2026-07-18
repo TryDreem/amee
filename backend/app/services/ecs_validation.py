@@ -1,16 +1,31 @@
 from app.schemas.common import ErrorDetail
 from app.schemas.ecs import Segment
+from app.schemas.preset import PresetBounds
+from app.services.style_validation import validate_overrides
 
 
-def validate_segments(segments: list[Segment]) -> list[ErrorDetail]:
-    """Server-side ECS validation (arch §4.2, contract §7) — V1-V5. Pure
-    function over wire-schema objects so `PUT /ecs` and `POST /export`
-    (contract §12's X5) share exactly one validation path, not two that can
-    drift apart. V6 (minimum word duration) is deliberately excluded — a
-    renderer concern, not a validation rule (INVARIANTS)."""
+def validate_segments(
+    segments: list[Segment], bounds: PresetBounds
+) -> list[ErrorDetail]:
+    """Server-side ECS validation (arch §4.2, contract §7) — V1-V5, plus V8
+    (segment.overrides, when present, checked against the same resolved
+    preset bounds PUT /style uses). Pure function over wire-schema objects
+    so `PUT /ecs` and `POST /export` (contract §12's X5) share exactly one
+    validation path, not two that can drift apart. V6 (minimum word
+    duration) is deliberately excluded — a renderer concern, not a
+    validation rule (INVARIANTS)."""
     details: list[ErrorDetail] = []
 
     for seg_idx, segment in enumerate(segments):
+        if segment.overrides is not None:
+            details.extend(
+                validate_overrides(
+                    segment.overrides,
+                    bounds,
+                    prefix=f"segments[{seg_idx}].overrides",
+                )
+            )
+
         if not segment.words:
             details.append(
                 ErrorDetail(
@@ -46,13 +61,13 @@ def validate_segments(segments: list[Segment]) -> list[ErrorDetail]:
     # V4: segments must not overlap each other. Pairwise, not just
     # consecutive-in-list, since array order is authored (D7) and not
     # guaranteed to match chronological order.
-    bounds = [
+    segment_spans = [
         (seg_idx, segment.words[0].start, segment.words[-1].end)
         for seg_idx, segment in enumerate(segments)
         if segment.words
     ]
-    for i, (idx_a, start_a, end_a) in enumerate(bounds):
-        for idx_b, start_b, end_b in bounds[i + 1 :]:
+    for i, (idx_a, start_a, end_a) in enumerate(segment_spans):
+        for idx_b, start_b, end_b in segment_spans[i + 1 :]:
             if start_a < end_b and start_b < end_a:
                 details.append(
                     ErrorDetail(

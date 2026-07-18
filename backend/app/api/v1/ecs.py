@@ -13,6 +13,10 @@ router = APIRouter(prefix="/projects", tags=["ecs"])
 @router.get(
     "/{project_id}/ecs",
     response_model=ECS,
+    # segment.overrides is sparse when present, and omitted (not a literal
+    # null placeholder) when absent - same convention as CaptionStyleSpec
+    # (contract §7, §8).
+    response_model_exclude_none=True,
     responses={404: {"description": "Not transcribed yet"}},
 )
 async def get_ecs(
@@ -27,6 +31,7 @@ async def get_ecs(
 @router.put(
     "/{project_id}/ecs",
     response_model=ECS,
+    response_model_exclude_none=True,
     responses={
         404: {"description": "Not transcribed yet"},
         422: {"description": "Validation failed (V1-V5)"},

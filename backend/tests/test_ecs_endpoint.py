@@ -8,6 +8,7 @@ from app.integrations.whisperx import TranscribedWord
 from app.main import app
 from app.repositories import project as project_repo
 from app.services import ecs as ecs_service
+from app.services import style as style_service
 
 
 async def _make_transcribed_project() -> uuid.UUID:
@@ -17,6 +18,12 @@ async def _make_transcribed_project() -> uuid.UUID:
             owner_id=uuid.uuid4(),
             name="PUT ecs test",
             video_url="/files/projects/z/source.mp4",
+        )
+        # PUT /ecs resolves the project's style/preset to validate
+        # segment.overrides bounds (V8) - style is created eagerly at
+        # upload in production (contract §4), so tests need it too.
+        await style_service.create_default_style(
+            session, project_id=project.id, owner_id=project.owner_id
         )
         await ecs_service.create_initial_ecs(
             session,
@@ -218,3 +225,62 @@ async def test_put_ecs_rejects_empty_segment() -> None:
     )
     assert len(details) == 1
     assert "words" not in details[0]["field"]
+
+
+async def test_put_ecs_with_segment_override_roundtrip() -> None:
+    project_id = await _make_transcribed_project()
+    seg_id = str(uuid.uuid4())
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.put(
+            f"/api/v1/projects/{project_id}/ecs",
+            json={
+                "segments": [
+                    {
+                        "id": seg_id,
+                        "overrides": {"fontSize": 0.1, "color": "#ff0000"},
+                        "words": [
+                            {
+                                "id": str(uuid.uuid4()),
+                                "text": "hi",
+                                "start": 0.0,
+                                "end": 0.4,
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["segments"][0]["overrides"] == {
+        "fontSize": 0.1,
+        "color": "#ff0000",
+    }
+
+    # Persisted, not just echoed.
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        get_response = await client.get(f"/api/v1/projects/{project_id}/ecs")
+    assert get_response.json() == body
+
+
+async def test_put_ecs_rejects_segment_override_out_of_bounds() -> None:
+    project_id = await _make_transcribed_project()
+    details = await _put_and_get_details(
+        project_id,
+        [
+            {
+                "id": str(uuid.uuid4()),
+                "overrides": {"verticalPosition": 1.5},
+                "words": [
+                    {"id": str(uuid.uuid4()), "text": "hi", "start": 0.0, "end": 0.4}
+                ],
+            }
+        ],
+    )
+    assert details[0]["field"] == "segments[0].overrides.verticalPosition"

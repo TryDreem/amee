@@ -6,7 +6,11 @@ from app.exceptions import DomainValidationError
 from app.integrations.whisperx import TranscribedWord
 from app.models.ecs import SegmentModel
 from app.repositories import ecs as ecs_repo
+from app.repositories import preset as preset_repo
+from app.repositories import style as style_repo
 from app.schemas.ecs import ECS, ECSPutBody, Segment, Word
+from app.schemas.preset import PresetBounds
+from app.schemas.style import StyleOverrides
 from app.services.ecs_validation import validate_segments
 from app.services.splitter import split_words
 
@@ -24,6 +28,11 @@ def _to_schema(
                     Word(id=word.id, text=word.text, start=word.start, end=word.end)
                     for word in segment.words
                 ],
+                overrides=(
+                    StyleOverrides.model_validate(segment.overrides)
+                    if segment.overrides is not None
+                    else None
+                ),
             )
             for segment in segments
         ],
@@ -61,7 +70,15 @@ async def put_ecs(
     if existing is None:
         return None  # not transcribed yet - same 404 condition as GET (contract §7)
 
-    details = validate_segments(body.segments)
+    style = await style_repo.get(session, project_id)
+    if style is None:
+        raise ValueError(f"style for project {project_id} not found")
+    preset = await preset_repo.get(session, style.preset_id)
+    if preset is None:
+        raise ValueError(f"preset {style.preset_id} not found")
+    bounds = PresetBounds.model_validate(preset.bounds)
+
+    details = validate_segments(body.segments, bounds)
     if details:
         raise DomainValidationError(details)
 

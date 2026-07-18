@@ -68,6 +68,10 @@ async def test_reset_to_raw_regenerates_from_raw_transcript() -> None:
     word_ids = [w["id"] for w in flattened]
     assert len(set(word_ids)) == len(word_ids)
 
+    # E8: the splitter never sees style, so a fresh reset always wipes any
+    # previously-set segment.overrides - result is always null.
+    assert all(seg["overrides"] is None for seg in body["segments"])
+
 
 async def test_reset_to_raw_does_not_persist() -> None:
     async with async_session_factory() as session:

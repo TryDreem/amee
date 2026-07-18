@@ -74,6 +74,11 @@ async def replace(
             project_id=project_id,
             owner_id=owner_id,
             order=segment_order,
+            overrides=(
+                segment.overrides.model_dump(exclude_none=True)
+                if segment.overrides is not None
+                else None
+            ),
             words=[
                 WordModel(
                     id=w.id, order=word_order, text=w.text, start=w.start, end=w.end

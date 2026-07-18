@@ -29,6 +29,9 @@ async def test_recalculate_groups_returns_200_with_segments() -> None:
     assert "segments" in body
     flattened = [w for seg in body["segments"] for w in seg["words"]]
     assert [w["text"] for w in flattened] == ["hello", "world"]
+    # E8: the splitter never sees style, so it can never produce or
+    # preserve segment.overrides - result is always null.
+    assert all(seg["overrides"] is None for seg in body["segments"])
 
 
 async def test_recalculate_groups_does_not_persist_or_require_a_real_project() -> None:
