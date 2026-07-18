@@ -37,6 +37,38 @@ describe("api client", () => {
     expect(receivedName).toBe("My clip");
   });
 
+  it("createProject omits language entirely when not given (auto-detect, contract §4)", async () => {
+    let hasLanguageField = true;
+    server.use(
+      http.post("*/api/v1/projects", async ({ request }) => {
+        const formData = await request.formData();
+        hasLanguageField = formData.has("language");
+        return HttpResponse.json(projectFixture, { status: 201 });
+      })
+    );
+
+    const file = new File(["fake video bytes"], "clip.mp4", { type: "video/mp4" });
+    await createProject(file);
+
+    expect(hasLanguageField).toBe(false);
+  });
+
+  it("createProject sends a real language code unchanged, never the literal 'auto'", async () => {
+    let receivedLanguage: FormDataEntryValue | null = null;
+    server.use(
+      http.post("*/api/v1/projects", async ({ request }) => {
+        const formData = await request.formData();
+        receivedLanguage = formData.get("language");
+        return HttpResponse.json(projectFixture, { status: 201 });
+      })
+    );
+
+    const file = new File(["fake video bytes"], "clip.mp4", { type: "video/mp4" });
+    await createProject(file, undefined, "ru");
+
+    expect(receivedLanguage).toBe("ru");
+  });
+
   it("surfaces a non-2xx response as an ApiError with status and body", async () => {
     const validationError = {
       detail: [{ loc: ["query", "x"], msg: "field required", type: "value_error.missing" }],

@@ -25,6 +25,9 @@ export interface Strings {
   upTo2gb: string;
   upTo10min: string;
 
+  videoLanguageLabel: string;
+  autoDetect: string;
+
   procQueued: string;
   procPreparing: string;
   procTranscribing: string;
@@ -62,6 +65,9 @@ export const STR: Record<Lang, Strings> = {
     upTo2gb: "до 2 ГБ",
     upTo10min: "до 10 минут",
 
+    videoLanguageLabel: "Язык видео",
+    autoDetect: "Автоопределение",
+
     procQueued: "Ждём очереди…",
     procPreparing: "Готовим ваше видео…",
     procTranscribing: "Распознаём речь…",
@@ -95,6 +101,9 @@ export const STR: Record<Lang, Strings> = {
     upTo4k: "up to 4K",
     upTo2gb: "up to 2GB",
     upTo10min: "up to 10 min",
+
+    videoLanguageLabel: "Video language",
+    autoDetect: "Auto detect",
 
     procQueued: "Waiting in queue…",
     procPreparing: "Preparing your video…",

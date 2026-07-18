@@ -15,6 +15,7 @@ import {
   transcribeProject,
   type Project,
 } from "../api/client";
+import { AUTO_LANGUAGE_CODE } from "../lib/languages";
 import { UI_MODES } from "../theme";
 
 type View = "list" | "upload" | "processing";
@@ -86,10 +87,10 @@ export default function Home(): JSX.Element {
       });
   }
 
-  function handleFileSelected(file: File) {
+  function handleFileSelected(file: File, language: string) {
     setUploading(true);
     setUploadError(null);
-    createProject(file)
+    createProject(file, undefined, language === AUTO_LANGUAGE_CODE ? undefined : language)
       .then((project) => {
         setUploading(false);
         setActiveProject(project);

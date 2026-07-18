@@ -23,6 +23,7 @@ export const projectFixture: Project = {
   owner_id: OWNER_ID,
   name: "Demo project",
   video_url: "/files/projects/9f2b7e10/source.mp4",
+  language: "en",
   // Fixture represents a project whose transcribe job already finished
   // (arch §2.8) — non-null media fields, not the just-uploaded null state.
   thumbnail_url: "/files/projects/9f2b7e10/thumbnail.jpg",

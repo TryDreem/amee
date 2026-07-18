@@ -57,11 +57,21 @@ export async function listProjects(): Promise<Project[]> {
   return apiFetch<Project[]>("/projects");
 }
 
-export async function createProject(file: File, name?: string): Promise<Project> {
+// `language` is the caller's job to omit for "auto-detect" — this function never invents a
+// sentinel value; a present `language` is sent through unchanged (contract §4: omitted/null
+// means auto-detect, there is no wire-level "auto" string).
+export async function createProject(
+  file: File,
+  name?: string,
+  language?: string
+): Promise<Project> {
   const formData = new FormData();
   formData.append("file", file);
   if (name) {
     formData.append("name", name);
+  }
+  if (language) {
+    formData.append("language", language);
   }
   return apiFetch<Project>("/projects", { method: "POST", body: formData });
 }
