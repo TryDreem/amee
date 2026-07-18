@@ -27,14 +27,17 @@ async def test_create_and_get_roundtrip() -> None:
             project_id=project_id,
             owner_id=owner_id,
             preset_id=preset_id,
+            per_phrase_style=True,
             overrides={"fontSize": 0.1},
         )
         assert created.preset_id == preset_id
+        assert created.per_phrase_style is True
         assert created.overrides == {"fontSize": 0.1}
 
         fetched = await style_repo.get(session, project_id)
         assert fetched is not None
         assert fetched.preset_id == preset_id
+        assert fetched.per_phrase_style is True
         assert fetched.overrides == {"fontSize": 0.1}
 
 

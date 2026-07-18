@@ -7,8 +7,9 @@ from app.models.style import CaptionStyleSpecModel
 from app.repositories import preset as preset_repo
 from app.repositories import style as style_repo
 from app.schemas.common import ErrorDetail
-from app.schemas.preset import Bounds, PresetBounds
+from app.schemas.preset import PresetBounds
 from app.schemas.style import CaptionStyleSpec, CaptionStyleSpecPutBody, StyleOverrides
+from app.services.style_validation import validate_overrides
 
 
 async def create_default_style(
@@ -26,6 +27,7 @@ async def create_default_style(
         project_id=project_id,
         owner_id=owner_id,
         preset_id=default_preset.id,
+        per_phrase_style=False,
         overrides={},
     )
 
@@ -35,56 +37,9 @@ def _to_schema(model: CaptionStyleSpecModel) -> CaptionStyleSpec:
         project_id=model.project_id,
         owner_id=model.owner_id,
         presetId=model.preset_id,
+        perPhraseStyle=model.per_phrase_style,
         overrides=StyleOverrides.model_validate(model.overrides),
     )
-
-
-def _check_bound(field: str, value: float | None, bound: Bounds) -> ErrorDetail | None:
-    if value is None:
-        return None
-    if value < bound.min or value > bound.max:
-        return ErrorDetail(
-            field=field,
-            issue=f"must be between {bound.min} and {bound.max}, got {value}",
-        )
-    return None
-
-
-def _validate_overrides(
-    overrides: StyleOverrides, bounds: PresetBounds
-) -> list[ErrorDetail]:
-    """L8 (INVARIANTS): bounds live per-preset, not globally — validated
-    against the *resolved* preset's bounds, not a hardcoded range."""
-    details = [
-        d
-        for d in (
-            _check_bound("overrides.fontSize", overrides.fontSize, bounds.fontSize),
-            _check_bound(
-                "overrides.verticalPosition",
-                overrides.verticalPosition,
-                bounds.verticalPosition,
-            ),
-        )
-        if d is not None
-    ]
-    if overrides.safeArea is not None:
-        details += [
-            d
-            for d in (
-                _check_bound(
-                    "overrides.safeArea.top",
-                    overrides.safeArea.top,
-                    bounds.safeArea.top,
-                ),
-                _check_bound(
-                    "overrides.safeArea.bottom",
-                    overrides.safeArea.bottom,
-                    bounds.safeArea.bottom,
-                ),
-            )
-            if d is not None
-        ]
-    return details
 
 
 async def get_style(
@@ -110,7 +65,7 @@ async def put_style(
         )
 
     bounds = PresetBounds.model_validate(preset.bounds)
-    details = _validate_overrides(body.overrides, bounds)
+    details = validate_overrides(body.overrides, bounds)
     if details:
         raise DomainValidationError(details)
 
@@ -118,6 +73,7 @@ async def put_style(
         session,
         project_id,
         preset_id=body.presetId,
+        per_phrase_style=body.perPhraseStyle,
         overrides=body.overrides.model_dump(exclude_none=True),
     )
     return _to_schema(updated)

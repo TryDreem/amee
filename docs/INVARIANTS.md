@@ -32,6 +32,7 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | D8 | ECS and `CaptionStyleSpec` are read/written as **whole documents**. `PUT` only. Introducing `PATCH` or a per-word endpoint violates the save semantics. | arch §4.2, §6, contract §1 |
 | D9 | Every entity except `Preset` carries `owner_id` from the first schema. MVP resolves it to one placeholder UUID. | arch §2.4, contract §1 |
 | D10 | All ids are UUIDv4 strings, mintable by the frontend without a server round trip. | contract §1 |
+| D11 | `Segment.overrides` is the **one deliberate exception** to Data never carrying Style (cross-ref S1) — a per-segment style override, gated by `CaptionStyleSpec.perPhraseStyle`. Addressed by the segment's own `id`, never array index (index shifts on delete/split/merge). | arch §4.2 |
 
 ## Validation (server-side, on `PUT /ecs`)
 
@@ -44,6 +45,7 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | V5 | Every segment has **at least one word**. Backstop — the frontend drops empty segments before save. | contract §7 |
 | V6 | A **minimum word duration is NOT a validation rule.** Ultra-short words are a renderer concern. Do not add it to the validator. | arch §4.2, §8 |
 | V7 | No `version` field, no `If-Match`, no optimistic concurrency. Last-write-wins. | contract §7, §13.3 |
+| V8 | `segment.overrides`, when present, is validated against the *same resolved preset bounds* `PUT /style` uses — not a separate per-segment preset. Same 422 shape as V1-V5. | arch §4.2, contract §7 |
 
 ## Editing behavior
 
@@ -56,6 +58,7 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | E5 | Undo/redo is **entirely frontend**. One unified history stack, no special-casing per action type — including Recalculate Groups, Reset to Raw, and style changes. The backend has no history endpoint. | arch §11 |
 | E6 | `POST /recalculate-groups` and `POST /reset-to-raw` **do not persist** and **do not touch the undo stack**. They compute and return; the frontend adopts the result. | contract §10, §11 |
 | E7 | Both endpoints are **polymorphic**: `200 {segments}` for a cheap splitter, `202 {job}` for an expensive one. Clients must check the shape, not assume `200`. | contract §10 |
+| E8 | Recalculate Groups and Reset to Raw **wipe every segment's `overrides`** by construction (P4: the splitter never receives style, so it cannot produce or preserve override data). Settled default (arch §14 item 15) — do not "fix" this with a match-by-content preservation heuristic without asking. | arch §4.2, §14.15 |
 
 ## Style / Layout / Data separation
 
@@ -65,6 +68,8 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | S2 | The Layout Engine **never mutates** ECS or `CaptionStyleSpec`. It reads, and it emits a rendering or a "doesn't fit" signal. | arch §6, §8.3 |
 | S3 | Style edits live in frontend state while the user adjusts them. The backend receives `CaptionStyleSpec` only on save or export. No round trip per slider tick. | arch §6 |
 | S4 | Preset switch = `presetId` replaced, `overrides` reset to `{}`. Frontend state only. There is no "apply preset" endpoint. | arch §7, contract §9 |
+| S5 | `highlightColors` (plural, array) cycles by **segment index**, not id: `highlightColors[segmentIndex % length]`. Computed identically by preview and export (R2). | arch §6, contract §8 |
+| S6 | `outline.alpha`/`shadow.alpha` validate against a **fixed 0-100 range**, not per-preset bounds — unlike `fontSize`/`verticalPosition`/`safeArea` (L8). `textTransform`, `italic`, `glow`, `outline.size`, `shadow.size` have **no bounds check at all**; any value from the type is valid. | arch §10, contract §8 |
 
 ## Layout & positioning
 

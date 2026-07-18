@@ -9,9 +9,32 @@ class RevealMode(str, Enum):
     progressive = "progressive"
 
 
+class TextTransform(str, Enum):
+    none = "none"
+    uppercase = "uppercase"
+
+
+class OutlineShadowSize(str, Enum):
+    none = "none"
+    small = "small"
+    medium = "medium"
+    large = "large"
+
+
 class SafeArea(BaseModel):
     top: float
     bottom: float
+
+
+class OutlineOrShadow(BaseModel):
+    """Shared shape for `outline`/`shadow` (contract §8). `size` and `color`
+    have no bounds check (INVARIANTS S6) — any value from the type is
+    valid. `alpha` validates against a fixed 0-100 range, not per-preset
+    bounds, unlike fontSize/verticalPosition/safeArea (L8)."""
+
+    size: OutlineShadowSize
+    color: str
+    alpha: float
 
 
 class StyleOverrides(BaseModel):
@@ -24,7 +47,12 @@ class StyleOverrides(BaseModel):
     fontFamily: str | None = None
     fontWeight: int | str | None = None
     color: str | None = None
-    highlightColor: str | None = None
+    highlightColors: list[str] | None = None
+    textTransform: TextTransform | None = None
+    italic: bool | None = None
+    glow: bool | None = None
+    outline: OutlineOrShadow | None = None
+    shadow: OutlineOrShadow | None = None
     revealMode: RevealMode | None = None
     verticalPosition: float | None = None
     safeArea: SafeArea | None = None
@@ -34,6 +62,7 @@ class CaptionStyleSpec(BaseModel):
     project_id: UUID
     owner_id: UUID
     presetId: UUID
+    perPhraseStyle: bool = False
     overrides: StyleOverrides = StyleOverrides()
 
 
@@ -43,4 +72,5 @@ class CaptionStyleSpecPutBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     presetId: UUID
+    perPhraseStyle: bool = False
     overrides: StyleOverrides = StyleOverrides()

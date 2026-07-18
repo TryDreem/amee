@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,4 +24,7 @@ class CaptionStyleSpecModel(Base):
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     preset_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    per_phrase_style: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     overrides: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)

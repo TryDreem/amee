@@ -2,7 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.schemas.style import RevealMode, SafeArea
+from app.schemas.style import OutlineOrShadow, RevealMode, SafeArea, TextTransform
 
 
 class Bounds(BaseModel):
@@ -16,17 +16,28 @@ class SafeAreaBounds(BaseModel):
 
 
 class PresetBounds(BaseModel):
+    """No entry for outline/shadow/glow/textTransform — they have no
+    per-preset bounds at all (INVARIANTS S6, arch §10)."""
+
     fontSize: Bounds
     verticalPosition: Bounds
     safeArea: SafeAreaBounds
 
 
 class PresetBase(BaseModel):
+    """Always fully populated, unlike StyleOverrides — a preset defines a
+    complete style, not a sparse delta."""
+
     fontSize: float
     fontFamily: str
     fontWeight: int | str
     color: str
-    highlightColor: str
+    highlightColors: list[str]
+    textTransform: TextTransform
+    italic: bool
+    glow: bool
+    outline: OutlineOrShadow | None
+    shadow: OutlineOrShadow | None
     revealMode: RevealMode
     verticalPosition: float
     safeArea: SafeArea

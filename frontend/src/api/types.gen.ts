@@ -229,6 +229,11 @@ export interface components {
              * Format: uuid
              */
             presetId: string;
+            /**
+             * Perphrasestyle
+             * @default false
+             */
+            perPhraseStyle: boolean;
             /** @default {} */
             overrides: components["schemas"]["StyleOverrides"];
         };
@@ -242,6 +247,11 @@ export interface components {
              * Format: uuid
              */
             presetId: string;
+            /**
+             * Perphrasestyle
+             * @default false
+             */
+            perPhraseStyle: boolean;
             /** @default {} */
             overrides: components["schemas"]["StyleOverrides"];
         };
@@ -350,6 +360,25 @@ export interface components {
          */
         JobType: "transcribe" | "export";
         /**
+         * OutlineOrShadow
+         * @description Shared shape for `outline`/`shadow` (contract §8). `size` and `color`
+         *     have no bounds check (INVARIANTS S6) — any value from the type is
+         *     valid. `alpha` validates against a fixed 0-100 range, not per-preset
+         *     bounds, unlike fontSize/verticalPosition/safeArea (L8).
+         */
+        OutlineOrShadow: {
+            size: components["schemas"]["OutlineShadowSize"];
+            /** Color */
+            color: string;
+            /** Alpha */
+            alpha: number;
+        };
+        /**
+         * OutlineShadowSize
+         * @enum {string}
+         */
+        OutlineShadowSize: "none" | "small" | "medium" | "large";
+        /**
          * PolymorphicJobResponse
          * @description 202 branch — the active splitter is expensive. Shared shape for both
          *     recalculate-groups and reset-to-raw (contract §10, §11). Never exercised by
@@ -376,7 +405,11 @@ export interface components {
             base: components["schemas"]["PresetBase"];
             bounds: components["schemas"]["PresetBounds"];
         };
-        /** PresetBase */
+        /**
+         * PresetBase
+         * @description Always fully populated, unlike StyleOverrides — a preset defines a
+         *     complete style, not a sparse delta.
+         */
         PresetBase: {
             /** Fontsize */
             fontSize: number;
@@ -386,14 +419,25 @@ export interface components {
             fontWeight: number | string;
             /** Color */
             color: string;
-            /** Highlightcolor */
-            highlightColor: string;
+            /** Highlightcolors */
+            highlightColors: string[];
+            textTransform: components["schemas"]["TextTransform"];
+            /** Italic */
+            italic: boolean;
+            /** Glow */
+            glow: boolean;
+            outline: components["schemas"]["OutlineOrShadow"] | null;
+            shadow: components["schemas"]["OutlineOrShadow"] | null;
             revealMode: components["schemas"]["RevealMode"];
             /** Verticalposition */
             verticalPosition: number;
             safeArea: components["schemas"]["SafeArea"];
         };
-        /** PresetBounds */
+        /**
+         * PresetBounds
+         * @description No entry for outline/shadow/glow/textTransform — they have no
+         *     per-preset bounds at all (INVARIANTS S6, arch §10).
+         */
         PresetBounds: {
             fontSize: components["schemas"]["Bounds"];
             verticalPosition: components["schemas"]["Bounds"];
@@ -542,13 +586,25 @@ export interface components {
             fontWeight?: number | string | null;
             /** Color */
             color?: string | null;
-            /** Highlightcolor */
-            highlightColor?: string | null;
+            /** Highlightcolors */
+            highlightColors?: string[] | null;
+            textTransform?: components["schemas"]["TextTransform"] | null;
+            /** Italic */
+            italic?: boolean | null;
+            /** Glow */
+            glow?: boolean | null;
+            outline?: components["schemas"]["OutlineOrShadow"] | null;
+            shadow?: components["schemas"]["OutlineOrShadow"] | null;
             revealMode?: components["schemas"]["RevealMode"] | null;
             /** Verticalposition */
             verticalPosition?: number | null;
             safeArea?: components["schemas"]["SafeArea"] | null;
         };
+        /**
+         * TextTransform
+         * @enum {string}
+         */
+        TextTransform: "none" | "uppercase";
         /** ValidationError */
         ValidationError: {
             /** Location */

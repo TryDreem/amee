@@ -11,12 +11,14 @@ async def create(
     project_id: uuid.UUID,
     owner_id: uuid.UUID,
     preset_id: uuid.UUID,
+    per_phrase_style: bool,
     overrides: dict[str, object],
 ) -> CaptionStyleSpecModel:
     style = CaptionStyleSpecModel(
         project_id=project_id,
         owner_id=owner_id,
         preset_id=preset_id,
+        per_phrase_style=per_phrase_style,
         overrides=overrides,
     )
     session.add(style)
@@ -36,6 +38,7 @@ async def update(
     project_id: uuid.UUID,
     *,
     preset_id: uuid.UUID,
+    per_phrase_style: bool,
     overrides: dict[str, object],
 ) -> CaptionStyleSpecModel:
     """Whole-document replace (D8) — `PUT /style` sends the full object,
@@ -44,6 +47,7 @@ async def update(
     if style is None:
         raise ValueError(f"style for project {project_id} not found")
     style.preset_id = preset_id
+    style.per_phrase_style = per_phrase_style
     style.overrides = overrides
     await session.commit()
     await session.refresh(style)

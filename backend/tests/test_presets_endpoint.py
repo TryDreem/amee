@@ -21,4 +21,13 @@ async def test_get_presets_returns_exactly_one_default() -> None:
     assert preset["name"] == "Bold Statement"
     assert preset["base"]["fontSize"] == 0.08
     assert preset["base"]["revealMode"] == "progressive"
+    assert preset["base"]["highlightColors"] == ["#ffe600"]
+    assert preset["base"]["textTransform"] == "none"
+    assert preset["base"]["italic"] is False
+    assert preset["base"]["glow"] is False
+    assert preset["base"]["outline"] is None
+    assert preset["base"]["shadow"] is None
     assert preset["bounds"]["verticalPosition"] == {"min": 0.1, "max": 0.85}
+    # outline/shadow/glow/textTransform have no per-preset bounds entry (arch §10).
+    assert "outline" not in preset["bounds"]
+    assert "shadow" not in preset["bounds"]
