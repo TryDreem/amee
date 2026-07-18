@@ -9,6 +9,7 @@ class Project(BaseModel):
     owner_id: UUID
     name: str
     video_url: str
+    language: str | None
     thumbnail_url: str | None
     preview_video_url: str | None
     video_width: int | None

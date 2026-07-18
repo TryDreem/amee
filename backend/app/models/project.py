@@ -23,6 +23,9 @@ class ProjectModel(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     video_url: Mapped[str] = mapped_column(String, nullable=False)
+    # Set once at upload, never mutated afterward (arch §2.9) - null means
+    # auto-detect, passed straight through to WhisperX when present.
+    language: Mapped[str | None] = mapped_column(String, nullable=True)
     # All four of these are populated by the transcribe job's probe/
     # thumbnail/proxy branches (arch §2.8b-d), not at upload time — null
     # until each branch finishes (contract §4).

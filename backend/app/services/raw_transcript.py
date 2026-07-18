@@ -41,7 +41,9 @@ async def create_raw_transcript(
     # so the other three branches of the transcribe job (arch §2.8b-d), all
     # genuinely async ffmpeg subprocesses, can actually run concurrently
     # with it rather than waiting behind a blocked loop.
-    words = await asyncio.to_thread(transcribe_video, video_path)
+    words = await asyncio.to_thread(
+        transcribe_video, video_path, language=project.language
+    )
 
     model = await raw_transcript_repo.create(
         session,

@@ -3,13 +3,16 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import PLACEHOLDER_OWNER_ID
+from app.exceptions import DomainValidationError
 from app.integrations import storage
 from app.models.project import ProjectModel
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
+from app.schemas.common import ErrorDetail
 from app.schemas.job import JobType
 from app.schemas.project import Project
 from app.services import style as style_service
+from app.services.language import SUPPORTED_LANGUAGE_CODES
 
 
 async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
@@ -23,6 +26,7 @@ async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
         owner_id=model.owner_id,
         name=model.name,
         video_url=model.video_url,
+        language=model.language,
         thumbnail_url=model.thumbnail_url,
         preview_video_url=model.preview_video_url,
         video_width=model.video_width,
@@ -37,8 +41,25 @@ async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
 
 
 async def create_project(
-    session: AsyncSession, *, name: str | None, filename: str, content: bytes
+    session: AsyncSession,
+    *,
+    name: str | None,
+    filename: str,
+    content: bytes,
+    language: str | None = None,
 ) -> Project:
+    # `language` set once here, at upload, and never mutated afterward -
+    # there's no PUT /projects/{id} (arch §2.9). None means auto-detect,
+    # unchanged from today's behavior.
+    if language is not None and language not in SUPPORTED_LANGUAGE_CODES:
+        raise DomainValidationError(
+            [
+                ErrorDetail(
+                    field="language", issue=f"unsupported language code: {language}"
+                )
+            ]
+        )
+
     # Minted here, not by the DB default: storage needs the id up front to
     # namespace the file. Upload only saves the file (arch §2.8) — no
     # ffmpeg on the request path; width/height/duration/thumbnail_url/
@@ -52,6 +73,7 @@ async def create_project(
         owner_id=PLACEHOLDER_OWNER_ID,
         name=name or filename,
         video_url=video_url,
+        language=language,
     )
     # CaptionStyleSpec is initialized immediately, using the default preset
     # (contract §4) — style doesn't depend on transcription (arch §6).

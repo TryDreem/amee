@@ -10,15 +10,27 @@ from app.services import projects as project_service
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-@router.post("", response_model=Project, status_code=201)
+@router.post(
+    "",
+    response_model=Project,
+    status_code=201,
+    responses={
+        422: {"description": "Upload limits exceeded, or unsupported language code"}
+    },
+)
 async def create_project(
     file: UploadFile = File(...),
     name: str | None = Form(None),
+    language: str | None = Form(None),
     session: AsyncSession = Depends(get_db),
 ) -> Project:
     content = await file.read()
     return await project_service.create_project(
-        session, name=name, filename=file.filename or "upload.mp4", content=content
+        session,
+        name=name,
+        filename=file.filename or "upload.mp4",
+        content=content,
+        language=language,
     )
 
 

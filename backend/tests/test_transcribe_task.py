@@ -157,7 +157,9 @@ def test_transcribe_task_reports_progress_while_processing(
     catch."""
     job_id = asyncio.run(_create_queued_job(sample_video))
 
-    def slow_transcribe(path: Path) -> list[TranscribedWord]:
+    def slow_transcribe(
+        path: Path, language: str | None = None
+    ) -> list[TranscribedWord]:
         time.sleep(0.4)
         return _FAKE_WORDS
 

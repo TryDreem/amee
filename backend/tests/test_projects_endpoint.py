@@ -23,6 +23,9 @@ async def test_create_list_get_project_roundtrip(sample_video: Path) -> None:
         assert create_response.status_code == 201
         created = create_response.json()
         assert created["name"] == "My Project"
+        # Omitted `language` -> null, auto-detect (arch §2.9), unchanged
+        # from today's behavior.
+        assert created["language"] is None
         # Upload only saves the file (arch §2.8) — no ffmpeg on the request
         # path, so these all start null and are filled in later by the
         # transcribe job.
@@ -53,6 +56,43 @@ async def test_create_list_get_project_roundtrip(sample_video: Path) -> None:
         style = await style_repo.get(session, uuid.UUID(project_id))
     assert style is not None
     assert style.overrides == {}
+
+
+async def test_create_project_with_language_roundtrip(sample_video: Path) -> None:
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        with sample_video.open("rb") as f:
+            create_response = await client.post(
+                "/api/v1/projects",
+                files={"file": ("sample.mp4", f, "video/mp4")},
+                data={"language": "ru"},
+            )
+        assert create_response.status_code == 201
+        created = create_response.json()
+        assert created["language"] == "ru"
+
+        get_response = await client.get(f"/api/v1/projects/{created['id']}")
+        assert get_response.status_code == 200
+        assert get_response.json()["language"] == "ru"
+
+
+async def test_create_project_with_unsupported_language_returns_422(
+    sample_video: Path,
+) -> None:
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        with sample_video.open("rb") as f:
+            response = await client.post(
+                "/api/v1/projects",
+                files={"file": ("sample.mp4", f, "video/mp4")},
+                data={"language": "xx"},
+            )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error"]["code"] == "validation_error"
+        assert body["error"]["details"][0]["field"] == "language"
 
 
 async def test_get_project_not_found() -> None:

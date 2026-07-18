@@ -16,9 +16,14 @@ class TranscribedWord:
     end: float
 
 
-def transcribe_video(path: Path) -> list[TranscribedWord]:
+def transcribe_video(path: Path, language: str | None = None) -> list[TranscribedWord]:
     """Word-level transcript via WhisperX (arch §1.3) — called exactly once
     per video (P1), never re-invoked by later edits.
+
+    `language` (arch §2.9): an ISO 639-1 code passed straight through to
+    WhisperX, skipping its own auto-detection. `None` (the default) leaves
+    `load_model`'s call exactly as it was before this parameter existed -
+    WhisperX auto-detects from the first ~30s of audio, same as today.
 
     Imports whisperx lazily, inside the function, rather than at module
     level: it's a dev-only extra (backend/pyproject.toml's "ml" group, not
@@ -29,7 +34,10 @@ def transcribe_video(path: Path) -> list[TranscribedWord]:
     function) to have the package installed just to boot."""
     import whisperx
 
-    model = whisperx.load_model(_MODEL_NAME, _DEVICE, compute_type=_COMPUTE_TYPE)
+    model_kwargs: dict[str, object] = {"compute_type": _COMPUTE_TYPE}
+    if language is not None:
+        model_kwargs["language"] = language
+    model = whisperx.load_model(_MODEL_NAME, _DEVICE, **model_kwargs)
     audio = whisperx.load_audio(str(path))
     result = model.transcribe(audio)
 

@@ -204,6 +204,8 @@ export interface components {
             file: string;
             /** Name */
             name?: string | null;
+            /** Language */
+            language?: string | null;
         };
         /** Bounds */
         Bounds: {
@@ -459,6 +461,8 @@ export interface components {
             name: string;
             /** Video Url */
             video_url: string;
+            /** Language */
+            language: string | null;
             /** Thumbnail Url */
             thumbnail_url: string | null;
             /** Preview Video Url */
@@ -686,14 +690,12 @@ export interface operations {
                     "application/json": components["schemas"]["Project"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Upload limits exceeded, or unsupported language code */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
+                content?: never;
             };
         };
     };

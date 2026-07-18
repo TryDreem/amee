@@ -12,6 +12,7 @@ async def create(
     owner_id: uuid.UUID,
     name: str,
     video_url: str,
+    language: str | None = None,
     project_id: uuid.UUID | None = None,
 ) -> ProjectModel:
     """`project_id` is optional: the column defaults to a fresh uuid4 if
@@ -21,7 +22,9 @@ async def create(
     here — POST /projects only saves the file (arch §2.8); those, plus
     thumbnail_url/preview_video_url, are written later by update_media/
     update_preview once the transcribe job's branches finish."""
-    project = ProjectModel(owner_id=owner_id, name=name, video_url=video_url)
+    project = ProjectModel(
+        owner_id=owner_id, name=name, video_url=video_url, language=language
+    )
     if project_id is not None:
         project.id = project_id
     session.add(project)
