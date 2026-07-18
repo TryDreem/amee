@@ -169,6 +169,26 @@ raised — the existing failure handling, now covering four failure sources inst
 **What this reopens from contract §4:** `video_width`, `video_height`, `video_duration_seconds`,
 `thumbnail_url`, and `preview_video_url` are now all nullable and populated asynchronously — the existing rationale for probing at upload time ("the Layout Engine needs them... so there's no reason to make the user wait on WhisperX before they can see style options") no longer holds for these fields specifically. `CaptionStyleSpec` itself is still created and editable immediately (§6 — style doesn't depend on any video content), but *fit calculations* (§8.1), which need real pixel dimensions, now wait on the same job the caption editor does. Flagging this rather than quietly
 leaving the old rationale in place unqualified.
+
+### 2.9 Language selection at upload
+
+`POST /projects` accepts an optional `language` (ISO 639-1 code, e.g. `"ru"`, `"en"`). When present,
+it is passed through unchanged to WhisperX's `language` parameter in the transcribe job's branch (a)
+(§2.8), skipping WhisperX's own language auto-detection. When absent (or explicitly `null`),
+behavior is unchanged from today: no `language` argument is passed, and WhisperX auto-detects from
+the first ~30 seconds of audio.
+
+This exists because auto-detection can commit to the wrong language for an entire transcript based
+on a bad first 30 seconds (silence, music, noise) — giving the user a way to state the language up
+front avoids that failure mode entirely, at zero cost to the default (unspecified) path.
+
+`language` is set once, at upload, and never changes afterward — there is no `PUT` on `Project`, and
+since transcription itself runs exactly once (§1.3), a language correction after the fact would have
+nothing to act on without a second WhisperX pass, which is explicitly out of scope.
+
+Validation: rejected with **422** if `language` is present and not one of WhisperX's supported ISO
+639-1 codes (contract §4) — same envelope as the upload-limit rejections already described there.
+
  
 ---
  
@@ -240,6 +260,8 @@ The ECS is the single mutable document that represents everything the user has d
 Edited Caption Structure
   └── Segment[]                (ordered list of phrase groups)
         ├── id                 (stable, not an array index)
+        ├── overrides          (optional, Partial<StyleObject> | null — see below; the one
+        │                       deliberate exception to §6's Data/Style separation)
         └── Word[]             (ordered list of words belonging to this segment)
               ├── id           (stable)
               ├── text
@@ -264,10 +286,49 @@ Word order within a segment's array must match ascending order by `start` time. 
 #### Segment membership is an authored decision, not derived data
  
 This is a refinement of the "derive, don't store" rule above, and it's worth stating explicitly because it initially reads as a contradiction: **which words belong to which segment, and in what order the segments appear, is *not* something recomputed on the fly.** It is decided once by the Initial Splitter, and from that point on it is part of the user's document, exactly like word text or word timing. The user can change it — via merge, split, reordering, or the explicit Recalculate Groups action (§5.2) — but nothing recalculates it silently as a side effect of some other change (most importantly: **not** as a side effect of a style change, see §6–§7).
- 
+
 So the "derive vs. store" rule splits along a precise line:
 - **Derived, never stored:** a segment's start/end time (computed from its words).
 - **Stored, authored, user-owned:** which words are grouped into which segment, and the order of segments and words.
+
+#### Per-segment style override (deliberate exception to §6's Data/Style separation)
+
+A `Segment` may carry an optional `overrides: Partial<StyleObject> | null` — the exact same sparse
+shape as `CaptionStyleSpec.overrides` (§6, contract §8). This is the **one deliberate exception** in
+the project to "Data says what and when, Style says how" (§6): done specifically for this feature,
+not a precedent for scattering style fields elsewhere.
+
+Addressed by the segment's own stable `id`, never by array index — index shifts on delete/split/merge
+and would silently move an override onto the wrong phrase (a bug caught and fixed during design
+prototyping, before this ever reached real code).
+
+Gated by a document-level toggle, `CaptionStyleSpec.perPhraseStyle: boolean` (default `false`,
+contract §8). Turning it **on** copies or backfills nothing — every segment's `overrides` stays
+empty until the user actually edits that specific segment's style, created lazily at that point.
+Turning it **off** deletes nothing — `overrides` already present on segments is left untouched, ready
+to reappear exactly as it was if the toggle goes back on.
+
+Two different consumers resolve "the effective style for a segment" differently, and both must agree
+on which one they're doing:
+- **Editing UI:** the segment currently selected for editing.
+- **Rendering — preview *and* export, identically:** the segment active at the current time (`t`
+  within that segment's *derived* bounds — still `words[0].start`/`words.at(-1).end`, never a stored
+  field, same rule as always). These are frequently different segments — a user can be editing
+  segment 5's style while segment 2 is on screen. Export must resolve this the same way preview does,
+  or the two will visibly disagree (§12, R1/R2).
+
+**Color model:** `highlightColors` round-robin (§6, contract §8) is the default in both modes. A
+segment's own `overrides.highlightColors`, when present, replaces the round-robin pick for that
+segment only — same field, same indexing formula (`highlightColors[segmentIndex % length]`), which
+degrades naturally to one fixed color at length 1. No separate field, no special case.
+
+**Recalculate Groups:** wipes every segment's `overrides` — a forced consequence of P4 (the splitter
+never receives `CaptionStyleSpec` and therefore cannot produce override data) plus §5.2
+(`Segments[]` replaced entirely), not a new rule. Preserving overrides across a regroup by some
+matching heuristic is explicitly not designed — see §14.
+
+**Bounds:** a segment override is validated against the *same* resolved preset's `bounds` (§9.3, §10) that the global style already uses — `fontSize`, `verticalPosition`, and `safeArea`, if present in the override, must fall within that preset's range, exactly like `CaptionStyleSpec.overrides` (§8). A per-phrase override is a different *value*, not an exemption from the preset's *limits*.
+
  
 #### Save semantics
  
@@ -357,7 +418,8 @@ All of these share the same `Words[] → Segments[]` contract. Only the internal
 Three responsibilities are kept strictly separate, and no layer is allowed to reach into another's job:
  
 - **Edited Caption Structure (Data)** answers: *which words exist, in what order, grouped into which segments.* This is "what to show, and when."
-- **CaptionStyleSpec (Style)** answers: *font, size, weight, color, highlight behavior, vertical position, reveal mode* (whether a whole phrase appears at once with a moving highlight, or words appear progressively one at a time — see §7), and other purely visual settings, expressed as a base preset plus optional overrides (§ preset+delta model, established earlier in the project and unchanged here). This is "how to show it."
+- **CaptionStyleSpec (Style)** answers: *font, size, weight, color, highlight colors (cycled per segment), text transform, italic, outline, glow, shadow, vertical position, reveal mode* (whether a whole phrase appears at once with a moving highlight, or words appear progressively one at a time — see §7), and other purely visual settings, expressed as a base preset plus optional overrides (§ preset+delta model, established earlier in the project and unchanged here). This is "how to show it."
+
 - **Layout Engine** answers: *given the data and the style, where does the text actually go on screen* — line wrapping, text measurement, safe-area application, final placement. This is "how to arrange it inside the frame." Critically, the **Layout Engine never mutates** the Edited Caption Structure or the CaptionStyleSpec — it only reads them and produces a rendering (or a "this doesn't fit" signal, see §8).
  
 **Governing principle, stated exactly as agreed:**
@@ -385,8 +447,8 @@ A practical consequence of this separation, made explicit in the project: **styl
 | Edit a single word's text | `Words[]` updated (text only). | Immediate. |
 | Edit a whole phrase's text | `Words[]` for that segment regenerated via retokenization (algorithm deferred, §4.2). | Immediate. |
 | Drag a word boundary | Adjacent words' `start`/`end` updated together, clamped to neighbors. | Immediate. |
-| Split a segment | `Segments[]` updated — words redistributed into two segments. | Explicit user action. |
-| Merge two segments | `Segments[]` updated — words combined into one segment. | Explicit user action. |
+| Split a segment | `Segments[]` updated — words redistributed into two segments; both inherit the parent's `overrides` unchanged. | Explicit user action. |
+| Merge two segments | `Segments[]` updated — words combined into one segment; the result takes the earlier (lower-start) segment's `overrides`, the later one's is discarded. | Explicit user action. |
 | Recalculate Groups | `Segments[]` fully replaced by the splitter over current `Words[]`. `CaptionStyleSpec` untouched. | Explicit user action only — **never automatic**, regardless of whether the preceding change was to style or content (see §5.2 for why it would be a no-op after a style-only change anyway). |
 | Undo / Redo | Reverts / reapplies whichever of the above was last applied, including Recalculate Groups. | Explicit user action (button or keyboard shortcut). |
  
@@ -456,6 +518,9 @@ This means the top 10% and bottom 15% of the frame are off-limits for caption pl
 - **Units:** font size is stored as a value **relative to video height**, not as an absolute pixel count — e.g., `{ "fontSize": 0.05 }` means 5% of video height. For a 1920px-tall video, that resolves to 96px. Relative units were chosen specifically to prevent preview and export from disagreeing across different video resolutions (the same underlying concern as relative units used elsewhere in the style spec).
 - **Bounds are not a single global constant.** Rather than the system enforcing one hardcoded min/max (an earlier, since-revised idea was a flat 2%–10% range), the correct model is: each preset/`CaptionStyleSpec` defines its **own** default value plus its own min/max bounds. This allows different presets to have appropriately different ranges (a "bold statement" preset and a "dense subtitle" preset don't need to share the same limits), while still protecting against extreme, unusable values within any given preset.
 - This default+bounds-per-preset pattern is intentionally reused for `safeArea` and `verticalPosition` (§9.3) — it's treated as a general pattern for style-scoped numeric properties, not a one-off rule for font size alone.
+- `outline`, `shadow`, and `glow` (CaptionStyleSpec) are not part of the default+bounds-per-preset pattern above — `outline.size`/`shadow.size` are discrete presets (`none|small|medium|large`), `glow` is a plain boolean, and `outline.alpha`/`shadow.alpha` are a fixed 0-100 range, not a per-preset range. None of the three need a `Preset.bounds` entry — see api-contract doc §8-9.
+
+
  
 ---
  
@@ -527,7 +592,8 @@ These are the decisions intentionally left open by this document. None of them b
 12. **Payment/quota integration point** — architecturally anticipated as a service-layer boundary check before expensive operations (§2.4), but no quota model, pricing structure, or provider has been chosen.
 13. **Authentication mechanism** — the data model reserves `owner_id`/`user_id` on every entity from day one (§2.4), but the actual auth mechanism (sessions, JWT, a specific provider) has not been chosen.
 14. **Metrics/observability** — not part of the MVP. RabbitMQ's own management UI gives queue-level metrics (message counts, consumer counts) but nothing about application behavior (job duration,failure rate). If usage grows past single-user, a Prometheus/Grafana-style setup is the natural next step, and it slots in next to §2.6's logging module rather than replacing it — both would read from the same request_id/job_id context. Not needed to design now; flagged so it isn't forgotten.
- 
+15. **Preserving per-segment style overrides across Recalculate Groups** (§4.2) — currently they're wiped, by construction (P4 + §5.2). Whether to design a match-by-content heuristic to preserve them is explicitly deferred, not decided.
+
 ---
  
 *End of architecture report. Next step: design the API contract, using this document as the fixed set of constraints and decisions it must respect.*

@@ -96,7 +96,9 @@ Project management beyond create/list (rename, delete, sharing) is intentionally
 ## 4. Projects & Transcription
 
 ### `POST /projects`
-`multipart/form-data`: video file, optional `name`.
+`multipart/form-data`: video file, optional `name`, optional `language` (ISO 639-1 code, e.g.
+`"ru"`; omitted or explicit `null` = auto-detect — architecture doc §2.9).
+
 
 Creates the `Project` and stores the video via the storage abstraction (architecture doc §2.1) — nothing more. **Does not start processing** — that's a separate, explicit call. This is a genuine design fork, not something forced by the architecture doc: an equally valid design would auto-start processing on upload. Kept separate here because processing (transcription, probing, thumbnail, preview proxy — architecture doc §2.8) is a real cost-incurring action, and an explicit trigger makes that visible rather than implicit in an upload call — flagged in §13 as worth a second look, not a forced conclusion.
 
@@ -104,7 +106,9 @@ Creates the `Project` and stores the video via the storage abstraction (architec
 
 Video width/height/duration, a thumbnail, and (conditionally) a preview proxy are all produced by the same async job that runs WhisperX (architecture doc §2.8) — **not** at upload time. `POST /projects` returns immediately with those fields `null`; the Layout Engine's fit calculations (architecture doc §8.1) wait on `GET /jobs/{id}` reaching `status: "done"`, same as the caption editor does.
 
-**Validation:** rejects the upload against the limits in architecture doc §2.7 — format not mp4/mov, codec not H.264/HEVC, resolution over 4K (3840×2160), or file size over 2GB. **422** with `error.details` identifying which limit was exceeded (§1's envelope — no separate shape for uploads).
+**Validation:** rejects the upload against the limits in architecture doc §2.7 — format not mp4/mov, codec not H.264/HEVC, resolution over 4K (3840×2160), file size over 2GB, or `language` present and not one of WhisperX's supported ISO 639-1 codes (architecture doc §2.9).
+**422** with `error.details` identifying which limit was exceeded (§1's envelope — no separate shape for uploads).
+
 
 **201** →
 ```json
@@ -113,6 +117,7 @@ Video width/height/duration, a thumbnail, and (conditionally) a preview proxy ar
   "owner_id": "uuid",
   "name": "string",
   "video_url": "string",
+  "language": "string | null",
   "thumbnail_url": "string | null",
   "preview_video_url": "string | null",
   "video_width": "number | null",
@@ -133,6 +138,11 @@ equals `video_url` if the source is ≤1080p (no separate file was ever generate
 proxy's URL otherwise. Also `null` until that step finishes.
 
 Note what's **not** here: no `transcription_status` field. Status lives only on the `Job` record (§5) — duplicating it onto `Project` would recreate exactly the "two divergent sources of truth" problem the architecture doc explicitly designed the job system to avoid (§2.3). The client resolves status via `latest_transcribe_job_id` → `GET /jobs/{id}`.
+
+`language` is set once at creation and never changes — no `PUT /projects/{id}` exists to alter it
+(architecture doc §2.9). `null` means auto-detect and is the default when the field is omitted from
+the request.
+
 
 ### `GET /projects` / `GET /projects/{id}`
 Same shape as above. List / single fetch. `404` if not found.
@@ -211,11 +221,16 @@ No `id` per word. The architecture doc is explicit that a `Word` in the ECS carr
   "segments": [
     {
       "id": "uuid",
+      "overrides": { "...same sparse shape as CaptionStyleSpec.overrides, §8..." } | null,
       "words": [ { "id": "uuid", "text": "string", "start": "number", "end": "number" } ]
     }
   ]
+
 }
 ```
+
+`overrides` is the one deliberate exception to Segment being pure Data (architecture doc §4.2) — addressed by the segment's own `id`, never by position in the array.
+
 
 **No `start`/`end` on `Segment`.** The architecture doc is explicit that segment bounds are derived, never stored (§4.2: "any value that can be derived from the words must be derived, never stored redundantly"). Putting them in the wire format anyway would just relocate the same problem one layer over — the backend would either have to trust a client-sent value that might disagree with the words (a validation footgun) or silently recompute and discard it (making the field a lie). Omitting it keeps the rule intact end-to-end; the frontend computes `words[0].start` / `words.at(-1).end` itself, one line either way.
 
@@ -231,6 +246,7 @@ Body: `{ "segments": [...] }` — same shape as the `GET` response, minus `proje
 - words within a segment: non-overlapping, strictly ordered (`previous.end ≤ next.start`)
 - segments: non-overlapping with each other
 - **every segment has at least one word.** This is the backend half of the empty-segment decision: deleting the last word in a segment is a frontend-only content edit (architecture doc §4.2/§6), so the frontend is expected to drop the now-empty segment itself before the user ever saves. This rule is the defensive backstop — if an empty segment somehow reaches `PUT /ecs` anyway, the backend rejects it rather than silently accepting a segment with undefined bounds.
+- **`segment.overrides`, if present:** its `fontSize`, `verticalPosition`, and `safeArea` fields (when present in the override) are validated against the *same resolved preset's* `bounds` (§9) as `PUT /style` uses — checked against the project's `CaptionStyleSpec.presetId`, not a separate per-segment preset. Same rejection behavior: **422** if out of range. This closes the open question of whether per-phrase overrides bypass preset bounds — they do not.
 
 **200** → the persisted document, echoed back. **422** with `error.details` on validation failure. No version bump, no `If-Match` / optimistic-concurrency check — last-write-wins, matching the decision not to introduce versioning for the MVP.
 
@@ -246,24 +262,36 @@ Available immediately from project creation (§4) — never `404`s the way ECS d
   "project_id": "uuid",
   "owner_id": "uuid",
   "presetId": "uuid",
+  "perPhraseStyle": "boolean",
   "overrides": {
     "fontSize": "number",
     "fontFamily": "string",
     "fontWeight": "string | number",
     "color": "string",
-    "highlightColor": "string",
+    "highlightColors": "string[]",
+    "textTransform": "none" | "uppercase",
+    "italic": "boolean",
+    "glow": "boolean",
+    "outline": { "size": "none" | "small" | "medium" | "large", "color": "string", "alpha": "number" } | null,
+    "shadow": { "size": "none" | "small" | "medium" | "large", "color": "string", "alpha": "number" } | null,
     "revealMode": "phrase" | "progressive",
     "verticalPosition": "number",
     "safeArea": { "top": "number", "bottom": "number" }
   }
 }
+
+
+
 ```
 
 `overrides` is sparse — only fields that differ from `presetId`'s base values need to be present; anything absent falls back to the preset. **Flagging this explicitly:** the architecture doc references a "preset plus delta" model as already established in earlier discussion (§6) without giving its wire shape in the document itself. The structure above is a best-effort rendering of that concept, not a re-derivation from anything written down — worth a quick confirmation that it matches what was actually agreed, since this document doesn't have that earlier context to check against.
 
+`highlightColors` cycles by segment index, not a single global color: `color = highlightColors[segmentIndex % highlightColors.length]`. The whole segment is painted with that one color; which word is currently active within the segment is controlled by `revealMode`, not by swapping colors. Preview and export must implement the identical indexing formula (§12 — parity risk).
+
 No `horizontalAlign` field — horizontal centering is fixed renderer behavior in the MVP, not a configurable style property (architecture doc §9.1), so there's nothing to represent here yet.
 
-`PUT` validation: `verticalPosition` and each `safeArea` bound, if present in `overrides`, must fall within the *resolved preset's* bounds (§9) — checked against `presetId`'s `bounds`, not a global constant, per architecture doc §10's explicit rejection of one hardcoded range.
+`PUT` validation: `verticalPosition` and each `safeArea` bound, if present in `overrides`, must fall within the *resolved preset's* bounds (§9) — checked against `presetId`'s `bounds`, not a global constant, per architecture doc §10's explicit rejection of one hardcoded range. `textTransform`, `italic`, `glow`, `outline.size`, and `shadow.size` have no bounds — any value from their type is valid. `outline.alpha` and `shadow.alpha` are validated against a fixed `0-100` range, not a per-preset one.
+
 
 ---
 
@@ -283,7 +311,12 @@ Not project-scoped, no `owner_id` — global and shared, not user content (§1).
       "fontFamily": "string",
       "fontWeight": "string | number",
       "color": "string",
-      "highlightColor": "string",
+      "highlightColors": "string[]",
+      "textTransform": "none" | "uppercase",
+      "italic": "boolean",
+      "glow": "boolean",
+      "outline": { "size": "none" | "small" | "medium" | "large", "color": "string", "alpha": "number" } | null,
+      "shadow": { "size": "none" | "small" | "medium" | "large", "color": "string", "alpha": "number" } | null,
       "revealMode": "phrase" | "progressive",
       "verticalPosition": "number",
       "safeArea": { "top": "number", "bottom": "number" }
@@ -296,8 +329,11 @@ Not project-scoped, no `owner_id` — global and shared, not user content (§1).
         "bottom": { "min": "number", "max": "number" }
       }
     }
+
   }
 ]
+
+
 ```
 
 `default: true` on exactly one preset — this is what `POST /projects` uses to initialize a new project's style (§4), instead of an implicit and fragile "first in the list" convention.
