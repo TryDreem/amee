@@ -1,6 +1,6 @@
 import { STR } from "../i18n";
 import { resolveTheme, UI_MODES, type Prefs } from "../theme";
-import type { Job } from "../api/client";
+import { resolveMediaUrl, type Job } from "../api/client";
 
 const PHASE_ORDER = ["preparing", "transcribing", "generating_preview"] as const;
 type Phase = (typeof PHASE_ORDER)[number];
@@ -12,7 +12,7 @@ interface ProcessingStatusProps {
   pollError: string | null;
   startError: string | null;
   onRetry: () => void;
-  onDone: () => void;
+  onOpenEditor: () => void;
 }
 
 export default function ProcessingStatus({
@@ -22,7 +22,7 @@ export default function ProcessingStatus({
   pollError,
   startError,
   onRetry,
-  onDone,
+  onOpenEditor,
 }: ProcessingStatusProps): JSX.Element {
   const mode = UI_MODES[prefs.mode];
   const isLight = prefs.mode === "light";
@@ -179,8 +179,8 @@ export default function ProcessingStatus({
         )}
 
         {isDone && (
-          <div onClick={onDone} className="amee-cta-btn" style={actionBtnStyle}>
-            {L.backToProjects}
+          <div onClick={onOpenEditor} className="amee-cta-btn" style={actionBtnStyle}>
+            {L.openInEditor}
           </div>
         )}
         {isFailed && (
@@ -198,7 +198,9 @@ export default function ProcessingStatus({
             borderRadius: "20px",
             position: "relative",
             overflow: "hidden",
-            background: `repeating-linear-gradient(135deg,${mode.stripeA},${mode.stripeA} 14px,${mode.stripeB} 14px,${mode.stripeB} 28px)`,
+            background: job?.thumbnail_url
+              ? undefined
+              : `repeating-linear-gradient(135deg,${mode.stripeA},${mode.stripeA} 14px,${mode.stripeB} 14px,${mode.stripeB} 28px)`,
             boxShadow: "0 30px 70px rgba(0,0,0,.4)",
             border: "1px solid " + mode.panelBorder,
             display: "flex",
@@ -206,14 +208,22 @@ export default function ProcessingStatus({
             justifyContent: "center",
           }}
         >
-          <div
-            style={{
-              font: "11px ui-monospace,Menlo,monospace",
-              color: isLight ? "rgba(0,0,0,.35)" : "rgba(255,255,255,.4)",
-            }}
-          >
-            {L.thumbLabel}
-          </div>
+          {job?.thumbnail_url ? (
+            <img
+              src={resolveMediaUrl(job.thumbnail_url)}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <div
+              style={{
+                font: "11px ui-monospace,Menlo,monospace",
+                color: isLight ? "rgba(0,0,0,.35)" : "rgba(255,255,255,.4)",
+              }}
+            >
+              {L.thumbLabel}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -101,6 +101,7 @@ export const styleFixture: CaptionStyleSpec = {
   project_id: PROJECT_ID,
   owner_id: OWNER_ID,
   presetId: PRESET_ID,
+  perPhraseStyle: false,
   overrides: {},
 };
 
@@ -114,7 +115,12 @@ export const presetsFixture: Preset[] = [
       fontFamily: "Inter",
       fontWeight: 700,
       color: "#ffffff",
-      highlightColor: "#ffe600",
+      highlightColors: ["#ffe600"],
+      textTransform: "none",
+      italic: false,
+      glow: false,
+      outline: null,
+      shadow: null,
       revealMode: "progressive",
       verticalPosition: 0.75,
       safeArea: { top: 0.1, bottom: 0.15 },

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import TopBar from "../components/TopBar";
 import ProjectGrid from "../components/ProjectGrid";
@@ -23,6 +24,7 @@ function describeError(err: unknown): string {
 }
 
 export default function Home(): JSX.Element {
+  const navigate = useNavigate();
   const { prefs, update } = useAmeePrefs();
   const [view, setView] = useState<View>("list");
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -100,11 +102,11 @@ export default function Home(): JSX.Element {
       });
   }
 
-  function handleProcessingDone() {
-    setView("list");
-    setActiveProject(null);
-    setJobId(null);
-    refetchProjects();
+  function handleOpenEditor() {
+    if (!activeProject) {
+      return;
+    }
+    navigate(`/projects/${activeProject.id}`);
   }
 
   const mode = UI_MODES[prefs.mode];
@@ -142,7 +144,7 @@ export default function Home(): JSX.Element {
           pollError={pollError}
           startError={startError}
           onRetry={() => startTranscribe(activeProject)}
-          onDone={handleProcessingDone}
+          onOpenEditor={handleOpenEditor}
         />
       )}
     </div>

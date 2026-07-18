@@ -16,6 +16,7 @@ export interface Strings {
   thumbLabel: string;
 
   backToProjects: string;
+  openInEditor: string;
   newProject: string;
   newProjectSub: string;
   dragHere: string;
@@ -52,6 +53,7 @@ export const STR: Record<Lang, Strings> = {
     thumbLabel: "кадр видео",
 
     backToProjects: "К проектам",
+    openInEditor: "Открыть в редакторе",
     newProject: "Новый проект",
     newProjectSub: "Загрузите видео, чтобы начать работу с субтитрами",
     dragHere: "Перетащите видео сюда",
@@ -85,6 +87,7 @@ export const STR: Record<Lang, Strings> = {
     thumbLabel: "video frame",
 
     backToProjects: "Back to projects",
+    openInEditor: "Open in editor",
     newProject: "New project",
     newProjectSub: "Upload a video to start working with subtitles",
     dragHere: "Drag video here",

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { projectFixture, transcribeJobFixture } from "../mocks/fixtures";
@@ -10,7 +10,10 @@ import Home from "./Home";
 function renderHome() {
   return render(
     <MemoryRouter>
-      <Home />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/projects/:id" element={<div>Editor placeholder</div>} />
+      </Routes>
     </MemoryRouter>
   );
 }
@@ -33,10 +36,9 @@ describe("Home", () => {
     // resolves it on the first check.
     expect(await screen.findByText("All done!")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Back to projects"));
+    fireEvent.click(screen.getByText("Open in editor"));
 
-    expect(await screen.findByText(projectFixture.name)).toBeInTheDocument();
-    expect(screen.getByText("Create project")).toBeInTheDocument();
+    expect(await screen.findByText("Editor placeholder")).toBeInTheDocument();
   });
 
   it("recovers from a 409 by polling the project's existing transcribe job", async () => {

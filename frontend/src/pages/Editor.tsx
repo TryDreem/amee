@@ -2,8 +2,22 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import TopBar from "../components/TopBar";
+import CaptionOverlay from "../components/CaptionOverlay";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
-import { ApiError, getProject, resolveMediaUrl, type Project } from "../api/client";
+import {
+  ApiError,
+  getEcs,
+  getProject,
+  getStyle,
+  listPresets,
+  resolveMediaUrl,
+  resolveStyle,
+  type ECS,
+  type CaptionStyleSpec,
+  type PresetBase,
+  type Preset,
+  type Project,
+} from "../api/client";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
 
@@ -35,7 +49,13 @@ export default function Editor(): JSX.Element {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [ecs, setEcs] = useState<ECS | null>(null);
+  const [styleSpec, setStyleSpec] = useState<CaptionStyleSpec | null>(null);
+  const [presets, setPresets] = useState<Preset[] | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoBoxRef = useRef<HTMLDivElement>(null);
+  const [videoBoxSize, setVideoBoxSize] = useState({ width: 0, height: 0 });
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -64,6 +84,45 @@ export default function Editor(): JSX.Element {
       cancelled = true;
     };
   }, [id]);
+
+  // ECS/style/presets are independent of the video player; a failure here shouldn't block
+  // playback — captions just won't render (the video still loads and plays fine on its own).
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+    let cancelled = false;
+    Promise.all([getEcs(id), getStyle(id), listPresets()])
+      .then(([ecsResult, styleResult, presetsResult]) => {
+        if (!cancelled) {
+          setEcs(ecsResult);
+          setStyleSpec(styleResult);
+          setPresets(presetsResult);
+        }
+      })
+      .catch(() => {
+        // Captions are supplementary here; swallow — no error UI blocks the video for this.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    const box = videoBoxRef.current;
+    if (!box) {
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        const { width, height } = entry.contentRect;
+        setVideoBoxSize({ width, height });
+      }
+    });
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [project?.id]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -195,6 +254,11 @@ export default function Editor(): JSX.Element {
       : 9 / 16;
   const videoSrc = resolveMediaUrl(project.preview_video_url ?? project.video_url);
 
+  const activePreset =
+    styleSpec && presets ? presets.find((p) => p.id === styleSpec.presetId) : undefined;
+  const resolvedStyle: PresetBase | null =
+    activePreset && styleSpec ? resolveStyle(activePreset, styleSpec.overrides) : null;
+
   return (
     <div style={{ minHeight: "100vh", background: mode.pageBg }}>
       <TopBar prefs={prefs} onUpdatePrefs={update} />
@@ -208,6 +272,7 @@ export default function Editor(): JSX.Element {
 
         <div style={{ display: "flex", justifyContent: "center" }}>
           <div
+            ref={videoBoxRef}
             style={{
               position: "relative",
               height: "min(70vh, 640px)",
@@ -224,6 +289,15 @@ export default function Editor(): JSX.Element {
               src={videoSrc}
               style={{ width: "100%", height: "100%", objectFit: "contain" }}
             />
+            {ecs && resolvedStyle && videoBoxSize.width > 0 && (
+              <CaptionOverlay
+                segments={ecs.segments}
+                currentTime={currentTime}
+                style={resolvedStyle}
+                containerWidth={videoBoxSize.width}
+                containerHeight={videoBoxSize.height}
+              />
+            )}
           </div>
         </div>
 

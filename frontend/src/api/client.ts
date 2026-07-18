@@ -2,6 +2,14 @@ import type { components } from "./types.gen";
 
 export type Project = components["schemas"]["Project"];
 export type Job = components["schemas"]["Job"];
+export type RawTranscript = components["schemas"]["RawTranscript"];
+export type ECS = components["schemas"]["ECS"];
+export type Segment = components["schemas"]["Segment"];
+export type Word = components["schemas"]["Word"];
+export type CaptionStyleSpec = components["schemas"]["CaptionStyleSpec"];
+export type Preset = components["schemas"]["Preset"];
+export type PresetBase = components["schemas"]["PresetBase"];
+export type StyleOverrides = components["schemas"]["StyleOverrides"];
 
 export class ApiError extends Error {
   readonly status: number;
@@ -70,4 +78,36 @@ export async function transcribeProject(projectId: string): Promise<Job> {
 
 export async function getJob(jobId: string): Promise<Job> {
   return apiFetch<Job>(`/jobs/${jobId}`);
+}
+
+export async function getRawTranscript(projectId: string): Promise<RawTranscript> {
+  return apiFetch<RawTranscript>(`/projects/${projectId}/raw-transcript`);
+}
+
+export async function getEcs(projectId: string): Promise<ECS> {
+  return apiFetch<ECS>(`/projects/${projectId}/ecs`);
+}
+
+export async function getStyle(projectId: string): Promise<CaptionStyleSpec> {
+  return apiFetch<CaptionStyleSpec>(`/projects/${projectId}/style`);
+}
+
+export async function listPresets(): Promise<Preset[]> {
+  return apiFetch<Preset[]>("/presets");
+}
+
+// preset.base merged with the sparse CaptionStyleSpec.overrides — override wins per-field
+// (contract §8-9). Never pre-merged server-side; the frontend resolves it.
+export function resolveStyle(preset: Preset, overrides: StyleOverrides): PresetBase {
+  return { ...preset.base, ...removeNullish(overrides) };
+}
+
+function removeNullish(overrides: StyleOverrides): Partial<PresetBase> {
+  const result: Partial<PresetBase> = {};
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== null && value !== undefined) {
+      (result as Record<string, unknown>)[key] = value;
+    }
+  }
+  return result;
 }
