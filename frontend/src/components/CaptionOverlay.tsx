@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import type { PresetBase, Segment } from "../api/client";
 import { wrapWords } from "../lib/captionFit";
+import { stripPunctuation } from "../lib/stripPunctuation";
 
 interface CaptionOverlayProps {
   segments: Segment[];
@@ -77,14 +78,26 @@ export default function CaptionOverlay({
   const fontSizePx = style.fontSize * containerHeight;
   const fontString = `${style.fontWeight} ${fontSizePx}px ${style.fontFamily}`;
 
-  const wrapped = useMemo(() => {
+  // showPunctuation: false (default) strips displayed punctuation; Word.text itself is never
+  // touched (S7) — a word that strips to empty still occupies its own timeline slot/wrap
+  // position, it's just rendered blank, never removed from the array.
+  const displayWords = useMemo(() => {
     if (!activeSegment) {
+      return null;
+    }
+    return style.showPunctuation
+      ? activeSegment.words
+      : activeSegment.words.map((w) => ({ ...w, text: stripPunctuation(w.text) }));
+  }, [activeSegment, style.showPunctuation]);
+
+  const wrapped = useMemo(() => {
+    if (!displayWords) {
       return null;
     }
     const measure = measureWidthFor(fontString);
     const maxWidth = containerWidth * HORIZONTAL_SAFE_WIDTH_FRACTION;
-    return wrapWords(activeSegment.words, measure, maxWidth);
-  }, [activeSegment, fontString, containerWidth]);
+    return wrapWords(displayWords, measure, maxWidth);
+  }, [displayWords, fontString, containerWidth]);
 
   if (!activeSegment || !wrapped) {
     return null;
@@ -113,6 +126,8 @@ export default function CaptionOverlay({
         pointerEvents: "none",
         fontFamily: style.fontFamily,
         fontWeight: style.fontWeight,
+        fontStyle: style.italic ? "italic" : "normal",
+        textTransform: style.textTransform === "uppercase" ? "uppercase" : "none",
         fontSize: `${fontSizePx}px`,
         lineHeight: 1.25,
         outline: wrapped.overflow ? "2px solid #ef4444" : undefined,
@@ -124,10 +139,11 @@ export default function CaptionOverlay({
           {line.map((text) => {
             const isHighlighted = wordCursor <= revealIdx;
             wordCursor += 1;
+            const color = isHighlighted ? highlightColor : style.color;
             return (
               <span
                 key={wordCursor}
-                style={{ color: isHighlighted ? highlightColor : style.color }}
+                style={{ color, textShadow: style.glow ? `0 0 20px ${color}` : undefined }}
               >
                 {text}{" "}
               </span>

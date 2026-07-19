@@ -46,6 +46,34 @@ export default function StylePanel({
     onChangeOverrides({ highlightColors: next });
   }
 
+  function pillStyle(active: boolean): CSSProperties {
+    return {
+      fontSize: "12.5px",
+      fontWeight: 600,
+      padding: "8px 14px",
+      borderRadius: "8px",
+      cursor: "pointer",
+      background: active ? theme.accent : mode.iconBg,
+      color: active ? theme.text : mode.iconText,
+    };
+  }
+
+  function yesNoRow(label: string, active: boolean, onChange: (value: boolean) => void) {
+    return (
+      <div>
+        <div style={sectionLabelStyle}>{label}</div>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <div className="amee-cta-btn" style={pillStyle(active)} onClick={() => onChange(true)}>
+            {L.yes}
+          </div>
+          <div className="amee-cta-btn" style={pillStyle(!active)} onClick={() => onChange(false)}>
+            {L.no}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "26px" }}>
       <div>
@@ -58,15 +86,7 @@ export default function StylePanel({
                 key={preset.id}
                 onClick={() => onSelectPreset(preset.id)}
                 className="amee-cta-btn"
-                style={{
-                  fontSize: "12.5px",
-                  fontWeight: 600,
-                  padding: "8px 14px",
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                  background: active ? theme.accent : mode.iconBg,
-                  color: active ? theme.text : mode.iconText,
-                }}
+                style={pillStyle(active)}
               >
                 {preset.name}
               </div>
@@ -129,6 +149,38 @@ export default function StylePanel({
           ))}
         </div>
       </div>
+
+      <div>
+        <div style={sectionLabelStyle}>{L.fontWeightLabel}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+          {FONT_WEIGHTS.map(({ value, label }) => (
+            <div
+              key={value}
+              className="amee-cta-btn"
+              style={pillStyle(resolvedStyle.fontWeight === value)}
+              onClick={() => onChangeOverrides({ fontWeight: value })}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {yesNoRow(L.uppercaseLabel, resolvedStyle.textTransform === "uppercase", (value) =>
+        onChangeOverrides({ textTransform: value ? "uppercase" : "none" })
+      )}
+      {yesNoRow(L.italicLabel, resolvedStyle.italic, (value) => onChangeOverrides({ italic: value }))}
+      {yesNoRow(L.glowLabel, resolvedStyle.glow, (value) => onChangeOverrides({ glow: value }))}
+      {yesNoRow(L.showPunctuationLabel, resolvedStyle.showPunctuation, (value) =>
+        onChangeOverrides({ showPunctuation: value })
+      )}
     </div>
   );
 }
+
+const FONT_WEIGHTS: { value: number; label: string }[] = [
+  { value: 400, label: "Regular" },
+  { value: 600, label: "Semibold" },
+  { value: 700, label: "Bold" },
+  { value: 900, label: "Black" },
+];

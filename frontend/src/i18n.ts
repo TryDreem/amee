@@ -63,6 +63,11 @@ export interface Strings {
   fontSizeLabel: string;
   captionPositionLabel: string;
   highlightColorsLabel: string;
+  fontWeightLabel: string;
+  uppercaseLabel: string;
+  italicLabel: string;
+  glowLabel: string;
+  showPunctuationLabel: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -129,6 +134,11 @@ export const STR: Record<Lang, Strings> = {
     fontSizeLabel: "Размер шрифта",
     captionPositionLabel: "Позиция субтитров",
     highlightColorsLabel: "Цвета выделения",
+    fontWeightLabel: "Насыщенность шрифта",
+    uppercaseLabel: "Заглавные буквы",
+    italicLabel: "Курсив",
+    glowLabel: "Свечение",
+    showPunctuationLabel: "Показывать пунктуацию",
   },
   en: {
     themeLabel: "Theme",
@@ -192,5 +202,10 @@ export const STR: Record<Lang, Strings> = {
     fontSizeLabel: "Font size",
     captionPositionLabel: "Caption position",
     highlightColorsLabel: "Highlight colors",
+    fontWeightLabel: "Font weight",
+    uppercaseLabel: "Uppercase",
+    italicLabel: "Italic",
+    glowLabel: "Glow",
+    showPunctuationLabel: "Show punctuation",
   },
 };

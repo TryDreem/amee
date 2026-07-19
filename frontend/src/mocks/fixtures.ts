@@ -124,6 +124,7 @@ export const presetsFixture: Preset[] = [
       shadow: null,
       showPunctuation: true,
       revealMode: "progressive",
+      captionAnimation: "none",
       verticalPosition: 0.75,
       safeArea: { top: 0.1, bottom: 0.15 },
     },
