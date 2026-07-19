@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import TopBar from "../components/TopBar";
 import CaptionOverlay from "../components/CaptionOverlay";
+import CaptionsPanel, { type WordPopup } from "../components/CaptionsPanel";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
 import {
   ApiError,
@@ -61,6 +62,12 @@ export default function Editor(): JSX.Element {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+
+  // Selection/popup UI state only — nothing here mutates `ecs` yet (Step 5a). Add word /
+  // split segment / delete segment logic lands in later steps; these handlers just manage
+  // which popup or inline confirm is open.
+  const [wordPopup, setWordPopup] = useState<WordPopup>(null);
+  const [confirmDeleteSegmentId, setConfirmDeleteSegmentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) {
@@ -188,6 +195,46 @@ export default function Editor(): JSX.Element {
     if (video) {
       video.muted = next;
     }
+  }
+
+  function handleWordClick(segmentId: string, wordId: string) {
+    setConfirmDeleteSegmentId(null);
+    setWordPopup({ segmentId, wordId });
+  }
+
+  function closeWordPopup() {
+    setWordPopup(null);
+  }
+
+  // TODO(Step 5b): wire ecsEdit.addWordAt and call putEcs / update local `ecs` state.
+  // Params kept to match the real handler signature callers already depend on.
+  function handleAddWord(segmentId: string, wordId: string, side: "left" | "right") {
+    void segmentId;
+    void wordId;
+    void side;
+    setWordPopup(null);
+  }
+
+  // TODO(Step 5c): wire ecsEdit.splitSegmentAt and update local `ecs` state.
+  function handleSplitSegment(segmentId: string, wordId: string) {
+    void segmentId;
+    void wordId;
+    setWordPopup(null);
+  }
+
+  function handleDeleteSegmentClick(segmentId: string) {
+    setWordPopup(null);
+    setConfirmDeleteSegmentId(segmentId);
+  }
+
+  // TODO(Step 5d): wire ecsEdit.deleteSegment and update local `ecs` state.
+  function handleConfirmDeleteSegment(segmentId: string) {
+    void segmentId;
+    setConfirmDeleteSegmentId(null);
+  }
+
+  function handleCancelDeleteSegment() {
+    setConfirmDeleteSegmentId(null);
   }
 
   const backLink = (
@@ -379,6 +426,23 @@ export default function Editor(): JSX.Element {
             </div>
           </div>
         </div>
+
+        {ecs && (
+          <CaptionsPanel
+            prefs={prefs}
+            strings={L}
+            segments={ecs.segments}
+            popup={wordPopup}
+            confirmDeleteSegmentId={confirmDeleteSegmentId}
+            onWordClick={handleWordClick}
+            onClosePopup={closeWordPopup}
+            onAddWord={handleAddWord}
+            onSplitSegment={handleSplitSegment}
+            onDeleteClick={handleDeleteSegmentClick}
+            onConfirmDelete={handleConfirmDeleteSegment}
+            onCancelDelete={handleCancelDeleteSegment}
+          />
+        )}
       </div>
     </div>
   );

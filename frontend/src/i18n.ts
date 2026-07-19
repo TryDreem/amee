@@ -36,6 +36,14 @@ export interface Strings {
   procDoneSub: string;
   procFailed: string;
   retry: string;
+
+  addWordLeft: string;
+  addWordRight: string;
+  splitSegment: string;
+  deleteSegment: string;
+  deleteSegmentConfirm: string;
+  yes: string;
+  no: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -76,6 +84,14 @@ export const STR: Record<Lang, Strings> = {
     procDoneSub: "Черновые субтитры готовы",
     procFailed: "Не получилось обработать видео",
     retry: "Повторить",
+
+    addWordLeft: "Добавить слово слева",
+    addWordRight: "Добавить слово справа",
+    splitSegment: "Разбить сегмент",
+    deleteSegment: "Удалить сегмент",
+    deleteSegmentConfirm: "Удалить этот сегмент?",
+    yes: "Да",
+    no: "Нет",
   },
   en: {
     themeLabel: "Theme",
@@ -113,5 +129,13 @@ export const STR: Record<Lang, Strings> = {
     procDoneSub: "Draft captions are ready",
     procFailed: "Something went wrong processing your video",
     retry: "Retry",
+
+    addWordLeft: "Add word left",
+    addWordRight: "Add word right",
+    splitSegment: "Split segment",
+    deleteSegment: "Delete segment",
+    deleteSegmentConfirm: "Delete this segment?",
+    yes: "Yes",
+    no: "No",
   },
 };
