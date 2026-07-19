@@ -6,9 +6,9 @@
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { projectFixture } from "../mocks/fixtures";
+import { ecsFixture, projectFixture } from "../mocks/fixtures";
 import { server } from "../mocks/server";
-import { ApiError, createProject, listProjects } from "./client";
+import { ApiError, createProject, listProjects, putEcs } from "./client";
 
 describe("api client", () => {
   it("listProjects parses the fixture project list", async () => {
@@ -67,6 +67,21 @@ describe("api client", () => {
     await createProject(file, undefined, "ru");
 
     expect(receivedLanguage).toBe("ru");
+  });
+
+  it("putEcs sends the whole segments array as JSON and parses the returned ECS", async () => {
+    let receivedBody: unknown;
+    server.use(
+      http.put("*/api/v1/projects/:projectId/ecs", async ({ request }) => {
+        receivedBody = await request.json();
+        return HttpResponse.json(ecsFixture);
+      })
+    );
+
+    const result = await putEcs(ecsFixture.project_id, ecsFixture.segments);
+
+    expect(result).toEqual(ecsFixture);
+    expect(receivedBody).toEqual({ segments: ecsFixture.segments });
   });
 
   it("surfaces a non-2xx response as an ApiError with status and body", async () => {

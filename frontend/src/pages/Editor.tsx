@@ -11,6 +11,7 @@ import {
   getProject,
   getStyle,
   listPresets,
+  putEcs,
   resolveMediaUrl,
   resolveStyle,
   type ECS,
@@ -76,6 +77,41 @@ export default function Editor(): JSX.Element {
     clearTimeout(noticeTimerRef.current);
     setNotice(text);
     noticeTimerRef.current = setTimeout(() => setNotice(null), 10000);
+  }
+
+  // Save: explicit action only (CLAUDE.md "Settled": whole-document PUT, no autosave on
+  // every edit). `dirty` tracks whether anything has changed since the last successful save
+  // or load — Add word/Split/Delete (5b-5d) all flow through setEcs, so marking dirty there
+  // covers all three without each handler needing to know about saving.
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [justSaved, setJustSaved] = useState(false);
+
+  function updateEcs(next: ECS) {
+    setEcs(next);
+    setDirty(true);
+  }
+
+  async function handleSave() {
+    if (!id || !ecs || saving || !dirty) {
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const saved = await putEcs(id, ecs.segments);
+      setEcs(saved);
+      setDirty(false);
+      setJustSaved(true);
+      clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setJustSaved(false), 2000);
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? `${err.status}: ${err.message}` : L.saveFailed);
+    } finally {
+      setSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -227,7 +263,7 @@ export default function Editor(): JSX.Element {
       showNotice(L.noticeNoRoom);
       return;
     }
-    setEcs({ ...ecs, segments: result.segments });
+    updateEcs({ ...ecs, segments: result.segments });
     setPendingWordId(result.newWordId);
   }
 
@@ -243,7 +279,7 @@ export default function Editor(): JSX.Element {
       return;
     }
     const result = commitWordText(ecs.segments, segment.id, pendingWordId, text);
-    setEcs({ ...ecs, segments: result.segments });
+    updateEcs({ ...ecs, segments: result.segments });
     setPendingWordId(null);
     if (result.kind === "removed_limit") {
       showNotice(result.limit === "words" ? L.noticeMaxWords : L.noticeMaxChars);
@@ -261,7 +297,7 @@ export default function Editor(): JSX.Element {
     if ("noop" in result) {
       return;
     }
-    setEcs({ ...ecs, segments: result.segments });
+    updateEcs({ ...ecs, segments: result.segments });
   }
 
   function handleDeleteSegmentClick(segmentId: string) {
@@ -282,7 +318,7 @@ export default function Editor(): JSX.Element {
         setPendingWordId(null);
       }
     }
-    setEcs({ ...ecs, segments: deleteSegment(ecs.segments, segmentId) });
+    updateEcs({ ...ecs, segments: deleteSegment(ecs.segments, segmentId) });
   }
 
   function handleCancelDeleteSegment() {
@@ -363,7 +399,45 @@ export default function Editor(): JSX.Element {
       <TopBar prefs={prefs} onUpdatePrefs={update} />
 
       <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px" }}>
-        {backLink}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "16px",
+          }}
+        >
+          {backLink}
+
+          {ecs && (
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {saveError && (
+                <span role="alert" style={{ fontSize: "12px", color: "#ef4444" }}>
+                  {saveError}
+                </span>
+              )}
+              {justSaved && !dirty && (
+                <span style={{ fontSize: "12px", color: mode.textFaint3 }}>{L.saved}</span>
+              )}
+              <div
+                onClick={handleSave}
+                className="amee-cta-btn"
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  color: theme.text,
+                  background: theme.accent,
+                  padding: "8px 18px",
+                  borderRadius: "8px",
+                  cursor: dirty && !saving ? "pointer" : "default",
+                  opacity: dirty && !saving ? 1 : 0.5,
+                }}
+              >
+                {saving ? L.saving : L.save}
+              </div>
+            </div>
+          )}
+        </div>
 
         <div style={{ fontSize: "13px", fontWeight: 600, color: mode.textFaint3, marginBottom: "16px" }}>
           {project.name}

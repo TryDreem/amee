@@ -48,6 +48,11 @@ export interface Strings {
   noticeMaxWords: string;
   noticeMaxChars: string;
   noticeNoRoom: string;
+
+  save: string;
+  saving: string;
+  saved: string;
+  saveFailed: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -99,6 +104,11 @@ export const STR: Record<Lang, Strings> = {
     noticeMaxWords: `Максимум ${EDIT_MAX_WORDS_PER_SEGMENT} слов в сегменте`,
     noticeMaxChars: `Максимум ${EDIT_MAX_CHARS_PER_SEGMENT} символов в сегменте`,
     noticeNoRoom: "Недостаточно места для нового слова",
+
+    save: "Сохранить",
+    saving: "Сохраняем…",
+    saved: "Сохранено",
+    saveFailed: "Не удалось сохранить",
   },
   en: {
     themeLabel: "Theme",
@@ -147,5 +157,10 @@ export const STR: Record<Lang, Strings> = {
     noticeMaxWords: `Max ${EDIT_MAX_WORDS_PER_SEGMENT} words per segment`,
     noticeMaxChars: `Max ${EDIT_MAX_CHARS_PER_SEGMENT} characters per segment`,
     noticeNoRoom: "Not enough room for a new word",
+
+    save: "Save",
+    saving: "Saving…",
+    saved: "Saved",
+    saveFailed: "Failed to save",
   },
 };

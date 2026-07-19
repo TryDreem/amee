@@ -98,6 +98,16 @@ export async function getEcs(projectId: string): Promise<ECS> {
   return apiFetch<ECS>(`/projects/${projectId}/ecs`);
 }
 
+// Whole-document PUT (no PATCH) — segments is the entire ECS.segments, not a diff (CLAUDE.md
+// "Settled": whole-document PUT). 422 means V1-V5 validation failed (contract §7).
+export async function putEcs(projectId: string, segments: Segment[]): Promise<ECS> {
+  return apiFetch<ECS>(`/projects/${projectId}/ecs`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ segments }),
+  });
+}
+
 export async function getStyle(projectId: string): Promise<CaptionStyleSpec> {
   return apiFetch<CaptionStyleSpec>(`/projects/${projectId}/style`);
 }
