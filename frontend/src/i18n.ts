@@ -1,3 +1,4 @@
+import { EDIT_MAX_CHARS_PER_SEGMENT, EDIT_MAX_WORDS_PER_SEGMENT } from "./lib/ecsEdit";
 import type { Lang } from "./theme";
 
 export interface Strings {
@@ -44,6 +45,9 @@ export interface Strings {
   deleteSegmentConfirm: string;
   yes: string;
   no: string;
+  noticeMaxWords: string;
+  noticeMaxChars: string;
+  noticeNoRoom: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -92,6 +96,9 @@ export const STR: Record<Lang, Strings> = {
     deleteSegmentConfirm: "Удалить этот сегмент?",
     yes: "Да",
     no: "Нет",
+    noticeMaxWords: `Максимум ${EDIT_MAX_WORDS_PER_SEGMENT} слов в сегменте`,
+    noticeMaxChars: `Максимум ${EDIT_MAX_CHARS_PER_SEGMENT} символов в сегменте`,
+    noticeNoRoom: "Недостаточно места для нового слова",
   },
   en: {
     themeLabel: "Theme",
@@ -137,5 +144,8 @@ export const STR: Record<Lang, Strings> = {
     deleteSegmentConfirm: "Delete this segment?",
     yes: "Yes",
     no: "No",
+    noticeMaxWords: `Max ${EDIT_MAX_WORDS_PER_SEGMENT} words per segment`,
+    noticeMaxChars: `Max ${EDIT_MAX_CHARS_PER_SEGMENT} characters per segment`,
+    noticeNoRoom: "Not enough room for a new word",
   },
 };

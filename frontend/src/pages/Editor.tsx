@@ -21,6 +21,7 @@ import {
 } from "../api/client";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
+import { addWordAt, commitWordText } from "../lib/ecsEdit";
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -63,11 +64,19 @@ export default function Editor(): JSX.Element {
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
 
-  // Selection/popup UI state only — nothing here mutates `ecs` yet (Step 5a). Add word /
-  // split segment / delete segment logic lands in later steps; these handlers just manage
-  // which popup or inline confirm is open.
+  // Editing UI state. Split segment / delete segment mutation logic lands in Steps 5c/5d;
+  // Add word (Step 5b) is real below.
   const [wordPopup, setWordPopup] = useState<WordPopup>(null);
   const [confirmDeleteSegmentId, setConfirmDeleteSegmentId] = useState<string | null>(null);
+  const [pendingWordId, setPendingWordId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  function showNotice(text: string) {
+    clearTimeout(noticeTimerRef.current);
+    setNotice(text);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 10000);
+  }
 
   useEffect(() => {
     if (!id) {
@@ -206,13 +215,39 @@ export default function Editor(): JSX.Element {
     setWordPopup(null);
   }
 
-  // TODO(Step 5b): wire ecsEdit.addWordAt and call putEcs / update local `ecs` state.
-  // Params kept to match the real handler signature callers already depend on.
+  // Add word: real (Step 5b). Purely local edit state until an explicit save (Step 5e) —
+  // nothing here calls PUT /ecs yet.
   function handleAddWord(segmentId: string, wordId: string, side: "left" | "right") {
-    void segmentId;
-    void wordId;
-    void side;
     setWordPopup(null);
+    if (!ecs) {
+      return;
+    }
+    const result = addWordAt(ecs.segments, segmentId, wordId, side);
+    if ("error" in result) {
+      showNotice(L.noticeNoRoom);
+      return;
+    }
+    setEcs({ ...ecs, segments: result.segments });
+    setPendingWordId(result.newWordId);
+  }
+
+  // Empty text removes the just-inserted word again; text over the edit-time limits
+  // (architecture.md §7.1) also removes it, with a 10s notice explaining which limit.
+  function handleCommitPendingWord(text: string) {
+    if (!ecs || !pendingWordId) {
+      return;
+    }
+    const segment = ecs.segments.find((s) => s.words.some((w) => w.id === pendingWordId));
+    if (!segment) {
+      setPendingWordId(null);
+      return;
+    }
+    const result = commitWordText(ecs.segments, segment.id, pendingWordId, text);
+    setEcs({ ...ecs, segments: result.segments });
+    setPendingWordId(null);
+    if (result.kind === "removed_limit") {
+      showNotice(result.limit === "words" ? L.noticeMaxWords : L.noticeMaxChars);
+    }
   }
 
   // TODO(Step 5c): wire ecsEdit.splitSegmentAt and update local `ecs` state.
@@ -427,6 +462,25 @@ export default function Editor(): JSX.Element {
           </div>
         </div>
 
+        {notice && (
+          <div
+            role="alert"
+            style={{
+              maxWidth: "640px",
+              margin: "18px auto 0",
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: "rgba(239,68,68,.12)",
+              color: "#ef4444",
+              fontSize: "13px",
+              fontWeight: 600,
+              textAlign: "center",
+            }}
+          >
+            {notice}
+          </div>
+        )}
+
         {ecs && (
           <CaptionsPanel
             prefs={prefs}
@@ -434,6 +488,7 @@ export default function Editor(): JSX.Element {
             segments={ecs.segments}
             popup={wordPopup}
             confirmDeleteSegmentId={confirmDeleteSegmentId}
+            pendingWordId={pendingWordId}
             onWordClick={handleWordClick}
             onClosePopup={closeWordPopup}
             onAddWord={handleAddWord}
@@ -441,6 +496,7 @@ export default function Editor(): JSX.Element {
             onDeleteClick={handleDeleteSegmentClick}
             onConfirmDelete={handleConfirmDeleteSegment}
             onCancelDelete={handleCancelDeleteSegment}
+            onCommitPendingWord={handleCommitPendingWord}
           />
         )}
       </div>

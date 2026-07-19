@@ -10,6 +10,7 @@ interface CaptionsPanelProps {
   segments: Segment[];
   popup: WordPopup;
   confirmDeleteSegmentId: string | null;
+  pendingWordId: string | null;
   onWordClick: (segmentId: string, wordId: string) => void;
   onClosePopup: () => void;
   onAddWord: (segmentId: string, wordId: string, side: "left" | "right") => void;
@@ -17,6 +18,7 @@ interface CaptionsPanelProps {
   onDeleteClick: (segmentId: string) => void;
   onConfirmDelete: (segmentId: string) => void;
   onCancelDelete: () => void;
+  onCommitPendingWord: (text: string) => void;
 }
 
 function segmentRange(segment: Segment): string {
@@ -34,6 +36,7 @@ export default function CaptionsPanel({
   segments,
   popup,
   confirmDeleteSegmentId,
+  pendingWordId,
   onWordClick,
   onClosePopup,
   onAddWord,
@@ -41,6 +44,7 @@ export default function CaptionsPanel({
   onDeleteClick,
   onConfirmDelete,
   onCancelDelete,
+  onCommitPendingWord,
 }: CaptionsPanelProps): JSX.Element {
   const mode = UI_MODES[prefs.mode];
   const isLight = prefs.mode === "light";
@@ -133,27 +137,51 @@ export default function CaptionsPanel({
             <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
               {segment.words.map((word) => {
                 const isSelected = popup?.wordId === word.id;
+                const isPending = pendingWordId === word.id;
                 return (
                   <span key={word.id} style={{ display: "inline-block", marginRight: "4px" }}>
-                    <span
-                      onClick={() =>
-                        isSelected ? onClosePopup() : onWordClick(segment.id, word.id)
-                      }
-                      style={{
-                        cursor: "pointer",
-                        borderRadius: "4px",
-                        padding: "1px 3px",
-                        color: mode.textMain,
-                        background: isSelected
-                          ? theme.accent
-                          : isLight
-                            ? "transparent"
-                            : "transparent",
-                      }}
-                    >
-                      {word.text || "…"}
-                    </span>
-                    {isSelected && (
+                    {isPending ? (
+                      <input
+                        autoFocus
+                        defaultValue=""
+                        data-testid={`pending-word-input-${word.id}`}
+                        onBlur={(e) => onCommitPendingWord(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        style={{
+                          width: "70px",
+                          fontSize: "14px",
+                          padding: "1px 4px",
+                          borderRadius: "4px",
+                          border: "1px solid " + theme.accent,
+                          background: mode.inputBg,
+                          color: mode.textMain,
+                        }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() =>
+                          isSelected ? onClosePopup() : onWordClick(segment.id, word.id)
+                        }
+                        style={{
+                          cursor: "pointer",
+                          borderRadius: "4px",
+                          padding: "1px 3px",
+                          color: mode.textMain,
+                          background: isSelected
+                            ? theme.accent
+                            : isLight
+                              ? "transparent"
+                              : "transparent",
+                        }}
+                      >
+                        {word.text || "…"}
+                      </span>
+                    )}
+                    {isSelected && !isPending && (
                       <span
                         style={{
                           display: "inline-flex",

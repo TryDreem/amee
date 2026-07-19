@@ -30,6 +30,7 @@ describe("CaptionsPanel", () => {
         segments={segments}
         popup={null}
         confirmDeleteSegmentId={null}
+        pendingWordId={null}
         onWordClick={onWordClick}
         onClosePopup={noop}
         onAddWord={noop}
@@ -37,6 +38,7 @@ describe("CaptionsPanel", () => {
         onDeleteClick={noop}
         onConfirmDelete={noop}
         onCancelDelete={noop}
+        onCommitPendingWord={noop}
       />
     );
 
@@ -52,6 +54,7 @@ describe("CaptionsPanel", () => {
         segments={segments}
         popup={{ segmentId: "seg-1", wordId: "w-1" }}
         confirmDeleteSegmentId={null}
+        pendingWordId={null}
         onWordClick={noop}
         onClosePopup={noop}
         onAddWord={noop}
@@ -59,6 +62,7 @@ describe("CaptionsPanel", () => {
         onDeleteClick={noop}
         onConfirmDelete={noop}
         onCancelDelete={noop}
+        onCommitPendingWord={noop}
       />
     );
 
@@ -77,6 +81,7 @@ describe("CaptionsPanel", () => {
         segments={segments}
         popup={{ segmentId: "seg-1", wordId: "w-1" }}
         confirmDeleteSegmentId={null}
+        pendingWordId={null}
         onWordClick={noop}
         onClosePopup={noop}
         onAddWord={onAddWord}
@@ -84,6 +89,7 @@ describe("CaptionsPanel", () => {
         onDeleteClick={noop}
         onConfirmDelete={noop}
         onCancelDelete={noop}
+        onCommitPendingWord={noop}
       />
     );
 
@@ -103,6 +109,7 @@ describe("CaptionsPanel", () => {
         segments={segments}
         popup={null}
         confirmDeleteSegmentId={null}
+        pendingWordId={null}
         onWordClick={noop}
         onClosePopup={noop}
         onAddWord={noop}
@@ -110,6 +117,7 @@ describe("CaptionsPanel", () => {
         onDeleteClick={onDeleteClick}
         onConfirmDelete={noop}
         onCancelDelete={noop}
+        onCommitPendingWord={noop}
       />
     );
 
@@ -125,6 +133,7 @@ describe("CaptionsPanel", () => {
         segments={segments}
         popup={null}
         confirmDeleteSegmentId="seg-1"
+        pendingWordId={null}
         onWordClick={noop}
         onClosePopup={noop}
         onAddWord={noop}
@@ -132,11 +141,39 @@ describe("CaptionsPanel", () => {
         onDeleteClick={onDeleteClick}
         onConfirmDelete={onConfirmDelete}
         onCancelDelete={onCancelDelete}
+        onCommitPendingWord={noop}
       />
     );
 
     expect(screen.getByText("Delete this segment?")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Yes"));
     expect(onConfirmDelete).toHaveBeenCalledWith("seg-1");
+  });
+
+  it("renders an input for the pending word and commits its text on blur", () => {
+    const onCommitPendingWord = vi.fn();
+    render(
+      <CaptionsPanel
+        prefs={prefs}
+        strings={STR.en}
+        segments={segments}
+        popup={null}
+        confirmDeleteSegmentId={null}
+        pendingWordId="w-1"
+        onWordClick={noop}
+        onClosePopup={noop}
+        onAddWord={noop}
+        onSplitSegment={noop}
+        onDeleteClick={noop}
+        onConfirmDelete={noop}
+        onCancelDelete={noop}
+        onCommitPendingWord={onCommitPendingWord}
+      />
+    );
+
+    const input = screen.getByTestId("pending-word-input-w-1");
+    fireEvent.change(input, { target: { value: "hi" } });
+    fireEvent.blur(input);
+    expect(onCommitPendingWord).toHaveBeenCalledWith("hi");
   });
 });
