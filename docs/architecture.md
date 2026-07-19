@@ -418,9 +418,25 @@ All of these share the same `Words[] → Segments[]` contract. Only the internal
 Three responsibilities are kept strictly separate, and no layer is allowed to reach into another's job:
  
 - **Edited Caption Structure (Data)** answers: *which words exist, in what order, grouped into which segments.* This is "what to show, and when."
-- **CaptionStyleSpec (Style)** answers: *font, size, weight, color, highlight colors (cycled per segment), text transform, italic, outline, glow, shadow, punctuation display, vertical position, reveal mode* (whether a whole phrase appears at once with a moving highlight, or words appear progressively one at a time — see §7), and other purely visual settings, expressed as a base preset plus optional overrides (§ preset+delta model, established earlier in the project and unchanged here). This is "how to show it."
+- **CaptionStyleSpec (Style)** answers: *font, size, weight, color, highlight colors (cycled per segment), text transform, italic, outline, glow, shadow, punctuation display, vertical position, reveal mode* (whether a whole phrase appears at once with a moving highlight, words appear
+progressively one at a time, or only the single currently-active word is shown at all — see §7), *caption animation* (a purely cosmetic entrance transition, independent of reveal mode — see §7), and other purely visual settings, expressed as a base preset plus optional overrides (§ preset+delta model, established earlier in the project and unchanged here). This is "how to
+show it."
+
 
 `showPunctuation` (default `false`) is another instance of this same rule: it changes what's *displayed*, never `Word.text` itself. Stripping happens at render time only, identically in preview and export — exact rule in contract §8.
+
+`revealMode` has a third value, `"single-word"`: only the word currently active is rendered at
+all — every other word in the segment is absent, not dimmed (unlike `"progressive"`, where prior
+words stay visible in the base color). Preview and export must resolve which word(s) exist in the
+DOM/output identically at any instant (§12, R1-R3) — this is a content-visibility difference, not
+a CSS toggle layered over the same markup.
+
+`captionAnimation` (default `"none"`) is a separate field — `"none" | "fade" | "pop" | "bounce" |
+"blur" | "snap"` — controlling only the cosmetic transition played when a segment becomes the
+active one. Orthogonal to `revealMode`: it's *how* the caption block transitions on screen, never
+*which* words are visible, so it composes freely with all three `revealMode` values. No bounds —
+same "any value from the enum is valid" pattern as `textTransform`/`italic`/`glow` (§10).
+
 
 
 - **Layout Engine** answers: *given the data and the style, where does the text actually go on screen* — line wrapping, text measurement, safe-area application, final placement. This is "how to arrange it inside the frame." Critically, the **Layout Engine never mutates** the Edited Caption Structure or the CaptionStyleSpec — it only reads them and produces a rendering (or a "this doesn't fit" signal, see §8).

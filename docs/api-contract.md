@@ -283,7 +283,9 @@ Available immediately from project creation (§4) — never `404`s the way ECS d
     "shadow": { "size": "none" | "small" | "medium" | "large", 
     "color": "string", "alpha": "number" } | null,
     "showPunctuation": "boolean",
-    "revealMode": "phrase" | "progressive",
+    "revealMode": "phrase" | "progressive" | "single-word",
+    "captionAnimation": "none" | "fade" | "pop" | "bounce" | "blur" | "snap",
+
     "verticalPosition": "number",
     "safeArea": { "top": "number", "bottom": "number" }
   }
@@ -299,10 +301,19 @@ Available immediately from project creation (§4) — never `404`s the way ECS d
 
 `showPunctuation` (default `false`) strips sentence punctuation from displayed text only — `Word.text` in ECS is never mutated, same rule as `textTransform`. Exact strip rule: remove `. , ! ? ; : — –` and `..`/`...` ellipsis runs (removed as a unit, not kept as a pause); apostrophes within a word (`don't`) and hyphens between two letters (`well-known`) are preserved. A word that strips to an empty string is dropped from the joined display text but keeps its own timeline slot (still occupies its `[start, end)` window for highlight/reveal purposes). Preview and export must implement the identical rule (§12 — parity risk).
 
+`revealMode: "single-word"` renders only the currently-active word — every other word in the
+segment must be absent from the rendered/exported output at that instant, not merely styled to be
+invisible (§12 parity risk, same class of bug as the `showPunctuation` strip rule above).
+
+`captionAnimation` is unrelated to `revealMode` and has no validation beyond its enum — any value
+from the type is valid, no bounds check, same treatment as `textTransform`/`italic`/`glow`.
+
 
 No `horizontalAlign` field — horizontal centering is fixed renderer behavior in the MVP, not a configurable style property (architecture doc §9.1), so there's nothing to represent here yet.
 
-`PUT` validation: `verticalPosition` and each `safeArea` bound, if present in `overrides`, must fall within the *resolved preset's* bounds (§9) — checked against `presetId`'s `bounds`, not a global constant, per architecture doc §10's explicit rejection of one hardcoded range. `textTransform`, `italic`, `glow`, `outline.size`, and `shadow.size` have no bounds — any value from their type is valid. `outline.alpha` and `shadow.alpha` are validated against a fixed `0-100` range, not a per-preset one.
+`PUT` validation: `verticalPosition` and each `safeArea` bound, if present in `overrides`, must fall within the *resolved preset's* bounds (§9) — checked against `presetId`'s `bounds`, not a global constant, per architecture doc §10's explicit rejection of one hardcoded range. `textTransform`, `italic`, `glow`, `outline.size`, `shadow.size`, `revealMode`, and
+`captionAnimation` have no bounds — any value from their type is valid.
+`outline.alpha` and `shadow.alpha` are validated against a fixed `0-100` range, not a per-preset one.
 
 
 ---
@@ -331,8 +342,10 @@ Not project-scoped, no `owner_id` — global and shared, not user content (§1).
       "shadow": { "size": "none" | "small" | "medium" | "large",
       "color": "string", "alpha": "number" } | null,
       "showPunctuation": "boolean", 
-      "revealMode": "phrase" | "progressive",
+      "revealMode": "phrase" | "progressive" | "single-word",
+      "captionAnimation": "none" | "fade" | "pop" | "bounce" | "blur" | "snap",
       "verticalPosition": "number",
+
       "safeArea": { "top": "number", "bottom": "number" }
     },
     "bounds": {
