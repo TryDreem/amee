@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import TopBar from "../components/TopBar";
 import CaptionOverlay from "../components/CaptionOverlay";
 import CaptionsPanel, { type WordPopup } from "../components/CaptionsPanel";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
@@ -48,7 +47,7 @@ function smallIconBtnStyle(mode: { textFaint2: string }): CSSProperties {
 
 export default function Editor(): JSX.Element {
   const { id } = useParams<{ id: string }>();
-  const { prefs, update } = useAmeePrefs();
+  const { prefs } = useAmeePrefs();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +63,9 @@ export default function Editor(): JSX.Element {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+
+  // Step 6a: left-panel tab. "style" is the default to match the design's own default view.
+  const [activeTab, setActiveTab] = useState<"style" | "captions">("style");
 
   // Editing UI state. Split segment / delete segment mutation logic lands in Steps 5c/5d;
   // Add word (Step 5b) is real below.
@@ -361,7 +363,6 @@ export default function Editor(): JSX.Element {
   if (error) {
     return (
       <div style={{ minHeight: "100vh", background: mode.pageBg }}>
-        <TopBar prefs={prefs} onUpdatePrefs={update} />
         <div style={{ padding: "32px" }}>
           {backLink}
           <div role="alert" style={{ color: "#ef4444" }}>
@@ -375,7 +376,6 @@ export default function Editor(): JSX.Element {
   if (!project) {
     return (
       <div style={{ minHeight: "100vh", background: mode.pageBg }}>
-        <TopBar prefs={prefs} onUpdatePrefs={update} />
         <div style={{ padding: "32px", color: mode.textFaint3 }}>Loading…</div>
       </div>
     );
@@ -389,207 +389,317 @@ export default function Editor(): JSX.Element {
       : 9 / 16;
   const videoSrc = resolveMediaUrl(project.preview_video_url ?? project.video_url);
 
+  // Fixed-size preview box, not a stretch-to-fill one — matches the design's own
+  // previewFrameStyle: the box's own pixel size is derived from the aspect ratio against
+  // a fixed base, then centered in the available space, instead of growing to fill it.
+  const isSquareAspect = Math.abs(aspect - 1) < 0.01;
+  const previewBase = isSquareAspect ? 420 : 500;
+  const previewW = aspect <= 1 ? Math.round(previewBase * aspect) : previewBase;
+  const previewH = aspect <= 1 ? previewBase : Math.round(previewBase / aspect);
+
   const activePreset =
     styleSpec && presets ? presets.find((p) => p.id === styleSpec.presetId) : undefined;
   const resolvedStyle: PresetBase | null =
     activePreset && styleSpec ? resolveStyle(activePreset, styleSpec.overrides) : null;
 
+  const otherTab = activeTab === "style" ? "captions" : "style";
+  const otherTabLabel = activeTab === "style" ? L.captionsTab : L.styleTab;
+
   return (
-    <div style={{ minHeight: "100vh", background: mode.pageBg }}>
-      <TopBar prefs={prefs} onUpdatePrefs={update} />
-
-      <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "16px",
-          }}
-        >
-          {backLink}
-
-          {ecs && (
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              {saveError && (
-                <span role="alert" style={{ fontSize: "12px", color: "#ef4444" }}>
-                  {saveError}
-                </span>
-              )}
-              {justSaved && !dirty && (
-                <span style={{ fontSize: "12px", color: mode.textFaint3 }}>{L.saved}</span>
-              )}
-              <div
-                onClick={handleSave}
-                className="amee-cta-btn"
-                style={{
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  color: theme.text,
-                  background: theme.accent,
-                  padding: "8px 18px",
-                  borderRadius: "8px",
-                  cursor: dirty && !saving ? "pointer" : "default",
-                  opacity: dirty && !saving ? 1 : 0.5,
-                }}
-              >
-                {saving ? L.saving : L.save}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div style={{ fontSize: "13px", fontWeight: 600, color: mode.textFaint3, marginBottom: "16px" }}>
-          {project.name}
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <div
-            ref={videoBoxRef}
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: mode.pageBg }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "14px 24px",
+          borderBottom: "1px solid " + mode.panelBorder,
+          flex: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: "1 1 auto", overflow: "hidden" }}>
+          <Link
+            to="/"
+            aria-label={L.backToProjects}
+            title={L.backToProjects}
+            className="amee-icon-btn"
             style={{
-              position: "relative",
-              height: "min(70vh, 640px)",
-              aspectRatio: String(aspect),
-              maxWidth: "100%",
-              borderRadius: "16px",
-              overflow: "hidden",
-              background: "#000",
-              boxShadow: "0 20px 60px rgba(0,0,0,.4)",
+              flex: "none",
+              width: "30px",
+              height: "30px",
+              borderRadius: "8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: mode.iconBg,
+              color: mode.iconText,
             }}
           >
-            <video
-              ref={videoRef}
-              src={videoSrc}
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-            />
-            {ecs && resolvedStyle && videoBoxSize.width > 0 && (
-              <CaptionOverlay
-                segments={ecs.segments}
-                currentTime={currentTime}
-                style={resolvedStyle}
-                containerWidth={videoBoxSize.width}
-                containerHeight={videoBoxSize.height}
-              />
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 11l9-8 9 8" />
+              <path d="M5 10v10h14V10" />
+            </svg>
+          </Link>
+          <div
+            style={{
+              fontSize: "13.5px",
+              fontWeight: 600,
+              color: mode.textMain,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
+            }}
+          >
+            {project.name}
+          </div>
+        </div>
+
+        {ecs && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {saveError && (
+              <span role="alert" style={{ fontSize: "12px", color: "#ef4444" }}>
+                {saveError}
+              </span>
+            )}
+            {justSaved && !dirty && (
+              <span style={{ fontSize: "12px", color: mode.textFaint3 }}>{L.saved}</span>
+            )}
+            <div
+              onClick={handleSave}
+              className="amee-cta-btn"
+              style={{
+                fontSize: "13px",
+                fontWeight: 700,
+                color: theme.text,
+                background: theme.accent,
+                padding: "8px 18px",
+                borderRadius: "8px",
+                cursor: dirty && !saving ? "pointer" : "default",
+                opacity: dirty && !saving ? 1 : 0.5,
+              }}
+            >
+              {saving ? L.saving : L.save}
+            </div>
+            {/* POST /export is still 501 on the backend (backend/app/api/v1/export.py) --
+                shown, not hidden, so the gap is visible rather than silently dropped. */}
+            <div
+              title="POST /projects/{id}/export — not implemented yet"
+              style={{
+                fontSize: "13px",
+                fontWeight: 700,
+                color: mode.textFaint3,
+                background: mode.cardBg,
+                padding: "8px 18px",
+                borderRadius: "8px",
+                cursor: "not-allowed",
+                opacity: 0.5,
+              }}
+            >
+              {L.export}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <div
+          style={{
+            width: "58%",
+            flex: "none",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            borderRight: "1px solid " + mode.panelBorder,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "16px 22px",
+              flex: "none",
+            }}
+          >
+            <div style={{ fontSize: "15px", fontWeight: 700, color: mode.textMain }}>
+              {activeTab === "style" ? L.styleTab : L.captionsTab}
+            </div>
+            <div
+              onClick={() => setActiveTab(otherTab)}
+              className="amee-cta-btn"
+              style={{
+                fontSize: "12.5px",
+                fontWeight: 700,
+                color: theme.text,
+                background: theme.accent,
+                padding: "7px 14px",
+                borderRadius: "8px",
+                cursor: "pointer",
+              }}
+            >
+              {otherTabLabel}
+            </div>
+          </div>
+
+          {notice && (
+            <div
+              role="alert"
+              style={{
+                margin: "0 22px 12px",
+                padding: "10px 14px",
+                borderRadius: "8px",
+                background: "rgba(239,68,68,.12)",
+                color: "#ef4444",
+                fontSize: "13px",
+                fontWeight: 600,
+                textAlign: "center",
+                flex: "none",
+              }}
+            >
+              {notice}
+            </div>
+          )}
+
+          <div style={{ flex: 1, overflow: "auto", minHeight: 0, padding: "0 22px 22px" }}>
+            {activeTab === "captions" ? (
+              ecs && (
+                <CaptionsPanel
+                  prefs={prefs}
+                  strings={L}
+                  segments={ecs.segments}
+                  popup={wordPopup}
+                  confirmDeleteSegmentId={confirmDeleteSegmentId}
+                  pendingWordId={pendingWordId}
+                  onWordClick={handleWordClick}
+                  onClosePopup={closeWordPopup}
+                  onAddWord={handleAddWord}
+                  onSplitSegment={handleSplitSegment}
+                  onDeleteClick={handleDeleteSegmentClick}
+                  onConfirmDelete={handleConfirmDeleteSegment}
+                  onCancelDelete={handleCancelDeleteSegment}
+                  onCommitPendingWord={handleCommitPendingWord}
+                />
+              )
+            ) : (
+              <div style={{ fontSize: "13px", color: mode.textFaint3, padding: "40px 0", textAlign: "center" }}>
+                {L.stylePanelPlaceholder}
+              </div>
             )}
           </div>
         </div>
 
-        <div
-          style={{
-            maxWidth: "640px",
-            margin: "18px auto 0",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-          }}
-        >
-          <input
-            type="range"
-            min={0}
-            max={1000}
-            step={1}
-            value={duration ? Math.round((currentTime / duration) * 1000) : 0}
-            onChange={(e) => seekTo((Number(e.target.value) / 1000) * duration)}
-            style={{ width: "100%", accentColor: theme.accent }}
-          />
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-              <div
-                onClick={togglePlay}
-                className="amee-icon-btn"
-                style={{
-                  width: "36px",
-                  height: "36px",
-                  borderRadius: "50%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  background: theme.accent,
-                  color: theme.text,
-                  fontSize: "13px",
-                }}
-              >
-                {isPlaying ? "❚❚" : "▶"}
-              </div>
-              <div
-                style={{
-                  fontSize: "12.5px",
-                  color: mode.textFaint3,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {formatTime(currentTime)} / {formatTime(duration)}
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <div
-                onClick={() => seekTo(currentTime - 1)}
-                className="amee-icon-btn"
-                style={smallIconBtnStyle(mode)}
-              >
-                «
-              </div>
-              <div
-                onClick={() => seekTo(currentTime + 1)}
-                className="amee-icon-btn"
-                style={smallIconBtnStyle(mode)}
-              >
-                »
-              </div>
-              <div onClick={toggleMute} className="amee-icon-btn" style={smallIconBtnStyle(mode)}>
-                <VolumeIcon muted={muted || volume === 0} />
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={muted ? 0 : volume}
-                onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                style={{ width: "80px", accentColor: theme.accent }}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
+            <div
+              ref={videoBoxRef}
+              style={{
+                position: "relative",
+                width: previewW + "px",
+                height: previewH + "px",
+                borderRadius: "16px",
+                overflow: "hidden",
+                background: "#000",
+                boxShadow: "0 20px 60px rgba(0,0,0,.4)",
+              }}
+            >
+              <video
+                ref={videoRef}
+                src={videoSrc}
+                style={{ width: "100%", height: "100%", objectFit: "contain" }}
               />
+              {ecs && resolvedStyle && videoBoxSize.width > 0 && (
+                <CaptionOverlay
+                  segments={ecs.segments}
+                  currentTime={currentTime}
+                  style={resolvedStyle}
+                  containerWidth={videoBoxSize.width}
+                  containerHeight={videoBoxSize.height}
+                />
+              )}
+            </div>
+          </div>
+
+          <div style={{ flex: "none", padding: "18px 24px 26px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            <input
+              type="range"
+              min={0}
+              max={1000}
+              step={1}
+              value={duration ? Math.round((currentTime / duration) * 1000) : 0}
+              onChange={(e) => seekTo((Number(e.target.value) / 1000) * duration)}
+              style={{ width: "100%", accentColor: theme.accent }}
+            />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                <div
+                  onClick={togglePlay}
+                  className="amee-icon-btn"
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    background: theme.accent,
+                    color: theme.text,
+                    fontSize: "13px",
+                  }}
+                >
+                  {isPlaying ? "❚❚" : "▶"}
+                </div>
+                <div
+                  style={{
+                    fontSize: "12.5px",
+                    color: mode.textFaint3,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div
+                  onClick={() => seekTo(currentTime - 1)}
+                  className="amee-icon-btn"
+                  style={smallIconBtnStyle(mode)}
+                >
+                  «
+                </div>
+                <div
+                  onClick={() => seekTo(currentTime + 1)}
+                  className="amee-icon-btn"
+                  style={smallIconBtnStyle(mode)}
+                >
+                  »
+                </div>
+                <div onClick={toggleMute} className="amee-icon-btn" style={smallIconBtnStyle(mode)}>
+                  <VolumeIcon muted={muted || volume === 0} />
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={muted ? 0 : volume}
+                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                  style={{ width: "80px", accentColor: theme.accent }}
+                />
+              </div>
             </div>
           </div>
         </div>
-
-        {notice && (
-          <div
-            role="alert"
-            style={{
-              maxWidth: "640px",
-              margin: "18px auto 0",
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: "rgba(239,68,68,.12)",
-              color: "#ef4444",
-              fontSize: "13px",
-              fontWeight: 600,
-              textAlign: "center",
-            }}
-          >
-            {notice}
-          </div>
-        )}
-
-        {ecs && (
-          <CaptionsPanel
-            prefs={prefs}
-            strings={L}
-            segments={ecs.segments}
-            popup={wordPopup}
-            confirmDeleteSegmentId={confirmDeleteSegmentId}
-            pendingWordId={pendingWordId}
-            onWordClick={handleWordClick}
-            onClosePopup={closeWordPopup}
-            onAddWord={handleAddWord}
-            onSplitSegment={handleSplitSegment}
-            onDeleteClick={handleDeleteSegmentClick}
-            onConfirmDelete={handleConfirmDeleteSegment}
-            onCancelDelete={handleCancelDeleteSegment}
-            onCommitPendingWord={handleCommitPendingWord}
-          />
-        )}
       </div>
     </div>
   );

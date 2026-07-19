@@ -17,6 +17,12 @@ function formatDate(iso: string, lang: Prefs["lang"]): string {
   );
 }
 
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 export default function ProjectGrid({ prefs, projects, onCreateClick }: ProjectGridProps): JSX.Element {
   const mode = UI_MODES[prefs.mode];
   const isLight = prefs.mode === "light";
@@ -114,11 +120,36 @@ export default function ProjectGrid({ prefs, projects, onCreateClick }: ProjectG
                 }}
               >
                 {p.thumbnail_url ? (
-                  <img
-                    src={resolveMediaUrl(p.thumbnail_url)}
-                    alt=""
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  />
+                  <>
+                    {/* Blurred backdrop fills the 16:9 card regardless of the source video's
+                        own aspect ratio; the real frame sits on top via object-fit: contain
+                        instead of being cropped by a fixed-ratio "cover" box. */}
+                    <img
+                      src={resolveMediaUrl(p.thumbnail_url)}
+                      alt=""
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        filter: "blur(18px) brightness(0.55)",
+                        transform: "scale(1.15)",
+                      }}
+                    />
+                    <img
+                      src={resolveMediaUrl(p.thumbnail_url)}
+                      alt=""
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "contain",
+                      }}
+                    />
+                  </>
                 ) : (
                   <div
                     style={{
@@ -127,6 +158,24 @@ export default function ProjectGrid({ prefs, projects, onCreateClick }: ProjectG
                     }}
                   >
                     {L.thumbLabel}
+                  </div>
+                )}
+                {p.video_duration_seconds != null && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      right: "8px",
+                      bottom: "8px",
+                      padding: "2px 7px",
+                      borderRadius: "5px",
+                      background: "rgba(0,0,0,.7)",
+                      color: "#fff",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {formatDuration(p.video_duration_seconds)}
                   </div>
                 )}
               </div>

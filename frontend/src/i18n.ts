@@ -53,6 +53,11 @@ export interface Strings {
   saving: string;
   saved: string;
   saveFailed: string;
+  export: string;
+
+  styleTab: string;
+  captionsTab: string;
+  stylePanelPlaceholder: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -109,6 +114,11 @@ export const STR: Record<Lang, Strings> = {
     saving: "Сохраняем…",
     saved: "Сохранено",
     saveFailed: "Не удалось сохранить",
+    export: "Экспорт",
+
+    styleTab: "Стиль",
+    captionsTab: "Субтитры",
+    stylePanelPlaceholder: "Панель стилей появится здесь",
   },
   en: {
     themeLabel: "Theme",
@@ -162,5 +172,10 @@ export const STR: Record<Lang, Strings> = {
     saving: "Saving…",
     saved: "Saved",
     saveFailed: "Failed to save",
+    export: "Export",
+
+    styleTab: "Style",
+    captionsTab: "Captions",
+    stylePanelPlaceholder: "Style panel coming here",
   },
 };
