@@ -68,6 +68,12 @@ export interface Strings {
   italicLabel: string;
   glowLabel: string;
   showPunctuationLabel: string;
+  outlineLabel: string;
+  shadowLabel: string;
+  sizeNone: string;
+  sizeSmall: string;
+  sizeMedium: string;
+  sizeLarge: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -139,6 +145,12 @@ export const STR: Record<Lang, Strings> = {
     italicLabel: "Курсив",
     glowLabel: "Свечение",
     showPunctuationLabel: "Показывать пунктуацию",
+    outlineLabel: "Обводка",
+    shadowLabel: "Тень",
+    sizeNone: "Нет",
+    sizeSmall: "Малая",
+    sizeMedium: "Средняя",
+    sizeLarge: "Крупная",
   },
   en: {
     themeLabel: "Theme",
@@ -207,5 +219,11 @@ export const STR: Record<Lang, Strings> = {
     italicLabel: "Italic",
     glowLabel: "Glow",
     showPunctuationLabel: "Show punctuation",
+    outlineLabel: "Outline",
+    shadowLabel: "Shadow",
+    sizeNone: "None",
+    sizeSmall: "Small",
+    sizeMedium: "Medium",
+    sizeLarge: "Large",
   },
 };

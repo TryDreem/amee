@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import type { Preset, PresetBase, StyleOverrides } from "../api/client";
+import type { OutlineOrShadow, Preset, PresetBase, StyleOverrides } from "../api/client";
 import type { Strings } from "../i18n";
 import { resolveTheme, UI_MODES, type Prefs } from "../theme";
 
@@ -70,6 +70,67 @@ export default function StylePanel({
             {L.no}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  const sizeLabels: Record<OutlineOrShadow["size"], string> = {
+    none: L.sizeNone,
+    small: L.sizeSmall,
+    medium: L.sizeMedium,
+    large: L.sizeLarge,
+  };
+
+  function outlineOrShadowSection(
+    label: string,
+    current: OutlineOrShadow | null,
+    onChange: (next: OutlineOrShadow | null) => void
+  ) {
+    const value: OutlineOrShadow = current ?? { size: "none", color: "#000000", alpha: 100 };
+    return (
+      <div>
+        <div style={sectionLabelStyle}>{label}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "10px" }}>
+          {(Object.keys(sizeLabels) as OutlineOrShadow["size"][]).map((size) => (
+            <div
+              key={size}
+              className="amee-cta-btn"
+              style={pillStyle(value.size === size)}
+              onClick={() => onChange(size === "none" ? null : { ...value, size })}
+            >
+              {sizeLabels[size]}
+            </div>
+          ))}
+        </div>
+        {value.size !== "none" && (
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <input
+              type="color"
+              value={value.color}
+              onChange={(e) => onChange({ ...value, color: e.target.value })}
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                border: "1px solid " + mode.cardBorder,
+                padding: 0,
+                cursor: "pointer",
+                background: "none",
+                flex: "none",
+              }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={value.alpha}
+              onChange={(e) => onChange({ ...value, alpha: Number(e.target.value) })}
+              style={{ flex: 1, accentColor: theme.accent }}
+            />
+            <span style={{ fontSize: "11.5px", color: mode.textFaint3, flex: "none" }}>{value.alpha}%</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -173,6 +234,13 @@ export default function StylePanel({
       {yesNoRow(L.glowLabel, resolvedStyle.glow, (value) => onChangeOverrides({ glow: value }))}
       {yesNoRow(L.showPunctuationLabel, resolvedStyle.showPunctuation, (value) =>
         onChangeOverrides({ showPunctuation: value })
+      )}
+
+      {outlineOrShadowSection(L.outlineLabel, resolvedStyle.outline, (outline) =>
+        onChangeOverrides({ outline })
+      )}
+      {outlineOrShadowSection(L.shadowLabel, resolvedStyle.shadow, (shadow) =>
+        onChangeOverrides({ shadow })
       )}
     </div>
   );

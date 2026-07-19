@@ -52,6 +52,22 @@ function highlightColorFor(colors: string[], segmentIndex: number, fallback: str
   return colors[segmentIndex % colors.length] ?? fallback;
 }
 
+// Pure rendering choices, not wire-contract values (outline.size/shadow.size themselves are
+// the contract — contract §8; these px mappings are how the frontend draws them).
+const OUTLINE_WIDTH_PX: Record<string, number> = { none: 0, small: 1, medium: 2, large: 3 };
+const SHADOW_BLUR_PX: Record<string, number> = { none: 0, small: 6, medium: 14, large: 24 };
+
+function hexToRgba(hex: string, alphaPct: number): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m || !m[1] || !m[2] || !m[3]) {
+    return hex;
+  }
+  const r = parseInt(m[1], 16);
+  const g = parseInt(m[2], 16);
+  const b = parseInt(m[3], 16);
+  return `rgba(${r}, ${g}, ${b}, ${alphaPct / 100})`;
+}
+
 // Progressive reveal: last word whose start has passed. "phrase" mode ignores this and
 // highlights the whole segment uniformly once active (§6/§9 revealMode).
 function activeWordIndex(segment: Segment, t: number): number {
@@ -114,6 +130,17 @@ export default function CaptionOverlay({
   const highlightColor = highlightColorFor(style.highlightColors, activeIndex, style.color);
   let wordCursor = 0;
 
+  const outlineWidth = style.outline ? OUTLINE_WIDTH_PX[style.outline.size] ?? 0 : 0;
+  const outlineCss =
+    style.outline && outlineWidth > 0
+      ? `${outlineWidth}px ${hexToRgba(style.outline.color, style.outline.alpha)}`
+      : undefined;
+  const shadowBlur = style.shadow ? SHADOW_BLUR_PX[style.shadow.size] ?? 0 : 0;
+  const shadowCss =
+    style.shadow && shadowBlur > 0
+      ? `0 0 ${shadowBlur}px ${hexToRgba(style.shadow.color, style.shadow.alpha)}`
+      : undefined;
+
   return (
     <div
       style={{
@@ -130,6 +157,7 @@ export default function CaptionOverlay({
         textTransform: style.textTransform === "uppercase" ? "uppercase" : "none",
         fontSize: `${fontSizePx}px`,
         lineHeight: 1.25,
+        WebkitTextStroke: outlineCss,
         outline: wrapped.overflow ? "2px solid #ef4444" : undefined,
         outlineOffset: "6px",
       }}
@@ -140,11 +168,10 @@ export default function CaptionOverlay({
             const isHighlighted = wordCursor <= revealIdx;
             wordCursor += 1;
             const color = isHighlighted ? highlightColor : style.color;
+            const glowCss = style.glow ? `0 0 20px ${color}` : undefined;
+            const textShadow = [glowCss, shadowCss].filter(Boolean).join(", ") || undefined;
             return (
-              <span
-                key={wordCursor}
-                style={{ color, textShadow: style.glow ? `0 0 20px ${color}` : undefined }}
-              >
+              <span key={wordCursor} style={{ color, textShadow }}>
                 {text}{" "}
               </span>
             );
