@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import CaptionOverlay from "../components/CaptionOverlay";
 import CaptionsPanel, { type WordPopup } from "../components/CaptionsPanel";
+import StylePanel from "../components/StylePanel";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
 import {
   ApiError,
@@ -11,6 +12,7 @@ import {
   getStyle,
   listPresets,
   putEcs,
+  putStyle,
   resolveMediaUrl,
   resolveStyle,
   type ECS,
@@ -18,6 +20,7 @@ import {
   type PresetBase,
   type Preset,
   type Project,
+  type StyleOverrides,
 } from "../api/client";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
@@ -86,6 +89,7 @@ export default function Editor(): JSX.Element {
   // or load — Add word/Split/Delete (5b-5d) all flow through setEcs, so marking dirty there
   // covers all three without each handler needing to know about saving.
   const [dirty, setDirty] = useState(false);
+  const [styleDirty, setStyleDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -96,16 +100,38 @@ export default function Editor(): JSX.Element {
     setDirty(true);
   }
 
+  // Sparse merge into the existing overrides, same "only the changed fields" shape the wire
+  // format itself uses (contract §8) — a slider touching fontSize doesn't clobber any other
+  // override already set.
+  function updateStyleOverrides(patch: StyleOverrides) {
+    setStyleSpec((prev) => (prev ? { ...prev, overrides: { ...prev.overrides, ...patch } } : prev));
+    setStyleDirty(true);
+  }
+
+  // Preset switch: CaptionStyleSpec replaced with the new preset's base values, local
+  // overrides reset (architecture §7 Behavior Matrix — already-committed row).
+  function selectPreset(presetId: string) {
+    setStyleSpec((prev) => (prev ? { ...prev, presetId, overrides: {} } : prev));
+    setStyleDirty(true);
+  }
+
   async function handleSave() {
-    if (!id || !ecs || saving || !dirty) {
+    if (!id || saving || (!dirty && !styleDirty)) {
       return;
     }
     setSaving(true);
     setSaveError(null);
     try {
-      const saved = await putEcs(id, ecs.segments);
-      setEcs(saved);
-      setDirty(false);
+      if (dirty && ecs) {
+        const saved = await putEcs(id, ecs.segments);
+        setEcs(saved);
+        setDirty(false);
+      }
+      if (styleDirty && styleSpec) {
+        const saved = await putStyle(id, styleSpec.presetId, styleSpec.perPhraseStyle, styleSpec.overrides);
+        setStyleSpec(saved);
+        setStyleDirty(false);
+      }
       setJustSaved(true);
       clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setJustSaved(false), 2000);
@@ -471,7 +497,7 @@ export default function Editor(): JSX.Element {
                 {saveError}
               </span>
             )}
-            {justSaved && !dirty && (
+            {justSaved && !dirty && !styleDirty && (
               <span style={{ fontSize: "12px", color: mode.textFaint3 }}>{L.saved}</span>
             )}
             <div
@@ -484,8 +510,8 @@ export default function Editor(): JSX.Element {
                 background: theme.accent,
                 padding: "8px 18px",
                 borderRadius: "8px",
-                cursor: dirty && !saving ? "pointer" : "default",
-                opacity: dirty && !saving ? 1 : 0.5,
+                cursor: (dirty || styleDirty) && !saving ? "pointer" : "default",
+                opacity: (dirty || styleDirty) && !saving ? 1 : 0.5,
               }}
             >
               {saving ? L.saving : L.save}
@@ -590,6 +616,17 @@ export default function Editor(): JSX.Element {
                   onCommitPendingWord={handleCommitPendingWord}
                 />
               )
+            ) : presets && activePreset && resolvedStyle && styleSpec ? (
+              <StylePanel
+                prefs={prefs}
+                strings={L}
+                presets={presets}
+                activePresetId={styleSpec.presetId}
+                resolvedStyle={resolvedStyle}
+                bounds={activePreset.bounds}
+                onSelectPreset={selectPreset}
+                onChangeOverrides={updateStyleOverrides}
+              />
             ) : (
               <div style={{ fontSize: "13px", color: mode.textFaint3, padding: "40px 0", textAlign: "center" }}>
                 {L.stylePanelPlaceholder}

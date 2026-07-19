@@ -116,6 +116,21 @@ export async function listPresets(): Promise<Preset[]> {
   return apiFetch<Preset[]>("/presets");
 }
 
+// Whole-document PUT, same pattern as putEcs — overrides is the entire sparse delta, not a
+// diff against the previous save (contract §8).
+export async function putStyle(
+  projectId: string,
+  presetId: string,
+  perPhraseStyle: boolean,
+  overrides: StyleOverrides
+): Promise<CaptionStyleSpec> {
+  return apiFetch<CaptionStyleSpec>(`/projects/${projectId}/style`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ presetId, perPhraseStyle, overrides }),
+  });
+}
+
 // preset.base merged with the sparse CaptionStyleSpec.overrides — override wins per-field
 // (contract §8-9). Never pre-merged server-side; the frontend resolves it.
 export function resolveStyle(preset: Preset, overrides: StyleOverrides): PresetBase {

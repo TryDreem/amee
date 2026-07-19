@@ -58,6 +58,10 @@ export interface Strings {
   styleTab: string;
   captionsTab: string;
   stylePanelPlaceholder: string;
+
+  presetsLabel: string;
+  fontSizeLabel: string;
+  captionPositionLabel: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -119,6 +123,10 @@ export const STR: Record<Lang, Strings> = {
     styleTab: "Стиль",
     captionsTab: "Субтитры",
     stylePanelPlaceholder: "Панель стилей появится здесь",
+
+    presetsLabel: "Пресеты",
+    fontSizeLabel: "Размер шрифта",
+    captionPositionLabel: "Позиция субтитров",
   },
   en: {
     themeLabel: "Theme",
@@ -177,5 +185,9 @@ export const STR: Record<Lang, Strings> = {
     styleTab: "Style",
     captionsTab: "Captions",
     stylePanelPlaceholder: "Style panel coming here",
+
+    presetsLabel: "Presets",
+    fontSizeLabel: "Font size",
+    captionPositionLabel: "Caption position",
   },
 };

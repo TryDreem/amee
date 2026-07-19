@@ -17,7 +17,7 @@ describe("App", () => {
 
     fireEvent.click(card);
 
-    expect(await screen.findByText("Back to projects")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Back to projects" })).toBeInTheDocument();
     expect(await screen.findAllByText(projectFixture.name)).not.toHaveLength(0);
   });
 });
