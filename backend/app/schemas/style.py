@@ -53,6 +53,7 @@ class StyleOverrides(BaseModel):
     glow: bool | None = None
     outline: OutlineOrShadow | None = None
     shadow: OutlineOrShadow | None = None
+    showPunctuation: bool | None = None
     revealMode: RevealMode | None = None
     verticalPosition: float | None = None
     safeArea: SafeArea | None = None

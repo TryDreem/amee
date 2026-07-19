@@ -38,6 +38,7 @@ class PresetBase(BaseModel):
     glow: bool
     outline: OutlineOrShadow | None
     shadow: OutlineOrShadow | None
+    showPunctuation: bool
     revealMode: RevealMode
     verticalPosition: float
     safeArea: SafeArea

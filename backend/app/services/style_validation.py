@@ -36,8 +36,8 @@ def validate_overrides(
     """L8/V8/S6 (INVARIANTS): `fontSize`/`verticalPosition`/`safeArea` are
     validated against the *resolved* preset's bounds; `outline.alpha`/
     `shadow.alpha` against a fixed 0-100 range instead. `textTransform`,
-    `italic`, `glow`, `outline.size`, `shadow.size` have no bounds check at
-    all — any value from the type is valid.
+    `italic`, `glow`, `outline.size`, `shadow.size`, `showPunctuation` (S7)
+    have no bounds check at all — any value from the type is valid.
 
     Shared by both `CaptionStyleSpec.overrides` (`PUT /style`) and
     `Segment.overrides` (`PUT /ecs`, D11/V8) via the `prefix` parameter, so

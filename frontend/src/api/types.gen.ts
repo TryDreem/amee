@@ -430,6 +430,8 @@ export interface components {
             glow: boolean;
             outline: components["schemas"]["OutlineOrShadow"] | null;
             shadow: components["schemas"]["OutlineOrShadow"] | null;
+            /** Showpunctuation */
+            showPunctuation: boolean;
             revealMode: components["schemas"]["RevealMode"];
             /** Verticalposition */
             verticalPosition: number;
@@ -602,6 +604,8 @@ export interface components {
             glow?: boolean | null;
             outline?: components["schemas"]["OutlineOrShadow"] | null;
             shadow?: components["schemas"]["OutlineOrShadow"] | null;
+            /** Showpunctuation */
+            showPunctuation?: boolean | null;
             revealMode?: components["schemas"]["RevealMode"] | null;
             /** Verticalposition */
             verticalPosition?: number | null;
