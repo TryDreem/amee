@@ -71,6 +71,7 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | S4 | Preset switch = `presetId` replaced, `overrides` reset to `{}`. Frontend state only. There is no "apply preset" endpoint. | arch §7, contract §9 |
 | S5 | `highlightColors` (plural, array) cycles by **segment index**, not id: `highlightColors[segmentIndex % length]`. Computed identically by preview and export (R2). | arch §6, contract §8 |
 | S6 | `outline.alpha`/`shadow.alpha` validate against a **fixed 0-100 range**, not per-preset bounds — unlike `fontSize`/`verticalPosition`/`safeArea` (L8). `textTransform`, `italic`, `glow`, `outline.size`, `shadow.size` have **no bounds check at all**; any value from the type is valid. | arch §10, contract §8 |
+| S7 | `showPunctuation` (`StyleOverrides`/`PresetBase`, default `false`) strips sentence punctuation from *displayed* text only, at render time — `Word.text` is never mutated (same rule as `textTransform`, S1). Exact rule: strip `. , ! ? ; : — –` and `..`/`...` ellipsis runs (removed as a unit, not kept as a pause); apostrophes within a word and hyphens between two letters are preserved. A word that strips to empty is dropped from the joined text but still occupies its own timeline slot. Preview and export must implement the identical rule (R2 cross-ref). | arch §6, contract §8 |
 
 ## Layout & positioning
 

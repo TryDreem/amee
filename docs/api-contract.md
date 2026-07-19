@@ -280,7 +280,9 @@ Available immediately from project creation (§4) — never `404`s the way ECS d
     "italic": "boolean",
     "glow": "boolean",
     "outline": { "size": "none" | "small" | "medium" | "large", "color": "string", "alpha": "number" } | null,
-    "shadow": { "size": "none" | "small" | "medium" | "large", "color": "string", "alpha": "number" } | null,
+    "shadow": { "size": "none" | "small" | "medium" | "large", 
+    "color": "string", "alpha": "number" } | null,
+    "showPunctuation": "boolean",
     "revealMode": "phrase" | "progressive",
     "verticalPosition": "number",
     "safeArea": { "top": "number", "bottom": "number" }
@@ -294,6 +296,9 @@ Available immediately from project creation (§4) — never `404`s the way ECS d
 `overrides` is sparse — only fields that differ from `presetId`'s base values need to be present; anything absent falls back to the preset. **Flagging this explicitly:** the architecture doc references a "preset plus delta" model as already established in earlier discussion (§6) without giving its wire shape in the document itself. The structure above is a best-effort rendering of that concept, not a re-derivation from anything written down — worth a quick confirmation that it matches what was actually agreed, since this document doesn't have that earlier context to check against.
 
 `highlightColors` cycles by segment index, not a single global color: `color = highlightColors[segmentIndex % highlightColors.length]`. The whole segment is painted with that one color; which word is currently active within the segment is controlled by `revealMode`, not by swapping colors. Preview and export must implement the identical indexing formula (§12 — parity risk).
+
+`showPunctuation` (default `false`) strips sentence punctuation from displayed text only — `Word.text` in ECS is never mutated, same rule as `textTransform`. Exact strip rule: remove `. , ! ? ; : — –` and `..`/`...` ellipsis runs (removed as a unit, not kept as a pause); apostrophes within a word (`don't`) and hyphens between two letters (`well-known`) are preserved. A word that strips to an empty string is dropped from the joined display text but keeps its own timeline slot (still occupies its `[start, end)` window for highlight/reveal purposes). Preview and export must implement the identical rule (§12 — parity risk).
+
 
 No `horizontalAlign` field — horizontal centering is fixed renderer behavior in the MVP, not a configurable style property (architecture doc §9.1), so there's nothing to represent here yet.
 
@@ -323,7 +328,9 @@ Not project-scoped, no `owner_id` — global and shared, not user content (§1).
       "italic": "boolean",
       "glow": "boolean",
       "outline": { "size": "none" | "small" | "medium" | "large", "color": "string", "alpha": "number" } | null,
-      "shadow": { "size": "none" | "small" | "medium" | "large", "color": "string", "alpha": "number" } | null,
+      "shadow": { "size": "none" | "small" | "medium" | "large",
+      "color": "string", "alpha": "number" } | null,
+      "showPunctuation": "boolean", 
       "revealMode": "phrase" | "progressive",
       "verticalPosition": "number",
       "safeArea": { "top": "number", "bottom": "number" }

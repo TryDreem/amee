@@ -418,7 +418,10 @@ All of these share the same `Words[] → Segments[]` contract. Only the internal
 Three responsibilities are kept strictly separate, and no layer is allowed to reach into another's job:
  
 - **Edited Caption Structure (Data)** answers: *which words exist, in what order, grouped into which segments.* This is "what to show, and when."
-- **CaptionStyleSpec (Style)** answers: *font, size, weight, color, highlight colors (cycled per segment), text transform, italic, outline, glow, shadow, vertical position, reveal mode* (whether a whole phrase appears at once with a moving highlight, or words appear progressively one at a time — see §7), and other purely visual settings, expressed as a base preset plus optional overrides (§ preset+delta model, established earlier in the project and unchanged here). This is "how to show it."
+- **CaptionStyleSpec (Style)** answers: *font, size, weight, color, highlight colors (cycled per segment), text transform, italic, outline, glow, shadow, punctuation display, vertical position, reveal mode* (whether a whole phrase appears at once with a moving highlight, or words appear progressively one at a time — see §7), and other purely visual settings, expressed as a base preset plus optional overrides (§ preset+delta model, established earlier in the project and unchanged here). This is "how to show it."
+
+`showPunctuation` (default `false`) is another instance of this same rule: it changes what's *displayed*, never `Word.text` itself. Stripping happens at render time only, identically in preview and export — exact rule in contract §8.
+
 
 - **Layout Engine** answers: *given the data and the style, where does the text actually go on screen* — line wrapping, text measurement, safe-area application, final placement. This is "how to arrange it inside the frame." Critically, the **Layout Engine never mutates** the Edited Caption Structure or the CaptionStyleSpec — it only reads them and produces a rendering (or a "this doesn't fit" signal, see §8).
  
