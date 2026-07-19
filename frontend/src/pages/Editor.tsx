@@ -21,7 +21,7 @@ import {
 } from "../api/client";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
-import { addWordAt, commitWordText, splitSegmentAt } from "../lib/ecsEdit";
+import { addWordAt, commitWordText, deleteSegment, splitSegmentAt } from "../lib/ecsEdit";
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -269,10 +269,20 @@ export default function Editor(): JSX.Element {
     setConfirmDeleteSegmentId(segmentId);
   }
 
-  // TODO(Step 5d): wire ecsEdit.deleteSegment and update local `ecs` state.
+  // Delete segment: real (Step 5d). Also drops a pending "Add word" input if it belonged
+  // to the segment being deleted, so state doesn't point at a word that's about to vanish.
   function handleConfirmDeleteSegment(segmentId: string) {
-    void segmentId;
     setConfirmDeleteSegmentId(null);
+    if (!ecs) {
+      return;
+    }
+    if (pendingWordId) {
+      const segment = ecs.segments.find((s) => s.id === segmentId);
+      if (segment?.words.some((w) => w.id === pendingWordId)) {
+        setPendingWordId(null);
+      }
+    }
+    setEcs({ ...ecs, segments: deleteSegment(ecs.segments, segmentId) });
   }
 
   function handleCancelDeleteSegment() {

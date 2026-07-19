@@ -115,6 +115,13 @@ export function splitSegmentAt(segments: Segment[], segmentId: string, wordId: s
   return { segments: newSegments, newSegmentId };
 }
 
+// The segment and all of its words are removed entirely, not just cleared to empty
+// (architecture.md §7 Behavior Matrix). Gated by an inline confirm in the UI, not here --
+// this function itself has no confirmation step, matching addWordAt/splitSegmentAt's shape.
+export function deleteSegment(segments: Segment[], segmentId: string): Segment[] {
+  return segments.filter((s) => s.id !== segmentId);
+}
+
 export type CommitWordResult =
   | { segments: Segment[]; kind: "kept" }
   | { segments: Segment[]; kind: "removed_empty" }

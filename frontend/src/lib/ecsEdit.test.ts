@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addWordAt,
   commitWordText,
+  deleteSegment,
   splitSegmentAt,
   EDIT_MAX_CHARS_PER_SEGMENT,
   EDIT_MAX_WORDS_PER_SEGMENT,
@@ -166,6 +167,23 @@ describe("splitSegmentAt", () => {
     const segments = [seg("s1", [{ id: "w1", text: "hello", start: 0, end: 0.4 }])];
     expect(splitSegmentAt(segments, "missing", "w1")).toEqual({ noop: true });
     expect(splitSegmentAt(segments, "s1", "missing")).toEqual({ noop: true });
+  });
+});
+
+describe("deleteSegment", () => {
+  it("removes the segment and all of its words entirely", () => {
+    const segments = [
+      seg("s0", [{ id: "a1", text: "a", start: 0, end: 0.1 }]),
+      seg("s1", [{ id: "w1", text: "hello", start: 1, end: 1.4 }]),
+      seg("s2", [{ id: "c1", text: "c", start: 2, end: 2.1 }]),
+    ];
+    const result = deleteSegment(segments, "s1");
+    expect(result.map((s) => s.id)).toEqual(["s0", "s2"]);
+  });
+
+  it("is a no-op when the segment id doesn't exist", () => {
+    const segments = [seg("s0", [{ id: "a1", text: "a", start: 0, end: 0.1 }])];
+    expect(deleteSegment(segments, "missing")).toEqual(segments);
   });
 });
 
