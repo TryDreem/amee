@@ -1,3 +1,5 @@
+import uuid
+
 from app.schemas.common import ErrorDetail
 from app.schemas.ecs import Segment
 from app.schemas.preset import PresetBounds
@@ -9,12 +11,37 @@ def validate_segments(
 ) -> list[ErrorDetail]:
     """Server-side ECS validation (arch §4.2, contract §7) — V1-V5, plus V8
     (segment.overrides, when present, checked against the same resolved
-    preset bounds PUT /style uses). Pure function over wire-schema objects
-    so `PUT /ecs` and `POST /export` (contract §12's X5) share exactly one
-    validation path, not two that can drift apart. V6 (minimum word
-    duration) is deliberately excluded — a renderer concern, not a
-    validation rule (INVARIANTS)."""
+    preset bounds PUT /style uses) and V9 (id uniqueness within the
+    document — contract §7 states it as the one hard requirement of the
+    id lifecycle; without this check a duplicate id surfaces as a DB
+    primary-key IntegrityError, a 500 instead of the contract's 422).
+    Pure function over wire-schema objects so `PUT /ecs` and
+    `POST /export` (contract §12's X5) share exactly one validation path,
+    not two that can drift apart. V6 (minimum word duration) is
+    deliberately excluded — a renderer concern, not a validation rule
+    (INVARIANTS)."""
     details: list[ErrorDetail] = []
+
+    seen_segment_ids: set[uuid.UUID] = set()
+    seen_word_ids: set[uuid.UUID] = set()
+    for seg_idx, segment in enumerate(segments):
+        if segment.id in seen_segment_ids:
+            details.append(
+                ErrorDetail(
+                    field=f"segments[{seg_idx}].id",
+                    issue=f"duplicate segment id {segment.id}",  # V9
+                )
+            )
+        seen_segment_ids.add(segment.id)
+        for word_idx, word in enumerate(segment.words):
+            if word.id in seen_word_ids:
+                details.append(
+                    ErrorDetail(
+                        field=f"segments[{seg_idx}].words[{word_idx}].id",
+                        issue=f"duplicate word id {word.id}",  # V9
+                    )
+                )
+            seen_word_ids.add(word.id)
 
     for seg_idx, segment in enumerate(segments):
         if segment.overrides is not None:

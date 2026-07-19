@@ -185,6 +185,67 @@ def test_transcribe_task_reports_progress_while_processing(
     assert observed[-1] is None
 
 
+def test_transcribe_task_marks_job_failed_when_setup_fails(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """A failure *before* the four branches even start (here: resolving the
+    video URL) must still land the job in `failed` — not leave it stuck in
+    `processing` with no worker attached."""
+    job_id = asyncio.run(_create_queued_job(sample_video))
+
+    with patch(
+        "app.workers.tasks.storage.resolve_url",
+        side_effect=RuntimeError("bad storage url"),
+    ):
+        transcribe_task.delay(str(job_id))
+
+    finished = asyncio.run(_get_job(job_id))
+    assert finished.status == JobStatus.failed
+    assert finished.error == "bad storage url"
+    assert finished.progress is None
+
+
+def test_transcribe_task_retry_reuses_existing_raw_transcript(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """Retry after a partial failure (P2 allows re-running after `failed`):
+    if the Raw Transcript was already persisted, WhisperX must not run a
+    second time (P1) — and the write-once PK (D1) must not blow up the
+    retry with an IntegrityError."""
+    job_id = asyncio.run(_create_queued_job(sample_video))
+    job = asyncio.run(_get_job(job_id))
+
+    async def _seed_raw_transcript() -> None:
+        async with async_session_factory() as session:
+            await raw_transcript_repo.create(
+                session,
+                project_id=job.project_id,
+                owner_id=job.owner_id,
+                words=[{"text": "stored", "start": 0.0, "end": 0.5}],
+            )
+
+    asyncio.run(_seed_raw_transcript())
+
+    with patch(
+        "app.services.raw_transcript.transcribe_video",
+        side_effect=AssertionError("WhisperX must not run again (P1)"),
+    ):
+        transcribe_task.delay(str(job_id))
+
+    finished = asyncio.run(_get_job(job_id))
+    assert finished.status == JobStatus.done
+
+    async def _get_ecs_texts() -> list[str]:
+        from app.services import ecs as ecs_service
+
+        async with async_session_factory() as session:
+            ecs = await ecs_service.get_ecs(session, job.project_id)
+        assert ecs is not None
+        return [w.text for seg in ecs.segments for w in seg.words]
+
+    assert asyncio.run(_get_ecs_texts()) == ["stored"]
+
+
 def test_transcribe_task_marks_job_failed_on_whisperx_error(
     eager_celery: None, sample_video: Path
 ) -> None:

@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,14 @@ from app.schemas.job import JobType
 from app.schemas.project import Project
 from app.services import style as style_service
 from app.services.language import SUPPORTED_LANGUAGE_CODES
+
+# Upload limits from arch §2.7 / contract §4. Only the two checks that need
+# no ffmpeg probe are enforced here — §2.8 is explicit that upload "does
+# exactly one thing: stores the file", so codec/resolution (which require
+# probing) can't be checked on the request path; those failures surface in
+# the transcribe job instead.
+_ALLOWED_UPLOAD_EXTENSIONS = {".mp4", ".mov"}
+_MAX_UPLOAD_BYTES = 2 * 1024**3  # 2GB
 
 
 async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
@@ -48,17 +57,34 @@ async def create_project(
     content: bytes,
     language: str | None = None,
 ) -> Project:
+    details: list[ErrorDetail] = []
+    ext = Path(filename).suffix.lower()
+    if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
+        details.append(
+            ErrorDetail(
+                field="file",
+                issue=f"unsupported format {ext or '(no extension)'}: "
+                "expected .mp4 or .mov",
+            )
+        )
+    if len(content) > _MAX_UPLOAD_BYTES:
+        details.append(
+            ErrorDetail(
+                field="file",
+                issue=f"file exceeds the {_MAX_UPLOAD_BYTES} byte limit",
+            )
+        )
     # `language` set once here, at upload, and never mutated afterward -
     # there's no PUT /projects/{id} (arch §2.9). None means auto-detect,
     # unchanged from today's behavior.
     if language is not None and language not in SUPPORTED_LANGUAGE_CODES:
-        raise DomainValidationError(
-            [
-                ErrorDetail(
-                    field="language", issue=f"unsupported language code: {language}"
-                )
-            ]
+        details.append(
+            ErrorDetail(
+                field="language", issue=f"unsupported language code: {language}"
+            )
         )
+    if details:
+        raise DomainValidationError(details)
 
     # Minted here, not by the DB default: storage needs the id up front to
     # namespace the file. Upload only saves the file (arch §2.8) — no

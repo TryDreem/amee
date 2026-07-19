@@ -46,6 +46,7 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | V6 | A **minimum word duration is NOT a validation rule.** Ultra-short words are a renderer concern. Do not add it to the validator. | arch §4.2, §8 |
 | V7 | No `version` field, no `If-Match`, no optimistic concurrency. Last-write-wins. | contract §7, §13.3 |
 | V8 | `segment.overrides`, when present, is validated against the *same resolved preset bounds* `PUT /style` uses — not a separate per-segment preset. Same 422 shape as V1-V5. | arch §4.2, contract §7 |
+| V9 | `Segment.id`/`Word.id` unique **within the document** — contract §7's one hard requirement on the id lifecycle, enforced server-side so a duplicate is a 422, not a DB primary-key 500. | contract §7 |
 
 ## Editing behavior
 

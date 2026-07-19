@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 
 import httpx
+import pytest
 from httpx import ASGITransport
 
 from app.db import async_session_factory
@@ -75,6 +76,54 @@ async def test_create_project_with_language_roundtrip(sample_video: Path) -> Non
         get_response = await client.get(f"/api/v1/projects/{created['id']}")
         assert get_response.status_code == 200
         assert get_response.json()["language"] == "ru"
+
+
+async def test_create_project_rejects_unsupported_extension(
+    sample_video: Path,
+) -> None:
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        with sample_video.open("rb") as f:
+            response = await client.post(
+                "/api/v1/projects",
+                files={"file": ("sample.avi", f, "video/x-msvideo")},
+            )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error"]["code"] == "validation_error"
+        assert body["error"]["details"][0]["field"] == "file"
+
+
+async def test_create_project_accepts_mov_extension(sample_video: Path) -> None:
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        with sample_video.open("rb") as f:
+            response = await client.post(
+                "/api/v1/projects",
+                files={"file": ("sample.mov", f, "video/quicktime")},
+            )
+        assert response.status_code == 201
+
+
+async def test_create_project_rejects_oversized_file(
+    sample_video: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Shrink the 2GB limit rather than uploading a real 2GB file.
+    monkeypatch.setattr("app.services.projects._MAX_UPLOAD_BYTES", 10)
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        with sample_video.open("rb") as f:
+            response = await client.post(
+                "/api/v1/projects",
+                files={"file": ("sample.mp4", f, "video/mp4")},
+            )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error"]["details"][0]["field"] == "file"
+        assert "limit" in body["error"]["details"][0]["issue"]
 
 
 async def test_create_project_with_unsupported_language_returns_422(

@@ -227,6 +227,49 @@ async def test_put_ecs_rejects_empty_segment() -> None:
     assert "words" not in details[0]["field"]
 
 
+async def test_put_ecs_rejects_duplicate_word_ids() -> None:
+    # Contract §7: ids unique within the document (V9). Without the check
+    # this was a DB primary-key IntegrityError - a 500, not a 422.
+    project_id = await _make_transcribed_project()
+    dup = str(uuid.uuid4())
+    details = await _put_and_get_details(
+        project_id,
+        [
+            {
+                "id": str(uuid.uuid4()),
+                "words": [
+                    {"id": dup, "text": "a", "start": 0.0, "end": 0.4},
+                    {"id": dup, "text": "b", "start": 0.4, "end": 0.8},
+                ],
+            }
+        ],
+    )
+    assert details[0]["field"] == "segments[0].words[1].id"
+
+
+async def test_put_ecs_rejects_duplicate_segment_ids() -> None:
+    project_id = await _make_transcribed_project()
+    dup = str(uuid.uuid4())
+    details = await _put_and_get_details(
+        project_id,
+        [
+            {
+                "id": dup,
+                "words": [
+                    {"id": str(uuid.uuid4()), "text": "a", "start": 0.0, "end": 0.4}
+                ],
+            },
+            {
+                "id": dup,
+                "words": [
+                    {"id": str(uuid.uuid4()), "text": "b", "start": 0.5, "end": 0.9}
+                ],
+            },
+        ],
+    )
+    assert details[0]["field"] == "segments[1].id"
+
+
 async def test_put_ecs_with_segment_override_roundtrip() -> None:
     project_id = await _make_transcribed_project()
     seg_id = str(uuid.uuid4())
