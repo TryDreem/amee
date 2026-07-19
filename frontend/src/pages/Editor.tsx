@@ -21,7 +21,7 @@ import {
 } from "../api/client";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
-import { addWordAt, commitWordText } from "../lib/ecsEdit";
+import { addWordAt, commitWordText, splitSegmentAt } from "../lib/ecsEdit";
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -250,11 +250,18 @@ export default function Editor(): JSX.Element {
     }
   }
 
-  // TODO(Step 5c): wire ecsEdit.splitSegmentAt and update local `ecs` state.
+  // Split segment: real (Step 5c). Clicking the segment's last word is a silent no-op
+  // (nothing to move into a right-hand part), matching the design's own behavior.
   function handleSplitSegment(segmentId: string, wordId: string) {
-    void segmentId;
-    void wordId;
     setWordPopup(null);
+    if (!ecs) {
+      return;
+    }
+    const result = splitSegmentAt(ecs.segments, segmentId, wordId);
+    if ("noop" in result) {
+      return;
+    }
+    setEcs({ ...ecs, segments: result.segments });
   }
 
   function handleDeleteSegmentClick(segmentId: string) {

@@ -81,6 +81,40 @@ export function addWordAt(
   };
 }
 
+export type SplitSegmentResult = { segments: Segment[]; newSegmentId: string } | { noop: true };
+
+// The clicked word stays the last word of the left (original-id) part; everything after it
+// moves into a new segment with a fresh id. Both parts inherit the parent's `overrides`
+// unchanged (architecture.md §7 Behavior Matrix) -- unlike the design source, there's no
+// separate scene-bounds bookkeeping to update: Segment bounds are always derived from
+// words[0].start/words.at(-1).end (D5), so nothing about timing needs adjusting here.
+export function splitSegmentAt(segments: Segment[], segmentId: string, wordId: string): SplitSegmentResult {
+  const segIdx = segments.findIndex((s) => s.id === segmentId);
+  if (segIdx === -1) {
+    return { noop: true };
+  }
+  const segment = segments[segIdx];
+  if (!segment) {
+    return { noop: true };
+  }
+  const wordIdx = segment.words.findIndex((w) => w.id === wordId);
+  if (wordIdx === -1 || wordIdx === segment.words.length - 1) {
+    return { noop: true }; // last word: nothing to split off
+  }
+
+  const leftWords = segment.words.slice(0, wordIdx + 1);
+  const rightWords = segment.words.slice(wordIdx + 1);
+  const newSegmentId = crypto.randomUUID();
+
+  const leftSegment: Segment = { ...segment, words: leftWords };
+  const rightSegment: Segment = { id: newSegmentId, words: rightWords, overrides: segment.overrides };
+
+  const newSegments = segments.slice();
+  newSegments.splice(segIdx, 1, leftSegment, rightSegment);
+
+  return { segments: newSegments, newSegmentId };
+}
+
 export type CommitWordResult =
   | { segments: Segment[]; kind: "kept" }
   | { segments: Segment[]; kind: "removed_empty" }

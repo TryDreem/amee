@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { addWordAt, commitWordText, EDIT_MAX_CHARS_PER_SEGMENT, EDIT_MAX_WORDS_PER_SEGMENT } from "./ecsEdit";
+import {
+  addWordAt,
+  commitWordText,
+  splitSegmentAt,
+  EDIT_MAX_CHARS_PER_SEGMENT,
+  EDIT_MAX_WORDS_PER_SEGMENT,
+} from "./ecsEdit";
 import type { Segment } from "../api/client";
 
 function seg(id: string, words: { id: string; text: string; start: number; end: number }[]): Segment {
@@ -90,6 +96,76 @@ describe("addWordAt", () => {
     ];
     const result = addWordAt(segments, "s1", "w2", "left");
     expect(result).toEqual({ error: "no_room" });
+  });
+});
+
+describe("splitSegmentAt", () => {
+  it("keeps the clicked word as the last word of the left part, moves the rest to a new segment", () => {
+    const segments = [
+      seg("s1", [
+        { id: "w1", text: "hello", start: 0, end: 0.4 },
+        { id: "w2", text: "there", start: 0.4, end: 0.8 },
+        { id: "w3", text: "world", start: 0.8, end: 1.2 },
+      ]),
+    ];
+    const result = splitSegmentAt(segments, "s1", "w2");
+    if ("noop" in result) throw new Error("expected a real split");
+
+    expect(result.segments).toHaveLength(2);
+    expect(result.segments[0]).toMatchObject({ id: "s1", words: [{ id: "w1" }, { id: "w2" }] });
+    expect(result.segments[1]).toMatchObject({ id: result.newSegmentId, words: [{ id: "w3" }] });
+    expect(result.newSegmentId).not.toBe("s1");
+  });
+
+  it("does nothing when the clicked word is already the last word of the segment", () => {
+    const segments = [
+      seg("s1", [
+        { id: "w1", text: "hello", start: 0, end: 0.4 },
+        { id: "w2", text: "world", start: 0.4, end: 0.9 },
+      ]),
+    ];
+    const result = splitSegmentAt(segments, "s1", "w2");
+    expect(result).toEqual({ noop: true });
+  });
+
+  it("both parts inherit the parent's overrides unchanged", () => {
+    const overrides = { fontSize: 0.1 };
+    const segments: Segment[] = [
+      {
+        id: "s1",
+        overrides,
+        words: [
+          { id: "w1", text: "hello", start: 0, end: 0.4 },
+          { id: "w2", text: "world", start: 0.4, end: 0.9 },
+        ],
+      },
+    ];
+    const result = splitSegmentAt(segments, "s1", "w1");
+    if ("noop" in result) throw new Error("expected a real split");
+
+    expect(result.segments[0]?.overrides).toEqual(overrides);
+    expect(result.segments[1]?.overrides).toEqual(overrides);
+  });
+
+  it("leaves other segments in the array untouched and correctly positioned", () => {
+    const segments = [
+      seg("s0", [{ id: "a1", text: "a", start: 0, end: 0.1 }]),
+      seg("s1", [
+        { id: "w1", text: "hello", start: 1, end: 1.4 },
+        { id: "w2", text: "world", start: 1.4, end: 1.9 },
+      ]),
+      seg("s2", [{ id: "c1", text: "c", start: 2, end: 2.1 }]),
+    ];
+    const result = splitSegmentAt(segments, "s1", "w1");
+    if ("noop" in result) throw new Error("expected a real split");
+
+    expect(result.segments.map((s) => s.id)).toEqual(["s0", "s1", result.newSegmentId, "s2"]);
+  });
+
+  it("no-ops on an unknown segment or word id", () => {
+    const segments = [seg("s1", [{ id: "w1", text: "hello", start: 0, end: 0.4 }])];
+    expect(splitSegmentAt(segments, "missing", "w1")).toEqual({ noop: true });
+    expect(splitSegmentAt(segments, "s1", "missing")).toEqual({ noop: true });
   });
 });
 
