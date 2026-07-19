@@ -62,6 +62,7 @@ export interface Strings {
   presetsLabel: string;
   fontSizeLabel: string;
   captionPositionLabel: string;
+  highlightColorsLabel: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -127,6 +128,7 @@ export const STR: Record<Lang, Strings> = {
     presetsLabel: "Пресеты",
     fontSizeLabel: "Размер шрифта",
     captionPositionLabel: "Позиция субтитров",
+    highlightColorsLabel: "Цвета выделения",
   },
   en: {
     themeLabel: "Theme",
@@ -189,5 +191,6 @@ export const STR: Record<Lang, Strings> = {
     presetsLabel: "Presets",
     fontSizeLabel: "Font size",
     captionPositionLabel: "Caption position",
+    highlightColorsLabel: "Highlight colors",
   },
 };

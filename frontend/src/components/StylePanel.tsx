@@ -37,6 +37,15 @@ export default function StylePanel({
     marginBottom: "10px",
   };
 
+  // 3 fixed slots, no alpha (StyleOverrides.highlightColors is a plain string[] — contract §8).
+  // CaptionOverlay already round-robins this array per segment and degrades to one fixed color
+  // at length 1, so writing all 3 slots as soon as any one changes needs no special case.
+  function handleSwatchChange(index: number, color: string) {
+    const current = resolvedStyle.highlightColors;
+    const next = [0, 1, 2].map((i) => (i === index ? color : current[i] ?? current[0] ?? "#ffffff"));
+    onChangeOverrides({ highlightColors: next });
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "26px" }}>
       <div>
@@ -96,6 +105,29 @@ export default function StylePanel({
           onChange={(e) => onChangeOverrides({ verticalPosition: Number(e.target.value) })}
           style={{ width: "100%", accentColor: theme.accent }}
         />
+      </div>
+
+      <div>
+        <div style={sectionLabelStyle}>{L.highlightColorsLabel}</div>
+        <div style={{ display: "flex", gap: "10px" }}>
+          {[0, 1, 2].map((i) => (
+            <input
+              key={i}
+              type="color"
+              value={resolvedStyle.highlightColors[i] ?? resolvedStyle.highlightColors[0] ?? "#ffffff"}
+              onChange={(e) => handleSwatchChange(i, e.target.value)}
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                border: "1px solid " + mode.cardBorder,
+                padding: 0,
+                cursor: "pointer",
+                background: "none",
+              }}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
