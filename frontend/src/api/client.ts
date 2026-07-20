@@ -138,6 +138,23 @@ export function resolveStyle(preset: Preset, overrides: StyleOverrides): PresetB
   return { ...preset.base, ...removeNullish(overrides) };
 }
 
+// The full three-layer merge for a single segment (architecture §4.2): the document-level style
+// (preset.base + CaptionStyleSpec.overrides) with the segment's own `overrides` applied on top,
+// each layer sparse and later-wins. `segOverrides` is null when the segment has no override, or
+// when per-phrase mode is off (in which case segment overrides lie dormant, not applied). Preview
+// and export MUST resolve a rendered segment through this exact function so they never disagree.
+export function resolveStyleLayers(
+  preset: Preset,
+  docOverrides: StyleOverrides,
+  segOverrides: StyleOverrides | null | undefined
+): PresetBase {
+  return {
+    ...preset.base,
+    ...removeNullish(docOverrides),
+    ...(segOverrides ? removeNullish(segOverrides) : {}),
+  };
+}
+
 function removeNullish(overrides: StyleOverrides): Partial<PresetBase> {
   const result: Partial<PresetBase> = {};
   for (const [key, value] of Object.entries(overrides)) {

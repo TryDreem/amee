@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   addWordAt,
+  commitWordEnd,
+  commitWordStart,
   commitWordText,
   deleteSegment,
+  removeWord,
   splitSegmentAt,
+  wordRangeFor,
   EDIT_MAX_CHARS_PER_SEGMENT,
   EDIT_MAX_WORDS_PER_SEGMENT,
 } from "./ecsEdit";
@@ -184,6 +188,101 @@ describe("deleteSegment", () => {
   it("is a no-op when the segment id doesn't exist", () => {
     const segments = [seg("s0", [{ id: "a1", text: "a", start: 0, end: 0.1 }])];
     expect(deleteSegment(segments, "missing")).toEqual(segments);
+  });
+});
+
+describe("removeWord", () => {
+  it("removes just the one word, leaving the rest of the segment intact", () => {
+    const segments = [
+      seg("s1", [
+        { id: "w1", text: "hello", start: 0, end: 0.4 },
+        { id: "w2", text: "world", start: 0.4, end: 0.9 },
+      ]),
+    ];
+    const result = removeWord(segments, "s1", "w1");
+    expect(result).toHaveLength(1);
+    expect(result[0]?.words.map((w) => w.id)).toEqual(["w2"]);
+  });
+
+  it("drops the whole segment when removing its only word would leave it empty", () => {
+    const segments = [
+      seg("s0", [{ id: "a1", text: "a", start: 0, end: 0.1 }]),
+      seg("s1", [{ id: "w1", text: "hello", start: 1, end: 1.4 }]),
+    ];
+    const result = removeWord(segments, "s1", "w1");
+    expect(result.map((s) => s.id)).toEqual(["s0"]);
+  });
+});
+
+describe("wordRangeFor", () => {
+  it("bounds a middle word by its immediate neighbors' edges (touching allowed, no gap)", () => {
+    const segments = [
+      seg("s1", [
+        { id: "w1", text: "a", start: 0, end: 0.4 },
+        { id: "w2", text: "b", start: 0.4, end: 0.9 },
+        { id: "w3", text: "c", start: 0.9, end: 1.4 },
+      ]),
+    ];
+    const range = wordRangeFor(segments, "s1", "w2");
+    expect(range.min).toBeCloseTo(0.4, 5); // exactly the previous word's end, no gap
+    expect(range.max).toBeCloseTo(0.9, 5); // exactly the next word's start, no gap
+  });
+
+  it("bounds the first word of a segment by the previous segment's last word's end (no gap)", () => {
+    const segments = [
+      seg("s0", [{ id: "a1", text: "a", start: 0, end: 0.4 }]),
+      seg("s1", [{ id: "w1", text: "b", start: 1, end: 1.4 }]),
+    ];
+    expect(wordRangeFor(segments, "s1", "w1").min).toBeCloseTo(0.4, 5);
+  });
+
+  it("has no upper bound for the very last word of the very last segment", () => {
+    const segments = [seg("s1", [{ id: "w1", text: "a", start: 0, end: 0.4 }])];
+    expect(wordRangeFor(segments, "s1", "w1").max).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
+describe("commitWordStart / commitWordEnd", () => {
+  const segments = [
+    seg("s1", [
+      { id: "w1", text: "a", start: 0, end: 0.4 },
+      { id: "w2", text: "b", start: 0.4, end: 0.9 },
+    ]),
+  ];
+
+  it("applies a valid new start within range", () => {
+    const result = commitWordStart(segments, "s1", "w2", "0.5");
+    expect(result[0]?.words[1]).toMatchObject({ start: 0.5 });
+  });
+
+  it("allows a start exactly equal to the previous word's end (touching, not overlapping)", () => {
+    const result = commitWordStart(segments, "s1", "w2", "0.4");
+    expect(result[0]?.words[1]).toMatchObject({ start: 0.4 });
+  });
+
+  it("reverts to the current start when the value would overlap the previous word", () => {
+    const result = commitWordStart(segments, "s1", "w2", "0.1"); // 0.1 < w1.end (0.4)
+    expect(result[0]?.words[1]).toMatchObject({ start: 0.4 });
+  });
+
+  it("reverts to the current start on unparseable input", () => {
+    const result = commitWordStart(segments, "s1", "w2", "not-a-number");
+    expect(result[0]?.words[1]).toMatchObject({ start: 0.4 });
+  });
+
+  it("applies a valid new end within range", () => {
+    const result = commitWordEnd(segments, "s1", "w1", "0.35");
+    expect(result[0]?.words[0]).toMatchObject({ end: 0.35 });
+  });
+
+  it("allows an end exactly equal to the next word's start (touching, not overlapping)", () => {
+    const result = commitWordEnd(segments, "s1", "w1", "0.4");
+    expect(result[0]?.words[0]).toMatchObject({ end: 0.4 });
+  });
+
+  it("reverts to the current end when the value would overlap the next word", () => {
+    const result = commitWordEnd(segments, "s1", "w1", "0.85"); // 0.85 > w2.start (0.4)
+    expect(result[0]?.words[0]).toMatchObject({ end: 0.4 });
   });
 });
 

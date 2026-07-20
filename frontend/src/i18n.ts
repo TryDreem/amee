@@ -38,11 +38,17 @@ export interface Strings {
   procFailed: string;
   retry: string;
 
+  addWord: string;
   addWordLeft: string;
   addWordRight: string;
   splitSegment: string;
+  removeWord: string;
+  editSegmentStyle: string;
   deleteSegment: string;
   deleteSegmentConfirm: string;
+  sceneDuration: string;
+  close: string;
+  range: string;
   yes: string;
   no: string;
   noticeMaxWords: string;
@@ -55,11 +61,15 @@ export interface Strings {
   saveFailed: string;
   export: string;
 
-  styleTab: string;
-  captionsTab: string;
+  captionsStyleLabel: string;
+  captionsLabel: string;
+  editCaptionsLabel: string;
   stylePanelPlaceholder: string;
+  styleSameForAll: string;
+  styleEachPhrase: string;
 
   presetsLabel: string;
+  styleSectionLabel: string;
   fontSizeLabel: string;
   captionPositionLabel: string;
   highlightColorsLabel: string;
@@ -74,6 +84,13 @@ export interface Strings {
   sizeSmall: string;
   sizeMedium: string;
   sizeLarge: string;
+  mainColorLabel: string;
+  secondColorLabel: string;
+  thirdColorLabel: string;
+  moreOptions: string;
+  lessOptions: string;
+  shadowColorLabel: string;
+  outlineColorLabel: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -115,11 +132,17 @@ export const STR: Record<Lang, Strings> = {
     procFailed: "Не получилось обработать видео",
     retry: "Повторить",
 
+    addWord: "Добавить слово",
     addWordLeft: "Добавить слово слева",
     addWordRight: "Добавить слово справа",
     splitSegment: "Разбить сегмент",
+    removeWord: "Удалить слово",
+    editSegmentStyle: "Стиль этого сегмента",
     deleteSegment: "Удалить сегмент",
     deleteSegmentConfirm: "Удалить этот сегмент?",
+    sceneDuration: "Длительность сцены",
+    close: "Закрыть",
+    range: "Диапазон",
     yes: "Да",
     no: "Нет",
     noticeMaxWords: `Максимум ${EDIT_MAX_WORDS_PER_SEGMENT} слов в сегменте`,
@@ -132,11 +155,15 @@ export const STR: Record<Lang, Strings> = {
     saveFailed: "Не удалось сохранить",
     export: "Экспорт",
 
-    styleTab: "Стиль",
-    captionsTab: "Субтитры",
+    captionsStyleLabel: "Стиль субтитров",
+    captionsLabel: "Субтитры",
+    editCaptionsLabel: "Редактировать субтитры",
     stylePanelPlaceholder: "Панель стилей появится здесь",
+    styleSameForAll: "Стиль: единый",
+    styleEachPhrase: "Стиль: для каждой фразы",
 
     presetsLabel: "Пресеты",
+    styleSectionLabel: "Стиль",
     fontSizeLabel: "Размер шрифта",
     captionPositionLabel: "Позиция субтитров",
     highlightColorsLabel: "Цвета выделения",
@@ -151,6 +178,13 @@ export const STR: Record<Lang, Strings> = {
     sizeSmall: "Малая",
     sizeMedium: "Средняя",
     sizeLarge: "Крупная",
+    mainColorLabel: "Основной",
+    secondColorLabel: "Второй",
+    thirdColorLabel: "Третий",
+    moreOptions: "Больше опций",
+    lessOptions: "Меньше опций",
+    shadowColorLabel: "Цвет тени",
+    outlineColorLabel: "Цвет обводки",
   },
   en: {
     themeLabel: "Theme",
@@ -189,11 +223,17 @@ export const STR: Record<Lang, Strings> = {
     procFailed: "Something went wrong processing your video",
     retry: "Retry",
 
+    addWord: "Add word",
     addWordLeft: "Add word left",
     addWordRight: "Add word right",
     splitSegment: "Split segment",
+    removeWord: "Remove word",
+    editSegmentStyle: "Style this segment",
     deleteSegment: "Delete segment",
     deleteSegmentConfirm: "Delete this segment?",
+    sceneDuration: "Scene Duration",
+    close: "Close",
+    range: "Range",
     yes: "Yes",
     no: "No",
     noticeMaxWords: `Max ${EDIT_MAX_WORDS_PER_SEGMENT} words per segment`,
@@ -206,11 +246,15 @@ export const STR: Record<Lang, Strings> = {
     saveFailed: "Failed to save",
     export: "Export",
 
-    styleTab: "Style",
-    captionsTab: "Captions",
+    captionsStyleLabel: "Captions Style",
+    captionsLabel: "Captions",
+    editCaptionsLabel: "Edit Captions",
     stylePanelPlaceholder: "Style panel coming here",
+    styleSameForAll: "Style: same for all",
+    styleEachPhrase: "Style: each phrase",
 
     presetsLabel: "Presets",
+    styleSectionLabel: "Style",
     fontSizeLabel: "Font size",
     captionPositionLabel: "Caption position",
     highlightColorsLabel: "Highlight colors",
@@ -225,5 +269,12 @@ export const STR: Record<Lang, Strings> = {
     sizeSmall: "Small",
     sizeMedium: "Medium",
     sizeLarge: "Large",
+    mainColorLabel: "Main",
+    secondColorLabel: "Second",
+    thirdColorLabel: "Third",
+    moreOptions: "More options",
+    lessOptions: "Less options",
+    shadowColorLabel: "Shadow Color",
+    outlineColorLabel: "Outline Color",
   },
 };

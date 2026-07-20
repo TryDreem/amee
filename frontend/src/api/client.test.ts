@@ -6,9 +6,9 @@
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { ecsFixture, projectFixture } from "../mocks/fixtures";
+import { ecsFixture, presetsFixture, projectFixture } from "../mocks/fixtures";
 import { server } from "../mocks/server";
-import { ApiError, createProject, listProjects, putEcs } from "./client";
+import { ApiError, createProject, listProjects, putEcs, resolveStyleLayers } from "./client";
 
 describe("api client", () => {
   it("listProjects parses the fixture project list", async () => {
@@ -97,5 +97,39 @@ describe("api client", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(422);
     expect((error as ApiError).body).toEqual(validationError);
+  });
+});
+
+describe("resolveStyleLayers (preset.base -> doc overrides -> segment overrides)", () => {
+  const preset = presetsFixture[0];
+  if (!preset) {
+    throw new Error("presetsFixture is empty");
+  }
+
+  it("returns preset.base when both override layers are empty/absent", () => {
+    expect(resolveStyleLayers(preset, {}, null)).toEqual(preset.base);
+  });
+
+  it("applies document overrides over the base, sparsely", () => {
+    const merged = resolveStyleLayers(preset, { fontSize: 0.1 }, null);
+    expect(merged.fontSize).toBe(0.1);
+    expect(merged.fontFamily).toBe(preset.base.fontFamily); // untouched fields stay from base
+  });
+
+  it("applies the segment override on top of the document override (later layer wins)", () => {
+    const merged = resolveStyleLayers(preset, { fontSize: 0.1, italic: true }, { fontSize: 0.2 });
+    expect(merged.fontSize).toBe(0.2); // segment layer wins for fontSize
+    expect(merged.italic).toBe(true); // doc-only field still applies
+  });
+
+  it("ignores the segment layer entirely when it is null (per-phrase off / no override)", () => {
+    const merged = resolveStyleLayers(preset, { fontSize: 0.1 }, null);
+    expect(merged.fontSize).toBe(0.1);
+  });
+
+  it("treats null/undefined fields inside an override as absent, not as a value", () => {
+    const merged = resolveStyleLayers(preset, { fontSize: null }, { italic: undefined });
+    expect(merged.fontSize).toBe(preset.base.fontSize);
+    expect(merged.italic).toBe(preset.base.italic);
   });
 });

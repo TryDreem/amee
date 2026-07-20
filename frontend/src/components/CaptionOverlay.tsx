@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import type { PresetBase, Segment } from "../api/client";
+import { activeWordIndexInSegment, findActiveSegmentIndex, highlightColorFor } from "../lib/activeSegment";
 import { wrapWords } from "../lib/captionFit";
 import { stripPunctuation } from "../lib/stripPunctuation";
 
@@ -32,26 +33,6 @@ function measureWidthFor(font: string): (text: string) => number {
   return (text: string) => ctx.measureText(text).width;
 }
 
-function findActiveSegmentIndex(segments: Segment[], t: number): number {
-  return segments.findIndex((seg) => {
-    const first = seg.words[0];
-    const last = seg.words.at(-1);
-    if (!first || !last) {
-      return false;
-    }
-    return t >= first.start && t <= last.end;
-  });
-}
-
-// highlightColors cycles round-robin per segment (arch §6/§9, contract §8-9) — a length-1
-// array naturally degrades to one fixed color for every segment.
-function highlightColorFor(colors: string[], segmentIndex: number, fallback: string): string {
-  if (colors.length === 0) {
-    return fallback;
-  }
-  return colors[segmentIndex % colors.length] ?? fallback;
-}
-
 // Pure rendering choices, not wire-contract values (outline.size/shadow.size themselves are
 // the contract — contract §8; these px mappings are how the frontend draws them).
 const OUTLINE_WIDTH_PX: Record<string, number> = { none: 0, small: 1, medium: 2, large: 3 };
@@ -66,19 +47,6 @@ function hexToRgba(hex: string, alphaPct: number): string {
   const g = parseInt(m[2], 16);
   const b = parseInt(m[3], 16);
   return `rgba(${r}, ${g}, ${b}, ${alphaPct / 100})`;
-}
-
-// Progressive reveal: last word whose start has passed. "phrase" mode ignores this and
-// highlights the whole segment uniformly once active (§6/§9 revealMode).
-function activeWordIndex(segment: Segment, t: number): number {
-  let idx = -1;
-  for (let i = 0; i < segment.words.length; i++) {
-    const w = segment.words[i];
-    if (w && w.start <= t) {
-      idx = i;
-    }
-  }
-  return idx;
 }
 
 export default function CaptionOverlay({
@@ -125,7 +93,7 @@ export default function CaptionOverlay({
     style.verticalPosition > 1 - style.safeArea.bottom;
 
   const revealIdx =
-    style.revealMode === "progressive" ? activeWordIndex(activeSegment, currentTime) : Infinity;
+    style.revealMode === "progressive" ? activeWordIndexInSegment(activeSegment, currentTime) : Infinity;
 
   const highlightColor = highlightColorFor(style.highlightColors, activeIndex, style.color);
   let wordCursor = 0;

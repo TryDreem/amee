@@ -14,6 +14,87 @@ function round3(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
+export interface WordRange {
+  min: number;
+  max: number;
+}
+
+// The range one word's start/end may move within. Rules (no invented gaps, no invented minimum
+// duration -- adjacent words/segments may touch exactly, they just may not overlap):
+//   - min = the previous word's END. For the first word of a segment, that's the previous
+//     segment's last word's END (so a segment start can sit exactly on the previous segment's
+//     end -- touching -- but never before it, which would overlap). No previous word/segment at
+//     all -> 0 (times are never negative).
+//   - max = the next word's START. For the last word of a segment, that's the next segment's
+//     first word's START (touching allowed, overlap forbidden). Nothing after -> +Infinity
+//     (unbounded above; the video duration is the only real ceiling and lives at runtime).
+// A word at the edge of its segment is therefore held inside its segment by construction,
+// because the neighbouring segment's edge word IS the bound -- there is no separately stored
+// segment bound to cross (D5: segment bounds are derived from words, never stored).
+export function wordRangeFor(segments: Segment[], segmentId: string, wordId: string): WordRange {
+  const segIdx = segments.findIndex((s) => s.id === segmentId);
+  const segment = segments[segIdx];
+  if (!segment) {
+    return { min: 0, max: 0 };
+  }
+  const wordIdx = segment.words.findIndex((w) => w.id === wordId);
+  if (wordIdx === -1) {
+    return { min: 0, max: 0 };
+  }
+  const prevWordInSeg = segment.words[wordIdx - 1];
+  const nextWordInSeg = segment.words[wordIdx + 1];
+  const prevSegLastWord = segments[segIdx - 1]?.words.at(-1);
+  const nextSegFirstWord = segments[segIdx + 1]?.words[0];
+
+  const min = prevWordInSeg ? prevWordInSeg.end : prevSegLastWord ? prevSegLastWord.end : 0;
+  const max = nextWordInSeg
+    ? nextWordInSeg.start
+    : nextSegFirstWord
+      ? nextSegFirstWord.start
+      : Number.POSITIVE_INFINITY;
+  return { min, max };
+}
+
+// Commits a typed start value for one word. Reverts to the word's current start (rather than
+// erroring) when the input is unusable: not a number, before `min` (would overlap the previous
+// word/segment), or after the word's own end (a word can't start after it ends). `v === min`
+// and `v === word.end` are both allowed -- touching is fine, only crossing is not.
+export function commitWordStart(segments: Segment[], segmentId: string, wordId: string, raw: string): Segment[] {
+  const segment = segments.find((s) => s.id === segmentId);
+  const word = segment?.words.find((w) => w.id === wordId);
+  if (!segment || !word) {
+    return segments;
+  }
+  const range = wordRangeFor(segments, segmentId, wordId);
+  let v = parseFloat(raw);
+  if (Number.isNaN(v) || v < range.min || v > word.end) {
+    v = word.start;
+  }
+  v = round3(v);
+  return segments.map((s) =>
+    s.id === segmentId ? { ...s, words: s.words.map((w) => (w.id === wordId ? { ...w, start: v } : w)) } : s
+  );
+}
+
+// Mirror of commitWordStart for the end: reverts when not a number, after `max` (would overlap
+// the next word/segment), or before the word's own start. `v === max`/`v === word.start` allowed.
+export function commitWordEnd(segments: Segment[], segmentId: string, wordId: string, raw: string): Segment[] {
+  const segment = segments.find((s) => s.id === segmentId);
+  const word = segment?.words.find((w) => w.id === wordId);
+  if (!segment || !word) {
+    return segments;
+  }
+  const range = wordRangeFor(segments, segmentId, wordId);
+  let v = parseFloat(raw);
+  if (Number.isNaN(v) || v > range.max || v < word.start) {
+    v = word.end;
+  }
+  v = round3(v);
+  return segments.map((s) =>
+    s.id === segmentId ? { ...s, words: s.words.map((w) => (w.id === wordId ? { ...w, end: v } : w)) } : s
+  );
+}
+
 export type AddWordResult = { segments: Segment[]; newWordId: string } | { error: "no_room" };
 
 // Ported from the Claude Design source's addWordAt, adapted for this schema's D5 invariant:
@@ -120,6 +201,20 @@ export function splitSegmentAt(segments: Segment[], segmentId: string, wordId: s
 // this function itself has no confirmation step, matching addWordAt/splitSegmentAt's shape.
 export function deleteSegment(segments: Segment[], segmentId: string): Segment[] {
   return segments.filter((s) => s.id !== segmentId);
+}
+
+// Removes a single word from its segment (the word popup's "Remove word" — distinct from
+// deleting the whole segment). If that empties the segment, the segment is dropped too: a
+// 0-word segment is never a valid state (same empty-segment rejection contract §7 already
+// applies to whole-document PUT, so the frontend doesn't produce one either).
+export function removeWord(segments: Segment[], segmentId: string, wordId: string): Segment[] {
+  return segments.flatMap((s) => {
+    if (s.id !== segmentId) {
+      return [s];
+    }
+    const words = s.words.filter((w) => w.id !== wordId);
+    return words.length > 0 ? [{ ...s, words }] : [];
+  });
 }
 
 export type CommitWordResult =
