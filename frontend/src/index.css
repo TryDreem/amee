@@ -127,6 +127,77 @@ input[type="file"] {
   }
 }
 
+/* Caption entrance transitions (CaptionStyleSpec.captionAnimation) — ported verbatim from the
+   design's ANIMATIONS_D keyframes. Applied once per active-segment change (arch §7), not per
+   word — the design's own per-word staggered variant doesn't apply to our segment-level field. */
+@keyframes capFadeSlide {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes capPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes capBounce {
+  0% {
+    opacity: 0;
+    transform: scale(0.25) rotate(-4deg);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.2) rotate(2deg);
+  }
+  70% {
+    transform: scale(0.9) rotate(-1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+@keyframes capBlurIn {
+  0% {
+    opacity: 0;
+    filter: blur(9px);
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+@keyframes capSlideSnap {
+  0% {
+    opacity: 0;
+    transform: translateY(46px) scale(0.88);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes loftIn {
   0% {
     opacity: 0;

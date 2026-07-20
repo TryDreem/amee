@@ -91,6 +91,18 @@ export interface Strings {
   lessOptions: string;
   shadowColorLabel: string;
   outlineColorLabel: string;
+
+  revealModeLabel: string;
+  revealPhrase: string;
+  revealProgressive: string;
+  revealSingleWord: string;
+  captionAnimationLabel: string;
+  animNone: string;
+  animFade: string;
+  animPop: string;
+  animBounce: string;
+  animBlur: string;
+  animSnap: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -185,6 +197,18 @@ export const STR: Record<Lang, Strings> = {
     lessOptions: "Меньше опций",
     shadowColorLabel: "Цвет тени",
     outlineColorLabel: "Цвет обводки",
+
+    revealModeLabel: "Появление слов",
+    revealPhrase: "Фразой",
+    revealProgressive: "По словам",
+    revealSingleWord: "Одно слово",
+    captionAnimationLabel: "Анимация",
+    animNone: "Нет",
+    animFade: "Fade",
+    animPop: "Pop",
+    animBounce: "Bounce",
+    animBlur: "Blur",
+    animSnap: "Snap",
   },
   en: {
     themeLabel: "Theme",
@@ -276,5 +300,17 @@ export const STR: Record<Lang, Strings> = {
     lessOptions: "Less options",
     shadowColorLabel: "Shadow Color",
     outlineColorLabel: "Outline Color",
+
+    revealModeLabel: "Word reveal",
+    revealPhrase: "Phrase",
+    revealProgressive: "Progressive",
+    revealSingleWord: "Single word",
+    captionAnimationLabel: "Animation",
+    animNone: "None",
+    animFade: "Fade",
+    animPop: "Pop",
+    animBounce: "Bounce",
+    animBlur: "Blur",
+    animSnap: "Snap",
   },
 };

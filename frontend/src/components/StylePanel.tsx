@@ -1,6 +1,13 @@
 import { useEffect, useState, type CSSProperties } from "react";
 
-import type { OutlineOrShadow, Preset, PresetBase, StyleOverrides } from "../api/client";
+import type {
+  CaptionAnimation,
+  OutlineOrShadow,
+  Preset,
+  PresetBase,
+  RevealMode,
+  StyleOverrides,
+} from "../api/client";
 import ColorPickerModal from "./ColorPickerModal";
 import type { Strings } from "../i18n";
 import { colorWithAlpha, DEFAULT_HIGHLIGHT_COLORS, parseColorString } from "../lib/color";
@@ -30,6 +37,24 @@ const FONT_WEIGHTS: { value: number; label: string }[] = [
 ];
 
 const OUTLINE_SHADOW_SIZES: OutlineOrShadow["size"][] = ["none", "small", "medium", "large"];
+
+const REVEAL_MODES: { value: RevealMode; labelKey: "revealPhrase" | "revealProgressive" | "revealSingleWord" }[] = [
+  { value: "phrase", labelKey: "revealPhrase" },
+  { value: "progressive", labelKey: "revealProgressive" },
+  { value: "single-word", labelKey: "revealSingleWord" },
+];
+
+const CAPTION_ANIMATIONS: {
+  value: CaptionAnimation;
+  labelKey: "animNone" | "animFade" | "animPop" | "animBounce" | "animBlur" | "animSnap";
+}[] = [
+  { value: "none", labelKey: "animNone" },
+  { value: "fade", labelKey: "animFade" },
+  { value: "pop", labelKey: "animPop" },
+  { value: "bounce", labelKey: "animBounce" },
+  { value: "blur", labelKey: "animBlur" },
+  { value: "snap", labelKey: "animSnap" },
+];
 
 // Design layout: scrollable accordion sections (Presets, Style — the font gallery) up top,
 // then a pinned (non-scrolling) bottom strip — Caption Position / Font size / colors always
@@ -468,6 +493,39 @@ export default function StylePanel({
             {outlineOrShadowRow(L.outlineLabel, L.outlineColorLabel, resolvedStyle.outline, (outline) =>
               onChangeOverrides({ outline })
             )}
+
+            <div style={{ display: "flex", gap: "26px", alignItems: "flex-end", flexWrap: "wrap", paddingTop: "16px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ fontSize: "11.5px", color: mode.textFaint3 }}>{L.revealModeLabel}</div>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  {REVEAL_MODES.map(({ value, labelKey }) => (
+                    <div
+                      key={value}
+                      className="amee-cta-btn"
+                      style={pillStyle(resolvedStyle.revealMode === value)}
+                      onClick={() => onChangeOverrides({ revealMode: value })}
+                    >
+                      {L[labelKey]}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ fontSize: "11.5px", color: mode.textFaint3 }}>{L.captionAnimationLabel}</div>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {CAPTION_ANIMATIONS.map(({ value, labelKey }) => (
+                    <div
+                      key={value}
+                      className="amee-cta-btn"
+                      style={pillStyle(resolvedStyle.captionAnimation === value)}
+                      onClick={() => onChangeOverrides({ captionAnimation: value })}
+                    >
+                      {L[labelKey]}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

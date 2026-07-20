@@ -11,6 +11,8 @@ export type Preset = components["schemas"]["Preset"];
 export type PresetBase = components["schemas"]["PresetBase"];
 export type StyleOverrides = components["schemas"]["StyleOverrides"];
 export type OutlineOrShadow = components["schemas"]["OutlineOrShadow"];
+export type RevealMode = components["schemas"]["RevealMode"];
+export type CaptionAnimation = components["schemas"]["CaptionAnimation"];
 
 export class ApiError extends Error {
   readonly status: number;
