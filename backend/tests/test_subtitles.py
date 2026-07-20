@@ -9,6 +9,7 @@ from app.integrations.subtitles import (
 from app.schemas.ecs import ECS, Segment, Word
 from app.schemas.preset import Preset, PresetBase, PresetBounds, SafeAreaBounds
 from app.schemas.style import (
+    CaptionAnimation,
     CaptionStyleSpec,
     OutlineOrShadow,
     OutlineShadowSize,
@@ -45,6 +46,7 @@ def _preset() -> Preset:
             shadow=None,
             showPunctuation=False,
             revealMode=RevealMode.progressive,
+            captionAnimation=CaptionAnimation.none,
             verticalPosition=0.75,
             safeArea=SafeArea(top=0.1, bottom=0.15),
         ),
@@ -317,3 +319,57 @@ def test_generate_ass_word_stripped_to_empty_is_dropped_but_keeps_timeline_slot(
     dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
     assert len(dialogue_lines) == 3  # one event per word, including the empty one
     assert "hi" in dialogue_lines[1] and "bye" in dialogue_lines[1]
+
+
+# ---------------------------------------------------------------------------
+# revealMode "single-word" + captionAnimation (INVARIANTS S8)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_effective_style_carries_caption_animation() -> None:
+    preset = _preset()
+    style = _style(overrides=StyleOverrides(captionAnimation=CaptionAnimation.fade))
+    segment = _segment([_word("hi", 0.0, 0.3)])
+    effective = resolve_effective_style(preset, style, segment)
+    assert effective.captionAnimation == CaptionAnimation.fade
+
+
+def test_generate_ass_single_word_shows_only_the_active_word() -> None:
+    preset = _preset()
+    style = _style(overrides=StyleOverrides(revealMode=RevealMode.single_word))
+    ecs = _ecs(
+        [
+            _segment(
+                [
+                    _word("hi", 0.0, 0.3),
+                    _word("there", 0.3, 0.6),
+                    _word("you", 0.6, 0.9),
+                ]
+            )
+        ]
+    )
+    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
+    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
+    assert len(dialogue_lines) == 3
+    assert "hi" in dialogue_lines[0]
+    assert "there" not in dialogue_lines[0] and "you" not in dialogue_lines[0]
+    assert "there" in dialogue_lines[1]
+    assert "hi" not in dialogue_lines[1] and "you" not in dialogue_lines[1]
+    assert "you" in dialogue_lines[2]
+    assert "hi" not in dialogue_lines[2] and "there" not in dialogue_lines[2]
+
+
+def test_generate_ass_single_word_highlights_the_shown_word() -> None:
+    preset = _preset()
+    style = _style(
+        overrides=StyleOverrides(
+            revealMode=RevealMode.single_word,
+            highlightColors=["#123456"],
+        )
+    )
+    ecs = _ecs([_segment([_word("hi", 0.0, 0.3), _word("there", 0.3, 0.6)])])
+    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
+    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
+    # the single visible word in each event is always the active (highlighted) one
+    assert "&H00563412&" in dialogue_lines[0]
+    assert "&H00563412&" in dialogue_lines[1]

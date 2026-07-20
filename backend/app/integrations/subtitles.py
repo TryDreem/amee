@@ -34,6 +34,14 @@ interact with punctuation chars) but must be fixed to one order, stated
 here rather than left to whichever function happens to call them first.
 `Word.text` itself is never mutated (S1) - stripping happens only in the
 strings this module builds for SRT/ASS output.
+
+`captionAnimation` (INVARIANTS S8) is resolved through the style cascade
+like every other field, but **deliberately not applied to the burned-in
+export** - it's a cosmetic entrance transition with no real ASS/libass
+equivalent for most of its values (`pop`/`bounce`/`blur`/`snap`), and
+approximating only `fade` via `\fad()` would be inconsistent special-casing
+one of six values. A burned-in video not replicating a live editor's
+entrance transition is a stated scope boundary, not a silent gap.
 """
 
 import re
@@ -42,6 +50,7 @@ from dataclasses import dataclass
 from app.schemas.ecs import ECS, Segment
 from app.schemas.preset import Preset
 from app.schemas.style import (
+    CaptionAnimation,
     CaptionStyleSpec,
     OutlineOrShadow,
     OutlineShadowSize,
@@ -135,6 +144,7 @@ class EffectiveStyle:
     shadow: OutlineOrShadow | None
     showPunctuation: bool
     revealMode: RevealMode
+    captionAnimation: CaptionAnimation
     verticalPosition: float
     safeArea_top: float
     safeArea_bottom: float
@@ -170,6 +180,8 @@ def _merge(effective: EffectiveStyle, overrides: StyleOverrides) -> EffectiveSty
         updates["showPunctuation"] = overrides.showPunctuation
     if overrides.revealMode is not None:
         updates["revealMode"] = overrides.revealMode
+    if overrides.captionAnimation is not None:
+        updates["captionAnimation"] = overrides.captionAnimation
     if overrides.verticalPosition is not None:
         updates["verticalPosition"] = overrides.verticalPosition
     if overrides.safeArea is not None:
@@ -199,6 +211,7 @@ def resolve_effective_style(
         shadow=base.shadow,
         showPunctuation=base.showPunctuation,
         revealMode=base.revealMode,
+        captionAnimation=base.captionAnimation,
         verticalPosition=base.verticalPosition,
         safeArea_top=base.safeArea.top,
         safeArea_bottom=base.safeArea.bottom,
@@ -341,15 +354,17 @@ def generate_ass(
     video_width: int,
     video_height: int,
 ) -> str:
-    """Reveal modes (arch §7, contract §8): both `phrase` and `progressive`
-    highlight one word at a time via per-word `Dialogue` events timed to
-    that word's own window (extended to the next word's start, so the
-    highlight holds through the pause rather than flickering back to base
-    color) - `phrase` always shows every word in the segment, `progressive`
-    only shows words up to the currently active one. `highlightColors`
-    cycles by **segment index** (S5), not word or id. Each segment gets its
-    own `[V4+ Styles]` entry since `perPhraseStyle` (D11) can give it a
-    different effective style than its neighbors."""
+    """Reveal modes (arch §7, contract §8, INVARIANTS S8): all three highlight
+    one word at a time via per-word `Dialogue` events timed to that word's
+    own window (extended to the next word's start, so the highlight holds
+    through the pause rather than flickering back to base color) - `phrase`
+    always shows every word in the segment, `progressive` shows words up to
+    the currently active one, `single-word` shows *only* the currently
+    active word (every other word absent from that event's text entirely,
+    not dimmed). `highlightColors` cycles by **segment index** (S5), not
+    word or id. Each segment gets its own `[V4+ Styles]` entry since
+    `perPhraseStyle` (D11) can give it a different effective style than its
+    neighbors."""
     header = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -381,18 +396,24 @@ def generate_ass(
             active_end = (
                 words[word_idx + 1].start if word_idx + 1 < len(words) else word.end
             )
-            visible = (
-                words[: word_idx + 1]
-                if effective.revealMode is RevealMode.progressive
-                else words
-            )
+            if effective.revealMode is RevealMode.single_word:
+                visible = [word]
+            elif effective.revealMode is RevealMode.progressive:
+                visible = words[: word_idx + 1]
+            else:
+                visible = words
             rendered = []
-            for w_idx, w in enumerate(visible):
+            for w in visible:
                 text = _escape_ass_text(_display_text(w.text, effective))
                 if not text:
                     continue  # word stripped to nothing (S7) - keeps its
                     # timeline slot (this loop iteration), contributes no text
-                color = highlight_tag if w_idx == word_idx else base_tag
+                # Identity, not index: `visible` isn't always a prefix of
+                # `words` starting at 0 (single-word mode's `visible` is a
+                # one-element list at relative index 0), so the only
+                # reliable way to spot the active word is that it's the
+                # same object as the outer loop's `word`.
+                color = highlight_tag if w is word else base_tag
                 rendered.append(f"{{\\c{color}}}{text}")
             events.append(
                 _dialogue_line(

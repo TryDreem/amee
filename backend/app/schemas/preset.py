@@ -2,7 +2,13 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.schemas.style import OutlineOrShadow, RevealMode, SafeArea, TextTransform
+from app.schemas.style import (
+    CaptionAnimation,
+    OutlineOrShadow,
+    RevealMode,
+    SafeArea,
+    TextTransform,
+)
 
 
 class Bounds(BaseModel):
@@ -40,6 +46,7 @@ class PresetBase(BaseModel):
     shadow: OutlineOrShadow | None
     showPunctuation: bool
     revealMode: RevealMode
+    captionAnimation: CaptionAnimation
     verticalPosition: float
     safeArea: SafeArea
 

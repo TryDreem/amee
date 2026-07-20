@@ -214,6 +214,15 @@ export interface components {
             /** Max */
             max: number;
         };
+        /**
+         * CaptionAnimation
+         * @description Cosmetic entrance transition, orthogonal to `RevealMode` - which
+         *     word(s) exist vs. how the segment transitions on screen (INVARIANTS
+         *     S8). No bounds check, same treatment as `textTransform`/`italic`/
+         *     `glow`.
+         * @enum {string}
+         */
+        CaptionAnimation: "none" | "fade" | "pop" | "bounce" | "blur" | "snap";
         /** CaptionStyleSpec */
         CaptionStyleSpec: {
             /**
@@ -433,6 +442,7 @@ export interface components {
             /** Showpunctuation */
             showPunctuation: boolean;
             revealMode: components["schemas"]["RevealMode"];
+            captionAnimation: components["schemas"]["CaptionAnimation"];
             /** Verticalposition */
             verticalPosition: number;
             safeArea: components["schemas"]["SafeArea"];
@@ -551,7 +561,7 @@ export interface components {
          * RevealMode
          * @enum {string}
          */
-        RevealMode: "phrase" | "progressive";
+        RevealMode: "phrase" | "progressive" | "single-word";
         /** SafeArea */
         SafeArea: {
             /** Top */
@@ -607,6 +617,7 @@ export interface components {
             /** Showpunctuation */
             showPunctuation?: boolean | null;
             revealMode?: components["schemas"]["RevealMode"] | null;
+            captionAnimation?: components["schemas"]["CaptionAnimation"] | null;
             /** Verticalposition */
             verticalPosition?: number | null;
             safeArea?: components["schemas"]["SafeArea"] | null;

@@ -7,6 +7,21 @@ from pydantic import BaseModel, ConfigDict
 class RevealMode(str, Enum):
     phrase = "phrase"
     progressive = "progressive"
+    single_word = "single-word"
+
+
+class CaptionAnimation(str, Enum):
+    """Cosmetic entrance transition, orthogonal to `RevealMode` - which
+    word(s) exist vs. how the segment transitions on screen (INVARIANTS
+    S8). No bounds check, same treatment as `textTransform`/`italic`/
+    `glow`."""
+
+    none = "none"
+    fade = "fade"
+    pop = "pop"
+    bounce = "bounce"
+    blur = "blur"
+    snap = "snap"
 
 
 class TextTransform(str, Enum):
@@ -55,6 +70,7 @@ class StyleOverrides(BaseModel):
     shadow: OutlineOrShadow | None = None
     showPunctuation: bool | None = None
     revealMode: RevealMode | None = None
+    captionAnimation: CaptionAnimation | None = None
     verticalPosition: float | None = None
     safeArea: SafeArea | None = None
 
