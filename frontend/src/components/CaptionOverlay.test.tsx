@@ -118,31 +118,79 @@ describe("CaptionOverlay", () => {
     expect(screen.getByText("Hello")).toBeInTheDocument();
   });
 
-  it("applies the resolved captionAnimation as a CSS animation on the caption block", () => {
+  // Words are display:inline-block (for the transform keyframes), which trims a span's own
+  // trailing whitespace — so the space must live between the spans or the words run together.
+  it("keeps a space between adjacent words on a line", () => {
     const { container } = render(
+      <CaptionOverlay
+        segments={segments}
+        currentTime={0.1}
+        style={baseStyle}
+        containerWidth={300}
+        containerHeight={500}
+      />
+    );
+    expect(container.textContent).toContain("Hello, world");
+  });
+
+  // Multi-word entrance animation is per-word (staggered), applied to each word span, and only
+  // while playing — matching the design's own isPlaying gate.
+  it("applies the resolved captionAnimation per word while playing", () => {
+    render(
       <CaptionOverlay
         segments={segments}
         currentTime={0.1}
         style={{ ...baseStyle, captionAnimation: "pop" }}
         containerWidth={300}
         containerHeight={500}
+        isPlaying
       />
     );
-    const block = container.firstElementChild as HTMLElement;
-    expect(block.style.animation).toContain("capPop");
+    const word = screen.getByText("Hello,");
+    expect(word.style.animation).toContain("capPop");
   });
 
-  it("applies no CSS animation when captionAnimation is none", () => {
-    const { container } = render(
+  it("plays no entrance animation when paused, even with captionAnimation set", () => {
+    render(
+      <CaptionOverlay
+        segments={segments}
+        currentTime={0.1}
+        style={{ ...baseStyle, captionAnimation: "pop" }}
+        containerWidth={300}
+        containerHeight={500}
+        isPlaying={false}
+      />
+    );
+    expect(screen.getByText("Hello,").style.animation).toBe("");
+  });
+
+  it("applies no CSS animation when captionAnimation is none, even while playing", () => {
+    render(
       <CaptionOverlay
         segments={segments}
         currentTime={0.1}
         style={{ ...baseStyle, captionAnimation: "none" }}
         containerWidth={300}
         containerHeight={500}
+        isPlaying
       />
     );
-    const block = container.firstElementChild as HTMLElement;
-    expect(block.style.animation).toBe("");
+    expect(screen.getByText("Hello,").style.animation).toBe("");
+  });
+
+  // Single-word cards reuse pop/bounce/snap captionAnimation values but render distinct capWord*
+  // keyframes in single-word mode.
+  it("uses the single-word keyframe in single-word mode while playing", () => {
+    render(
+      <CaptionOverlay
+        segments={segments}
+        currentTime={0.1}
+        style={{ ...baseStyle, revealMode: "single-word", captionAnimation: "pop" }}
+        containerWidth={300}
+        containerHeight={500}
+        isPlaying
+      />
+    );
+    expect(screen.getByText("Hello,").style.animation).toContain("capWordPop");
   });
 });

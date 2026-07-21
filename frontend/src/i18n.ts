@@ -60,6 +60,8 @@ export interface Strings {
   saved: string;
   saveFailed: string;
   export: string;
+  undo: string;
+  redo: string;
 
   captionsStyleLabel: string;
   captionsLabel: string;
@@ -92,17 +94,17 @@ export interface Strings {
   shadowColorLabel: string;
   outlineColorLabel: string;
 
-  revealModeLabel: string;
-  revealPhrase: string;
-  revealProgressive: string;
-  revealSingleWord: string;
   captionAnimationLabel: string;
-  animNone: string;
-  animFade: string;
-  animPop: string;
-  animBounce: string;
-  animBlur: string;
-  animSnap: string;
+  chips: {
+    All: string;
+    Favorites: string;
+    Cyrillic: string;
+    Latin: string;
+    Bold: string;
+    Minimal: string;
+    Colorful: string;
+    Script: string;
+  };
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -166,6 +168,8 @@ export const STR: Record<Lang, Strings> = {
     saved: "Сохранено",
     saveFailed: "Не удалось сохранить",
     export: "Экспорт",
+    undo: "Отменить",
+    redo: "Повторить",
 
     captionsStyleLabel: "Стиль субтитров",
     captionsLabel: "Субтитры",
@@ -198,17 +202,17 @@ export const STR: Record<Lang, Strings> = {
     shadowColorLabel: "Цвет тени",
     outlineColorLabel: "Цвет обводки",
 
-    revealModeLabel: "Появление слов",
-    revealPhrase: "Фразой",
-    revealProgressive: "По словам",
-    revealSingleWord: "Одно слово",
     captionAnimationLabel: "Анимация",
-    animNone: "Нет",
-    animFade: "Fade",
-    animPop: "Pop",
-    animBounce: "Bounce",
-    animBlur: "Blur",
-    animSnap: "Snap",
+    chips: {
+      All: "Все",
+      Favorites: "Избранное",
+      Cyrillic: "Кириллица",
+      Latin: "Латиница",
+      Bold: "Жирный",
+      Minimal: "Минимал",
+      Colorful: "Цветной",
+      Script: "Скрипт",
+    },
   },
   en: {
     themeLabel: "Theme",
@@ -269,6 +273,8 @@ export const STR: Record<Lang, Strings> = {
     saved: "Saved",
     saveFailed: "Failed to save",
     export: "Export",
+    undo: "Undo",
+    redo: "Redo",
 
     captionsStyleLabel: "Captions Style",
     captionsLabel: "Captions",
@@ -301,16 +307,16 @@ export const STR: Record<Lang, Strings> = {
     shadowColorLabel: "Shadow Color",
     outlineColorLabel: "Outline Color",
 
-    revealModeLabel: "Word reveal",
-    revealPhrase: "Phrase",
-    revealProgressive: "Progressive",
-    revealSingleWord: "Single word",
     captionAnimationLabel: "Animation",
-    animNone: "None",
-    animFade: "Fade",
-    animPop: "Pop",
-    animBounce: "Bounce",
-    animBlur: "Blur",
-    animSnap: "Snap",
+    chips: {
+      All: "All",
+      Favorites: "Favorites",
+      Cyrillic: "Cyrillic",
+      Latin: "Latin",
+      Bold: "Bold",
+      Minimal: "Minimal",
+      Colorful: "Colorful",
+      Script: "Script",
+    },
   },
 };

@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 
 import type { PresetBase, Segment } from "../api/client";
 import { activeWordIndexInSegment, findActiveSegmentIndex, highlightColorFor } from "../lib/activeSegment";
+import { findAnimationOption } from "../lib/animations";
 import { wrapWords } from "../lib/captionFit";
 import { stripPunctuation } from "../lib/stripPunctuation";
 
@@ -11,6 +12,10 @@ interface CaptionOverlayProps {
   style: PresetBase;
   containerWidth: number;
   containerHeight: number;
+  // Entrance animations only play during playback — on a paused/seeked frame words are shown
+  // static, matching the design (which gates its per-word animation on `isPlaying`). Optional so
+  // the read-only/test render path can omit it.
+  isPlaying?: boolean;
 }
 
 // Not part of any documented wire shape — architecture.md §8.1's own worked example uses an
@@ -38,21 +43,9 @@ function measureWidthFor(font: string): (text: string) => number {
 const OUTLINE_WIDTH_PX: Record<string, number> = { none: 0, small: 1, medium: 2, large: 3 };
 const SHADOW_BLUR_PX: Record<string, number> = { none: 0, small: 6, medium: 14, large: 24 };
 
-// captionAnimation -> {keyframe name, easing}, ported verbatim from the design's ANIMATIONS_D
-// (contract §8: cosmetic entrance transition, orthogonal to revealMode). "none" plays nothing.
-const CAPTION_ANIMATION: Record<string, { name: string; ease: string } | undefined> = {
-  none: undefined,
-  fade: { name: "capFadeSlide", ease: "ease-out" },
-  pop: { name: "capPop", ease: "cubic-bezier(.34,1.56,.64,1)" },
-  bounce: { name: "capBounce", ease: "cubic-bezier(.36,1.9,.5,1)" },
-  blur: { name: "capBlurIn", ease: "ease-out" },
-  snap: { name: "capSlideSnap", ease: "cubic-bezier(.2,.9,.3,1.2)" },
-};
-// The design applies its entrance keyframes per-word, staggered by each word's own start time —
-// that's tied to its per-word ANIMATIONS_D variants, not applicable here. Ours is a single
-// segment-level transition (contract §8's "played when a segment becomes the active one"), so
-// one fixed duration for the whole block is the direct port of that wording.
-const CAPTION_ANIMATION_DURATION_MS = 400;
+// Single-word entrance duration (design: fixed 320ms for the one rendered word). Multi-word
+// durations are per-word (`max(220, textLength*60)ms`), staggered by each word's start time.
+const SINGLE_WORD_ANIMATION_DURATION_MS = 320;
 
 function hexToRgba(hex: string, alphaPct: number): string {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
@@ -71,10 +64,12 @@ export default function CaptionOverlay({
   style,
   containerWidth,
   containerHeight,
+  isPlaying = false,
 }: CaptionOverlayProps): JSX.Element | null {
   const activeIndex = findActiveSegmentIndex(segments, currentTime);
   const activeSegment = activeIndex >= 0 ? segments[activeIndex] : undefined;
   const activeWordIdx = activeSegment ? activeWordIndexInSegment(activeSegment, currentTime) : -1;
+  const isSingleWord = style.revealMode === "single-word";
 
   const fontSizePx = style.fontSize * containerHeight;
   const fontString = `${style.fontWeight} ${fontSizePx}px ${style.fontFamily}`;
@@ -136,16 +131,30 @@ export default function CaptionOverlay({
       ? `0 0 ${shadowBlur}px ${hexToRgba(style.shadow.color, style.shadow.alpha)}`
       : undefined;
 
-  const captionAnim = CAPTION_ANIMATION[style.captionAnimation];
-  const captionAnimCss = captionAnim
-    ? `${captionAnim.name} ${CAPTION_ANIMATION_DURATION_MS}ms ${captionAnim.ease} both`
-    : undefined;
+  // Entrance animation (design ANIMATIONS_D). Multi-word: each word plays the keyframe staggered
+  // by its own start time, so the phrase builds up word by word during playback. Single-word: the
+  // one rendered word plays its capWord* keyframe. Both gate on isPlaying — a paused/seeked frame
+  // shows the words static (no re-triggering the build on every scrub).
+  const anim = findAnimationOption(style.revealMode, style.captionAnimation);
+  const segmentStart = activeSegment.words[0]?.start ?? 0;
+  const wordAnimationCss = (wordStart: number, textLength: number): string | undefined => {
+    if (!isPlaying || !anim || !anim.keyframe) {
+      return undefined;
+    }
+    if (isSingleWord) {
+      return `${anim.keyframe} ${SINGLE_WORD_ANIMATION_DURATION_MS}ms ${anim.ease} both`;
+    }
+    const durationMs = Math.max(220, textLength * 60);
+    const delayMs = Math.max(0, (wordStart - segmentStart) * 1000);
+    return `${anim.keyframe} ${durationMs}ms ${anim.ease} ${delayMs}ms both`;
+  };
 
   return (
     <div
-      // Remounts on every active-segment change, which is what makes the CSS `animation` below
-      // actually replay each time (a re-render alone won't restart an already-applied keyframe).
-      key={activeSegment.id}
+      // Single-word mode remounts per active word (so the entrance replays for each new word);
+      // multi-word remounts per segment (so the staggered per-word build replays on entry). A
+      // re-render alone won't restart an already-applied CSS keyframe — only a fresh mount does.
+      key={isSingleWord ? `${activeSegment.id}:${activeWordIdx}` : activeSegment.id}
       style={{
         position: "absolute",
         left: "50%",
@@ -160,7 +169,6 @@ export default function CaptionOverlay({
         textTransform: style.textTransform === "uppercase" ? "uppercase" : "none",
         fontSize: `${fontSizePx}px`,
         lineHeight: 1.25,
-        animation: captionAnimCss,
         WebkitTextStroke: outlineCss,
         outline: wrapped.overflow ? "2px solid #ef4444" : undefined,
         outlineOffset: "6px",
@@ -168,16 +176,24 @@ export default function CaptionOverlay({
     >
       {wrapped.lines.map((line, lineIdx) => (
         <div key={lineIdx} style={{ whiteSpace: "nowrap" }}>
-          {line.map((text) => {
+          {line.map((text, wordInLine) => {
+            const word = displayWords?.[wordCursor];
             const isHighlighted = wordCursor <= revealIdx;
+            const animation = word ? wordAnimationCss(word.start, text.length) : undefined;
             wordCursor += 1;
             const color = isHighlighted ? highlightColor : style.color;
             const glowCss = style.glow ? `0 0 20px ${color}` : undefined;
             const textShadow = [glowCss, shadowCss].filter(Boolean).join(", ") || undefined;
+            // The inter-word space lives BETWEEN the spans, not inside them: each word span is
+            // display:inline-block (required for the per-word transform keyframes to apply — CSS
+            // transforms are ignored on plain inline elements), and an inline-block trims its own
+            // trailing whitespace as end-of-line, so a space kept inside the span would vanish and
+            // the words would run together.
             return (
-              <span key={wordCursor} style={{ color, textShadow }}>
-                {text}{" "}
-              </span>
+              <Fragment key={wordCursor}>
+                {wordInLine > 0 ? " " : null}
+                <span style={{ color, textShadow, display: "inline-block", animation }}>{text}</span>
+              </Fragment>
             );
           })}
         </div>

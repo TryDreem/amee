@@ -1,17 +1,11 @@
 import { useEffect, useState, type CSSProperties } from "react";
 
-import type {
-  CaptionAnimation,
-  OutlineOrShadow,
-  Preset,
-  PresetBase,
-  RevealMode,
-  StyleOverrides,
-} from "../api/client";
+import type { OutlineOrShadow, Preset, PresetBase, StyleOverrides } from "../api/client";
 import ColorPickerModal from "./ColorPickerModal";
 import type { Strings } from "../i18n";
+import { CAPTION_ANIMATIONS, findAnimationOption, type AnimationOption } from "../lib/animations";
 import { colorWithAlpha, DEFAULT_HIGHLIGHT_COLORS, parseColorString } from "../lib/color";
-import { FONT_OPTIONS } from "../lib/fonts";
+import { FONT_FILTERS, FONT_OPTIONS, fontMatchesFilter, type FontFilter, type FontOption } from "../lib/fonts";
 import { resolveTheme, UI_MODES, type Prefs } from "../theme";
 
 interface StylePanelProps {
@@ -27,7 +21,16 @@ interface StylePanelProps {
   singleColor?: boolean;
   onSelectPreset: (presetId: string) => void;
   onChangeOverrides: (patch: StyleOverrides) => void;
+  // Drag-coalesced pair for the two range sliders (Caption position, Font size): `onLive` applies
+  // every tick for a responsive preview WITHOUT pushing a history entry; `onCommit` (mouseup/
+  // touchend/keyup/blur -- the drag/gesture ending) folds the whole gesture into exactly one
+  // history entry. Using the instant `onChangeOverrides` for these would let Undo only step back
+  // one tick of the drag instead of the whole gesture.
+  onLiveChangeOverrides: (patch: StyleOverrides) => void;
+  onCommitOverrides: () => void;
 }
+
+type SectionId = "presets" | "style" | "animation";
 
 const FONT_WEIGHTS: { value: number; label: string }[] = [
   { value: 400, label: "Regular" },
@@ -38,28 +41,25 @@ const FONT_WEIGHTS: { value: number; label: string }[] = [
 
 const OUTLINE_SHADOW_SIZES: OutlineOrShadow["size"][] = ["none", "small", "medium", "large"];
 
-const REVEAL_MODES: { value: RevealMode; labelKey: "revealPhrase" | "revealProgressive" | "revealSingleWord" }[] = [
-  { value: "phrase", labelKey: "revealPhrase" },
-  { value: "progressive", labelKey: "revealProgressive" },
-  { value: "single-word", labelKey: "revealSingleWord" },
-];
+// Favorites are pure UI (starred fonts/animations), not part of any wire shape — persisted to
+// localStorage so they survive reloads and tab switches. Fonts keyed by name, animations by id.
+const LS_FAV_FONTS = "amee_fav_fonts";
+const LS_FAV_ANIMS = "amee_fav_anims";
 
-const CAPTION_ANIMATIONS: {
-  value: CaptionAnimation;
-  labelKey: "animNone" | "animFade" | "animPop" | "animBounce" | "animBlur" | "animSnap";
-}[] = [
-  { value: "none", labelKey: "animNone" },
-  { value: "fade", labelKey: "animFade" },
-  { value: "pop", labelKey: "animPop" },
-  { value: "bounce", labelKey: "animBounce" },
-  { value: "blur", labelKey: "animBlur" },
-  { value: "snap", labelKey: "animSnap" },
-];
+function loadFavs(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
-// Design layout: scrollable accordion sections (Presets, Style — the font gallery) up top,
-// then a pinned (non-scrolling) bottom strip — Caption Position / Font size / colors always
-// visible, with a "More options" toggle revealing the rest (`Video Subtitle Editor.dc.html`
-// e_pinnedControlsStyle).
+// Design layout: three scrollable accordion sections (Presets, Style — the font gallery,
+// Animation — the entrance-animation gallery) up top, then a pinned (non-scrolling) bottom strip —
+// Caption Position / Font size / colors always visible, with a "More options" toggle revealing the
+// rest (`Video Subtitle Editor.dc.html` e_pinnedControlsStyle).
 export default function StylePanel({
   prefs,
   strings: L,
@@ -70,14 +70,21 @@ export default function StylePanel({
   singleColor = false,
   onSelectPreset,
   onChangeOverrides,
+  onLiveChangeOverrides,
+  onCommitOverrides,
 }: StylePanelProps): JSX.Element {
   const mode = UI_MODES[prefs.mode];
   const theme = resolveTheme(prefs.theme, prefs.mode);
 
   // Mutually exclusive, matching the design's own `openSection` (single value, not
   // independent booleans) — opening one section closes whichever was open.
-  const [openSection, setOpenSection] = useState<"presets" | "style" | null>("presets");
+  const [openSection, setOpenSection] = useState<SectionId | null>("presets");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [fontFilter, setFontFilter] = useState<FontFilter>("All");
+  const [animFilter, setAnimFilter] = useState<"All" | "Favorites">("All");
+  const [favFonts, setFavFonts] = useState<string[]>(() => loadFavs(LS_FAV_FONTS));
+  const [favAnims, setFavAnims] = useState<string[]>(() => loadFavs(LS_FAV_ANIMS));
+  const [hoveredAnim, setHoveredAnim] = useState<string | null>(null);
 
   // Which field a click on a color swatch is currently editing — a single modal instance
   // serves all of them (3 highlight swatches + shadow + outline).
@@ -89,17 +96,32 @@ export default function StylePanel({
     onChange: (hex: string, alpha: number) => void;
   } | null>(null);
 
+  function toggleFav(
+    key: string,
+    list: string[],
+    setList: (next: string[]) => void,
+    storageKey: string
+  ) {
+    const next = list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // Ignore storage failures (private mode / quota) — favorites just won't persist.
+    }
+    setList(next);
+  }
+
   // Staggered card reveal on section open, ported from the design's _scheduleReveal/
   // _revealStyle: height animates via collapseWrapStyle below; independently, each card
   // inside fades/slides/scales in with a per-index delay once the section is open. The 20ms
   // deferred setState (instead of setting revealed synchronously) forces a render with the
   // "hidden" style first, so the transition to "revealed" actually has something to animate
   // from — same trick the design uses.
-  const [revealSection, setRevealSection] = useState<"presets" | "style" | null>(null);
+  const [revealSection, setRevealSection] = useState<SectionId | null>(null);
   // Once the stagger has finished playing, stop setting an inline transition at all — the
-  // design's own "moreSettled" pattern (used there for overflow, here for the same reason):
-  // an inline `transition` value would otherwise permanently override the `.amee-grid-card`
-  // stylesheet hover transition on the same property, killing hover-scale after the reveal.
+  // design's own "moreSettled" pattern: an inline `transition` value would otherwise permanently
+  // override the `.amee-grid-card` stylesheet hover transition on the same property, killing
+  // hover-scale after the reveal.
   const [staggerSettled, setStaggerSettled] = useState(false);
   useEffect(() => {
     setRevealSection(null);
@@ -115,7 +137,7 @@ export default function StylePanel({
     };
   }, [openSection]);
 
-  function revealStyle(sectionId: "presets" | "style", index: number): CSSProperties {
+  function revealStyle(sectionId: SectionId, index: number): CSSProperties {
     const revealed = revealSection === sectionId;
     if (revealed && staggerSettled) {
       return {};
@@ -169,6 +191,37 @@ export default function StylePanel({
     };
   }
 
+  function chipStyle(active: boolean): CSSProperties {
+    return {
+      padding: "7px 13px",
+      borderRadius: "100px",
+      cursor: "pointer",
+      fontSize: "12px",
+      fontWeight: 600,
+      background: active ? theme.accent : mode.iconBg,
+      color: active ? theme.text : mode.iconText,
+    };
+  }
+
+  const gridStyle: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1fr",
+    gap: "12px",
+    padding: "4px 4px 16px",
+  };
+
+  function sectionHeader(id: SectionId, label: string, withTopBorder: boolean) {
+    return (
+      <div
+        style={withTopBorder ? { ...accordionHeaderStyle, borderTop: "1px solid " + mode.panelBorder } : accordionHeaderStyle}
+        onClick={() => setOpenSection((v) => (v === id ? null : id))}
+      >
+        <span>{label}</span>
+        <span style={{ fontSize: "10px", color: mode.textFaint }}>{openSection === id ? "▲" : "▼"}</span>
+      </div>
+    );
+  }
+
   function yesNoRow(label: string, active: boolean, onChange: (value: boolean) => void) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -185,27 +238,61 @@ export default function StylePanel({
     );
   }
 
+  // Picking a font applies its whole bundled look (family + weight + transform + italic + glow),
+  // matching the design where each named font is a preset of those fields — otherwise the distinct
+  // gallery previews (Neon Glow, Bebas, Elegant Serif) would all collapse to the same plain family.
+  // `outline` is card-preview-only in the design and stays out of the written bundle.
+  function handlePickFont(font: FontOption) {
+    onChangeOverrides({
+      fontFamily: font.family,
+      fontWeight: font.weight,
+      textTransform: font.transform === "uppercase" ? "uppercase" : "none",
+      italic: Boolean(font.italic),
+      glow: Boolean(font.glow),
+    });
+  }
+
+  function isFontSelected(font: FontOption): boolean {
+    return (
+      resolvedStyle.fontFamily === font.family &&
+      resolvedStyle.fontWeight === font.weight &&
+      resolvedStyle.italic === Boolean(font.italic) &&
+      resolvedStyle.glow === Boolean(font.glow) &&
+      (resolvedStyle.textTransform === "uppercase") === (font.transform === "uppercase")
+    );
+  }
+
+  // Multi-word cards set only `captionAnimation` (keeping a non-single revealMode, downgrading
+  // single-word -> progressive when switching out of it). Single-word cards set both. This is the
+  // single reveal+animation control, exactly as the design's one animation gallery.
+  function handlePickAnimation(a: AnimationOption) {
+    if (a.single) {
+      onChangeOverrides({ revealMode: "single-word", captionAnimation: a.captionAnimation });
+      return;
+    }
+    const patch: StyleOverrides = { captionAnimation: a.captionAnimation };
+    if (resolvedStyle.revealMode === "single-word") {
+      patch.revealMode = "progressive";
+    }
+    onChangeOverrides(patch);
+  }
+
+  const selectedAnimId = findAnimationOption(resolvedStyle.revealMode, resolvedStyle.captionAnimation)?.id;
+
   // 3 fixed slots (StyleOverrides.highlightColors is a plain string[] — contract §8). No
   // dedicated alpha field, so alpha is folded straight into the stored color string via
   // colorWithAlpha (plain hex at 100%, rgba() below that) — same technique the design's own
   // buildStylePack uses to assemble this array, not a schema gap.
-  // CaptionOverlay already round-robins this array per segment and degrades to one fixed color
-  // at length 1, so writing all 3 slots as soon as any one changes needs no special case.
-  // Unset slots default to a colorful fixed palette (DEFAULT_HIGHLIGHT_COLORS), not a repeat
-  // of slot 0 — matches the design's own distinct main/second/third defaults.
   function highlightColorAt(index: number): string {
     return resolvedStyle.highlightColors[index] ?? DEFAULT_HIGHLIGHT_COLORS[index] ?? "#ffffff";
   }
   function handleSwatchChange(index: number, color: string) {
-    // Per-phrase (single-color) mode writes a length-1 array — one fixed color for this segment
-    // (arch §4.2). Normal mode writes all 3 slots.
     const next = singleColor ? [color] : [0, 1, 2].map((i) => (i === index ? color : highlightColorAt(i)));
     onChangeOverrides({ highlightColors: next });
   }
 
   // Plain colored button (not a native <input type="color">) — opens the custom
-  // ColorPickerModal, matching the design's own swatch + modal pattern instead of relying on
-  // the browser's native, unstyleable color picker.
+  // ColorPickerModal, matching the design's own swatch + modal pattern.
   function colorSwatchButton(
     key: string,
     hex: string,
@@ -270,23 +357,10 @@ export default function StylePanel({
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={{ flex: 1, overflow: "auto", minHeight: 0, padding: "0 22px" }}>
-        <div
-          style={accordionHeaderStyle}
-          onClick={() => setOpenSection((v) => (v === "presets" ? null : "presets"))}
-        >
-          <span>{L.presetsLabel}</span>
-          <span style={{ fontSize: "10px", color: mode.textFaint }}>{openSection === "presets" ? "▲" : "▼"}</span>
-        </div>
+        {sectionHeader("presets", L.presetsLabel, false)}
         <div style={collapseWrapStyle(openSection === "presets", 0.5)}>
           <div style={collapseInnerStyle}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gap: "12px",
-                padding: "4px 4px 16px",
-              }}
-            >
+            <div style={gridStyle}>
               {presets.map((preset, i) => (
                 <div
                   key={preset.id}
@@ -316,79 +390,179 @@ export default function StylePanel({
           </div>
         </div>
 
-        <div
-          style={{ ...accordionHeaderStyle, borderTop: "1px solid " + mode.panelBorder }}
-          onClick={() => setOpenSection((v) => (v === "style" ? null : "style"))}
-        >
-          <span>{L.styleSectionLabel}</span>
-          <span style={{ fontSize: "10px", color: mode.textFaint }}>{openSection === "style" ? "▲" : "▼"}</span>
-        </div>
+        {sectionHeader("style", L.styleSectionLabel, true)}
         <div style={collapseWrapStyle(openSection === "style", 0.5)}>
           <div style={collapseInnerStyle}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gap: "12px",
-                padding: "4px 4px 16px",
-              }}
-            >
-              {FONT_OPTIONS.map((font, i) => (
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", padding: "4px 4px 12px" }}>
+              {FONT_FILTERS.map((filter) => (
                 <div
-                  key={font.family}
-                  onClick={() => onChangeOverrides({ fontFamily: font.family })}
-                  className="amee-grid-card"
-                  style={{
-                    padding: "16px 10px",
-                    borderRadius: "10px",
-                    cursor: "pointer",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "8px",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minHeight: "70px",
-                    position: "relative",
-                    background: resolvedStyle.fontFamily === font.family ? `${theme.accent}24` : mode.cardBg,
-                    border:
-                      "1px solid " +
-                      (resolvedStyle.fontFamily === font.family ? theme.accent : mode.cardBorder),
-                    ...revealStyle("style", i),
-                  }}
+                  key={filter}
+                  className="amee-cta-btn"
+                  style={chipStyle(fontFilter === filter)}
+                  onClick={() => setFontFilter(filter)}
                 >
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "6px",
-                      left: "8px",
-                      fontSize: "9.5px",
-                      fontWeight: 700,
-                      letterSpacing: ".03em",
-                      color: mode.textFaint3,
-                    }}
-                  >
-                    All
-                  </div>
-                  <div
-                    style={{ position: "absolute", top: "6px", right: "7px", fontSize: "13px", lineHeight: 1, color: mode.textFaint3 }}
-                  >
-                    ★
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "16px",
-                      fontWeight: font.weight,
-                      fontFamily: font.family,
-                      fontStyle: font.italic ? "italic" : "normal",
-                      color: font.previewColor,
-                      textAlign: "center",
-                      lineHeight: 1.25,
-                    }}
-                  >
-                    {font.family}
-                  </div>
+                  {L.chips[filter]}
                 </div>
               ))}
+            </div>
+            <div style={gridStyle}>
+              {FONT_OPTIONS.filter((font) => fontMatchesFilter(font, fontFilter, favFonts)).map((font, i) => {
+                const selected = isFontSelected(font);
+                const isFav = favFonts.includes(font.name);
+                return (
+                  <div
+                    key={font.name}
+                    onClick={() => handlePickFont(font)}
+                    className="amee-grid-card"
+                    style={{
+                      padding: "16px 10px",
+                      borderRadius: "10px",
+                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minHeight: "70px",
+                      position: "relative",
+                      background: selected ? `${theme.accent}24` : mode.cardBg,
+                      border: "1px solid " + (selected ? theme.accent : mode.cardBorder),
+                      ...revealStyle("style", i),
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "6px",
+                        left: "8px",
+                        fontSize: "9.5px",
+                        fontWeight: 700,
+                        letterSpacing: ".03em",
+                        color: mode.textFaint3,
+                      }}
+                    >
+                      {font.lang === "both" ? "All" : "Lat"}
+                    </div>
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFav(font.name, favFonts, setFavFonts, LS_FAV_FONTS);
+                      }}
+                      style={{
+                        position: "absolute",
+                        top: "6px",
+                        right: "7px",
+                        fontSize: "13px",
+                        lineHeight: 1,
+                        cursor: "pointer",
+                        color: isFav ? theme.accent : mode.textFaint3,
+                      }}
+                    >
+                      ★
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: font.weight,
+                        fontFamily: font.family,
+                        fontStyle: font.italic ? "italic" : "normal",
+                        color: font.outline ? "transparent" : font.previewColor,
+                        textAlign: "center",
+                        lineHeight: 1.25,
+                        textTransform: font.transform === "uppercase" ? "uppercase" : "none",
+                        WebkitTextStroke: font.outline ? "1px " + font.previewColor : undefined,
+                        textShadow: font.glow ? "0 0 10px " + font.previewColor : undefined,
+                      }}
+                    >
+                      {font.name}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {sectionHeader("animation", L.captionAnimationLabel, true)}
+        <div style={collapseWrapStyle(openSection === "animation", 0.5)}>
+          <div style={collapseInnerStyle}>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", padding: "4px 4px 12px" }}>
+              {(["All", "Favorites"] as const).map((filter) => (
+                <div
+                  key={filter}
+                  className="amee-cta-btn"
+                  style={chipStyle(animFilter === filter)}
+                  onClick={() => setAnimFilter(filter)}
+                >
+                  {L.chips[filter]}
+                </div>
+              ))}
+            </div>
+            <div style={gridStyle}>
+              {CAPTION_ANIMATIONS.filter((a) => animFilter === "All" || favAnims.includes(a.id)).map((a, i) => {
+                const selected = a.id === selectedAnimId;
+                const isFav = favAnims.includes(a.id);
+                const hovering = a.id !== "none" && hoveredAnim === a.id;
+                return (
+                  <div
+                    key={a.id}
+                    onClick={() => handlePickAnimation(a)}
+                    onMouseEnter={a.id === "none" ? undefined : () => setHoveredAnim(a.id)}
+                    onMouseLeave={a.id === "none" ? undefined : () => setHoveredAnim(null)}
+                    style={{
+                      padding: "20px 10px",
+                      borderRadius: "10px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minHeight: "56px",
+                      textAlign: "center",
+                      cursor: "pointer",
+                      position: "relative",
+                      fontSize: "12.5px",
+                      fontWeight: 600,
+                      color: selected ? theme.text : mode.textFaint2,
+                      background: selected ? theme.accent : mode.cardBg,
+                      border: "1px solid " + (selected ? theme.accent : mode.cardBorder),
+                      ...revealStyle("animation", i),
+                    }}
+                  >
+                    {a.id !== "none" && (
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFav(a.id, favAnims, setFavAnims, LS_FAV_ANIMS);
+                        }}
+                        style={{
+                          position: "absolute",
+                          top: "6px",
+                          right: "7px",
+                          fontSize: "13px",
+                          lineHeight: 1,
+                          cursor: "pointer",
+                          color: isFav ? (selected ? theme.text : theme.accent) : mode.textFaint3,
+                        }}
+                      >
+                        ★
+                      </div>
+                    )}
+                    {hovering && a.keyframe ? (
+                      <span key={`${a.id}-hover`} style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
+                        {a.name.split(" ").map((word, wi) => (
+                          <span
+                            key={wi}
+                            style={{ display: "inline-block", animation: `${a.keyframe} 500ms ${a.ease} ${wi * 160}ms both` }}
+                          >
+                            {word}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span>{a.name}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -407,7 +581,11 @@ export default function StylePanel({
               max={bounds.verticalPosition.max}
               step={0.005}
               value={resolvedStyle.verticalPosition}
-              onChange={(e) => onChangeOverrides({ verticalPosition: Number(e.target.value) })}
+              onChange={(e) => onLiveChangeOverrides({ verticalPosition: Number(e.target.value) })}
+              onMouseUp={onCommitOverrides}
+              onTouchEnd={onCommitOverrides}
+              onKeyUp={onCommitOverrides}
+              onBlur={onCommitOverrides}
               style={{ width: "100%", accentColor: theme.accent }}
             />
           </div>
@@ -422,7 +600,11 @@ export default function StylePanel({
               max={bounds.fontSize.max}
               step={0.001}
               value={resolvedStyle.fontSize}
-              onChange={(e) => onChangeOverrides({ fontSize: Number(e.target.value) })}
+              onChange={(e) => onLiveChangeOverrides({ fontSize: Number(e.target.value) })}
+              onMouseUp={onCommitOverrides}
+              onTouchEnd={onCommitOverrides}
+              onKeyUp={onCommitOverrides}
+              onBlur={onCommitOverrides}
               style={{ width: "100%", accentColor: theme.accent }}
             />
           </div>
@@ -435,7 +617,6 @@ export default function StylePanel({
               <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
                 {(() => {
                   const parsed = parseColorString(highlightColorAt(i as number));
-                  // In per-phrase single-color mode only "Main" (slot 0) is editable.
                   const disabled = singleColor && (i as number) > 0;
                   return colorSwatchButton(
                     label as string,
@@ -493,39 +674,6 @@ export default function StylePanel({
             {outlineOrShadowRow(L.outlineLabel, L.outlineColorLabel, resolvedStyle.outline, (outline) =>
               onChangeOverrides({ outline })
             )}
-
-            <div style={{ display: "flex", gap: "26px", alignItems: "flex-end", flexWrap: "wrap", paddingTop: "16px" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <div style={{ fontSize: "11.5px", color: mode.textFaint3 }}>{L.revealModeLabel}</div>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  {REVEAL_MODES.map(({ value, labelKey }) => (
-                    <div
-                      key={value}
-                      className="amee-cta-btn"
-                      style={pillStyle(resolvedStyle.revealMode === value)}
-                      onClick={() => onChangeOverrides({ revealMode: value })}
-                    >
-                      {L[labelKey]}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <div style={{ fontSize: "11.5px", color: mode.textFaint3 }}>{L.captionAnimationLabel}</div>
-                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {CAPTION_ANIMATIONS.map(({ value, labelKey }) => (
-                    <div
-                      key={value}
-                      className="amee-cta-btn"
-                      style={pillStyle(resolvedStyle.captionAnimation === value)}
-                      onClick={() => onChangeOverrides({ captionAnimation: value })}
-                    >
-                      {L[labelKey]}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>

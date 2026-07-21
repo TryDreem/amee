@@ -5,12 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Amee</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <!-- Step 6f: fixed font-family list for the style panel (lib/fonts.ts) — a small curated
-         set, not the design's full gallery. -->
+    <!-- Full font gallery for the style panel (lib/fonts.ts) — Google Fonts for the hosted
+         families, plus @font-face for the four non-Google ones, ported verbatim from the
+         design (`Video Subtitle Editor.dc.html`). -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Oswald:wght@500;600;700;800&family=Montserrat:wght@600;700;800;900&family=Comfortaa:wght@600;700&family=Playfair+Display:ital,wght@0,600;1,600;1,700&family=Roboto:wght@400;500;700;900&family=Manrope:wght@600;700;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Oswald:wght@500;600;700;800&family=Montserrat:wght@600;700;800;900&family=Caveat:wght@600;700&family=Playfair+Display:ital,wght@0,600;1,600;1,700&family=Roboto:wght@400;500;700;900&family=Golos+Text:wght@500;700;900&family=Manrope:wght@600;700;800;900&family=Rubik+Spray+Paint&family=Rubik+Wet+Paint&family=Rubik+Marker+Hatch&family=Rubik+Moonrocks&family=Alex+Brush&family=Great+Vibes&family=Young+Serif&family=Luckiest+Guy&display=swap"
       rel="stylesheet"
     />
+    <style>
+      @font-face {
+        font-family: "Overdoze Sans";
+        src: url("https://raw.githubusercontent.com/isamirivers/overdoze-sans/main/overdozesans.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "Pricedown";
+        src: url("https://raw.githubusercontent.com/alextwothousand/pricedown-font-web/master/pricedown.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "Uni Sans Heavy";
+        src: url("https://raw.githubusercontent.com/Kyles-World/Uni-Sans-Font/main/UniSans-Heavy.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "Aileron";
+        src: url("https://raw.githubusercontent.com/suXinjke/RBRCZAnalysis/master/assets/fonts/Aileron-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

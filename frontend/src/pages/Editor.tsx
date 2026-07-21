@@ -20,6 +20,7 @@ import {
   type PresetBase,
   type Preset,
   type Project,
+  type Segment,
   type StyleOverrides,
 } from "../api/client";
 import { resolveTheme, UI_MODES } from "../theme";
@@ -34,6 +35,35 @@ import {
   removeWord,
   splitSegmentAt,
 } from "../lib/ecsEdit";
+import {
+  canRedo as canRedoHistory,
+  canUndo as canUndoHistory,
+  initHistory,
+  push as pushHistory,
+  redo as redoHistory,
+  undo as undoHistory,
+  type History,
+} from "../lib/history";
+
+// Step 7: everything the undo/redo stack tracks as one edit -- content (segments) and the
+// document-level style fields, snapshotted together so a single Undo button steps through
+// whichever kind of edit the user made last (matches the Behavior Matrix's own framing: one
+// linear undo/redo history, not separate content/style stacks).
+interface EditSnapshot {
+  segments: Segment[];
+  presetId: string;
+  perPhraseStyle: boolean;
+  overrides: StyleOverrides;
+}
+
+function snapshotOf(ecs: ECS, style: CaptionStyleSpec): EditSnapshot {
+  return structuredClone({
+    segments: ecs.segments,
+    presetId: style.presetId,
+    perPhraseStyle: style.perPhraseStyle,
+    overrides: style.overrides,
+  });
+}
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -109,46 +139,148 @@ export default function Editor(): JSX.Element {
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [justSaved, setJustSaved] = useState(false);
 
-  function updateEcs(next: ECS) {
-    setEcs(next);
-    setDirty(true);
+  // Step 7: undo/redo history. `lastSavedRef` is the snapshot last confirmed on the server (set
+  // on initial load and after each successful save) -- dirty/styleDirty are always recomputed
+  // against it, never toggled as an independent boolean, so undo/redo can't desync them (e.g.
+  // undoing back to exactly the last-saved state must clear dirty, not leave it stuck true).
+  const [history, setHistory] = useState<History<EditSnapshot> | null>(null);
+  const historyRef = useRef<History<EditSnapshot> | null>(null);
+  const lastSavedRef = useRef<EditSnapshot | null>(null);
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
+  function recomputeDirty(next: EditSnapshot) {
+    const saved = lastSavedRef.current;
+    setDirty(saved == null || JSON.stringify(next.segments) !== JSON.stringify(saved.segments));
+    setStyleDirty(
+      saved == null ||
+        next.presetId !== saved.presetId ||
+        next.perPhraseStyle !== saved.perPhraseStyle ||
+        JSON.stringify(next.overrides) !== JSON.stringify(saved.overrides)
+    );
   }
 
-  // Sparse merge into the document-level overrides, same "only the changed fields" shape the
-  // wire format uses (contract §8) — a slider touching fontSize doesn't clobber any other
-  // override already set. This is CaptionStyleSpec.overrides (Style document → styleDirty).
-  function updateStyleOverrides(patch: StyleOverrides) {
-    setStyleSpec((prev) => (prev ? { ...prev, overrides: { ...prev.overrides, ...patch } } : prev));
-    setStyleDirty(true);
-  }
-
-  // Sparse merge into ONE segment's own overrides (arch §4.2). Segment.overrides lives in the
-  // ECS, so this marks the ECS dirty (not the style doc). Addressed by segment id (D11). Created
-  // lazily — a segment stays override-free until its style is actually edited here.
-  function updateSegmentOverrides(segmentId: string, patch: StyleOverrides) {
-    setEcs((prev) =>
+  // Applies a snapshot as the new current state -- shared by real edits, undo, and redo, so all
+  // three ways of landing on a given document state update ecs/styleSpec/dirty identically.
+  function commitSnapshot(next: EditSnapshot) {
+    setEcs((prev) => (prev ? { ...prev, segments: next.segments } : prev));
+    setStyleSpec((prev) =>
       prev
-        ? {
-            ...prev,
-            segments: prev.segments.map((s) =>
-              s.id === segmentId ? { ...s, overrides: { ...(s.overrides ?? {}), ...patch } } : s
-            ),
-          }
+        ? { ...prev, presetId: next.presetId, perPhraseStyle: next.perPhraseStyle, overrides: next.overrides }
         : prev
     );
-    setDirty(true);
+    recomputeDirty(next);
   }
 
-  // Routes a style-panel change to the right place: while per-phrase mode is on AND a segment is
-  // selected for editing, changes write to THAT segment's overrides; otherwise they write to the
-  // document-level style (arch §4.2 — "any change in the style panel is written to
-  // segmentStyles[editingSegmentId]... only when the mode is on and a segment is selected").
-  function handleChangeStyleOverrides(patch: StyleOverrides) {
-    if (styleSpec?.perPhraseStyle && editingSegmentId) {
-      updateSegmentOverrides(editingSegmentId, patch);
-    } else {
-      updateStyleOverrides(patch);
+  // The one entry point every real edit (content or style) goes through: pushes the current
+  // state onto the undo stack, then commits `next` as the new present. `history.present` always
+  // mirrors ecs/styleSpec, so pushing it is equivalent to snapshotting "before this edit".
+  function applyEdit(next: EditSnapshot) {
+    if (history) {
+      setHistory(pushHistory(history, next));
     }
+    commitSnapshot(next);
+  }
+
+  function handleUndo() {
+    const h = historyRef.current;
+    if (!h || !canUndoHistory(h)) {
+      return;
+    }
+    const nextHistory = undoHistory(h);
+    setHistory(nextHistory);
+    commitSnapshot(nextHistory.present);
+  }
+
+  function handleRedo() {
+    const h = historyRef.current;
+    if (!h || !canRedoHistory(h)) {
+      return;
+    }
+    const nextHistory = redoHistory(h);
+    setHistory(nextHistory);
+    commitSnapshot(nextHistory.present);
+  }
+
+  // Content edit: builds the next snapshot from the current style fields (untouched) plus the
+  // new `segments` (every ecsEdit.ts operation -- add/remove/split/delete/commit word -- produces
+  // a full next Segment[], never a diff).
+  function applyEcsSegments(newSegments: Segment[]) {
+    if (!ecs || !styleSpec) {
+      return;
+    }
+    applyEdit({
+      segments: newSegments,
+      presetId: styleSpec.presetId,
+      perPhraseStyle: styleSpec.perPhraseStyle,
+      overrides: styleSpec.overrides,
+    });
+  }
+
+  // Sparse merge of a style-panel patch into the right place: while per-phrase mode is on AND a
+  // segment is selected for editing, it goes into THAT segment's own overrides (Segment.overrides
+  // lives in the ECS, arch §4.2, addressed by segment id per D11, created lazily); otherwise it
+  // goes into the document-level CaptionStyleSpec.overrides (contract §8's sparse "only the
+  // changed fields" shape — a slider touching fontSize doesn't clobber any other override
+  // already set). Pure -- doesn't touch state -- so it's shared between the instant-apply path
+  // and the drag-coalesced live/commit path below.
+  function nextSnapshotForOverridesPatch(patch: StyleOverrides): EditSnapshot | null {
+    if (!ecs || !styleSpec) {
+      return null;
+    }
+    if (styleSpec.perPhraseStyle && editingSegmentId) {
+      const segments = ecs.segments.map((s) =>
+        s.id === editingSegmentId ? { ...s, overrides: { ...(s.overrides ?? {}), ...patch } } : s
+      );
+      return {
+        segments,
+        presetId: styleSpec.presetId,
+        perPhraseStyle: styleSpec.perPhraseStyle,
+        overrides: styleSpec.overrides,
+      };
+    }
+    return {
+      segments: ecs.segments,
+      presetId: styleSpec.presetId,
+      perPhraseStyle: styleSpec.perPhraseStyle,
+      overrides: { ...styleSpec.overrides, ...patch },
+    };
+  }
+
+  // Instant changes (buttons, toggles, preset picks, color swatches): one patch, one history
+  // entry, applied immediately.
+  function handleChangeStyleOverrides(patch: StyleOverrides) {
+    const next = nextSnapshotForOverridesPatch(patch);
+    if (next) {
+      applyEdit(next);
+    }
+  }
+
+  // Continuous drag (range sliders): React's onChange fires on every tick of a drag, not just on
+  // release. Pushing a full history entry per tick would make one Undo only step back one tick
+  // (e.g. 9.9% instead of the 7.5% the drag started from) instead of undoing the whole gesture.
+  // `Live` applies each tick's value for a responsive preview WITHOUT touching history --
+  // history.present is deliberately left at its pre-drag value throughout the drag.
+  function handleChangeStyleOverridesLive(patch: StyleOverrides) {
+    const next = nextSnapshotForOverridesPatch(patch);
+    if (next) {
+      commitSnapshot(next);
+    }
+  }
+
+  // Called once when the drag/gesture ends (mouseup/touchend/keyup/blur on the slider). Folds
+  // every live tick since the last commit into exactly one history entry, since history.present
+  // still holds the pre-drag value.
+  function commitPendingEdit() {
+    if (!ecs || !styleSpec || !history) {
+      return;
+    }
+    const current = snapshotOf(ecs, styleSpec);
+    if (JSON.stringify(current) === JSON.stringify(history.present)) {
+      return;
+    }
+    setHistory(pushHistory(history, current));
   }
 
   // Preset switch: CaptionStyleSpec replaced with the new preset's base values, local
@@ -156,8 +288,15 @@ export default function Editor(): JSX.Element {
   // document-level field (no presetId on Segment.overrides), so this stays document-level even
   // in per-phrase mode.
   function selectPreset(presetId: string) {
-    setStyleSpec((prev) => (prev ? { ...prev, presetId, overrides: {} } : prev));
-    setStyleDirty(true);
+    if (!ecs || !styleSpec) {
+      return;
+    }
+    applyEdit({
+      segments: ecs.segments,
+      presetId,
+      perPhraseStyle: styleSpec.perPhraseStyle,
+      overrides: {},
+    });
   }
 
   // Document-level toggle (contract §8 perPhraseStyle). Turning it OFF stops editing a specific
@@ -165,17 +304,19 @@ export default function Editor(): JSX.Element {
   // reappear if toggled back on (arch §4.2). Turning it ON leaves editingSegmentId as-is (null
   // until the user picks a segment via its brush).
   function togglePerPhraseStyle() {
-    setStyleSpec((prev) => {
-      if (!prev) {
-        return prev;
-      }
-      const on = !prev.perPhraseStyle;
-      if (!on) {
-        setEditingSegmentId(null);
-      }
-      return { ...prev, perPhraseStyle: on };
+    if (!ecs || !styleSpec) {
+      return;
+    }
+    const on = !styleSpec.perPhraseStyle;
+    if (!on) {
+      setEditingSegmentId(null);
+    }
+    applyEdit({
+      segments: ecs.segments,
+      presetId: styleSpec.presetId,
+      perPhraseStyle: on,
+      overrides: styleSpec.overrides,
     });
-    setStyleDirty(true);
   }
 
   // Brush click on a segment card (only shown when perPhraseStyle is on): select that segment for
@@ -193,22 +334,30 @@ export default function Editor(): JSX.Element {
   }
 
   async function handleSave() {
-    if (!id || saving || (!dirty && !styleDirty)) {
+    if (!id || saving || (!dirty && !styleDirty) || !ecs || !styleSpec) {
       return;
     }
     setSaving(true);
     setSaveError(null);
     try {
-      if (dirty && ecs) {
-        const saved = await putEcs(id, ecs.segments);
-        setEcs(saved);
+      let nextEcs = ecs;
+      let nextStyle = styleSpec;
+      if (dirty) {
+        nextEcs = await putEcs(id, ecs.segments);
+        setEcs(nextEcs);
         setDirty(false);
       }
-      if (styleDirty && styleSpec) {
-        const saved = await putStyle(id, styleSpec.presetId, styleSpec.perPhraseStyle, styleSpec.overrides);
-        setStyleSpec(saved);
+      if (styleDirty) {
+        nextStyle = await putStyle(id, styleSpec.presetId, styleSpec.perPhraseStyle, styleSpec.overrides);
+        setStyleSpec(nextStyle);
         setStyleDirty(false);
       }
+      // The server's echo becomes the new save point AND the new undo-stack "present" -- if the
+      // backend normalized anything in the round-trip, subsequent undos should land on what's
+      // actually persisted, not on the pre-save snapshot that was sent.
+      const savedSnapshot = snapshotOf(nextEcs, nextStyle);
+      lastSavedRef.current = savedSnapshot;
+      setHistory((h) => (h ? { ...h, present: savedSnapshot } : h));
       setJustSaved(true);
       clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setJustSaved(false), 2000);
@@ -255,6 +404,9 @@ export default function Editor(): JSX.Element {
           setEcs(ecsResult);
           setStyleSpec(styleResult);
           setPresets(presetsResult);
+          const snapshot = snapshotOf(ecsResult, styleResult);
+          lastSavedRef.current = snapshot;
+          setHistory(initHistory(snapshot));
         }
       })
       .catch(() => {
@@ -280,6 +432,39 @@ export default function Editor(): JSX.Element {
     observer.observe(box);
     return () => observer.disconnect();
   }, [project?.id]);
+
+  // Step 7c: Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z, matching the Behavior Matrix's "button or keyboard
+  // shortcut" wording. Reads history via the ref (not the `history` state closure) so this
+  // listener is attached exactly once rather than re-subscribing on every edit. Skipped while
+  // focus is inside a text input/textarea/contenteditable so it doesn't fight the field's own
+  // native undo (e.g. while typing a word's text or a timestamp).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.key.toLowerCase() !== "z") {
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      const isEditable =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        Boolean(target?.isContentEditable);
+      if (isEditable) {
+        return;
+      }
+      e.preventDefault();
+      if (e.shiftKey) {
+        handleRedo();
+      } else {
+        handleUndo();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // Intentionally empty deps: handleUndo/handleRedo read history via historyRef, not the
+    // `history` closure, specifically so this listener attaches once instead of on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -368,7 +553,7 @@ export default function Editor(): JSX.Element {
     if (!ecs) {
       return;
     }
-    updateEcs({ ...ecs, segments: removeWord(ecs.segments, segmentId, wordId) });
+    applyEcsSegments(removeWord(ecs.segments, segmentId, wordId));
   }
 
   // Add word: real (Step 5b). Purely local edit state until an explicit save (Step 5e) —
@@ -383,7 +568,7 @@ export default function Editor(): JSX.Element {
       showNotice(L.noticeNoRoom);
       return;
     }
-    updateEcs({ ...ecs, segments: result.segments });
+    applyEcsSegments(result.segments);
     setPendingWordId(result.newWordId);
   }
 
@@ -397,7 +582,7 @@ export default function Editor(): JSX.Element {
       return;
     }
     const result = commitWordText(ecs.segments, segmentId, wordId, text);
-    updateEcs({ ...ecs, segments: result.segments });
+    applyEcsSegments(result.segments);
     if (pendingWordId === wordId) {
       setPendingWordId(null);
     }
@@ -413,14 +598,14 @@ export default function Editor(): JSX.Element {
     if (!ecs) {
       return;
     }
-    updateEcs({ ...ecs, segments: commitWordStart(ecs.segments, segmentId, wordId, raw) });
+    applyEcsSegments(commitWordStart(ecs.segments, segmentId, wordId, raw));
   }
 
   function handleCommitWordEnd(segmentId: string, wordId: string, raw: string) {
     if (!ecs) {
       return;
     }
-    updateEcs({ ...ecs, segments: commitWordEnd(ecs.segments, segmentId, wordId, raw) });
+    applyEcsSegments(commitWordEnd(ecs.segments, segmentId, wordId, raw));
   }
 
   function handleCommitSceneStart(segmentId: string, raw: string) {
@@ -432,7 +617,7 @@ export default function Editor(): JSX.Element {
     if (!firstWord) {
       return;
     }
-    updateEcs({ ...ecs, segments: commitWordStart(ecs.segments, segmentId, firstWord.id, raw) });
+    applyEcsSegments(commitWordStart(ecs.segments, segmentId, firstWord.id, raw));
   }
 
   function handleCommitSceneEnd(segmentId: string, raw: string) {
@@ -444,7 +629,7 @@ export default function Editor(): JSX.Element {
     if (!lastWord) {
       return;
     }
-    updateEcs({ ...ecs, segments: commitWordEnd(ecs.segments, segmentId, lastWord.id, raw) });
+    applyEcsSegments(commitWordEnd(ecs.segments, segmentId, lastWord.id, raw));
   }
 
   // Split segment: real (Step 5c). Clicking the segment's last word is a silent no-op
@@ -458,7 +643,7 @@ export default function Editor(): JSX.Element {
     if ("noop" in result) {
       return;
     }
-    updateEcs({ ...ecs, segments: result.segments });
+    applyEcsSegments(result.segments);
   }
 
   function handleDeleteSegmentClick(segmentId: string) {
@@ -482,7 +667,7 @@ export default function Editor(): JSX.Element {
     if (editingSegmentId === segmentId) {
       setEditingSegmentId(null);
     }
-    updateEcs({ ...ecs, segments: deleteSegment(ecs.segments, segmentId) });
+    applyEcsSegments(deleteSegment(ecs.segments, segmentId));
   }
 
   function handleCancelDeleteSegment() {
@@ -563,6 +748,8 @@ export default function Editor(): JSX.Element {
     styleSpec && presets ? presets.find((p) => p.id === styleSpec.presetId) : undefined;
 
   const perPhrase = styleSpec?.perPhraseStyle ?? false;
+  const undoAvailable = history != null && canUndoHistory(history);
+  const redoAvailable = history != null && canRedoHistory(history);
 
   // RENDERING resolution (arch §4.2): the segment active at the current time gets its own
   // effective style. CaptionOverlay independently re-derives the active segment from the same
@@ -653,6 +840,32 @@ export default function Editor(): JSX.Element {
 
         {ecs && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div
+              onClick={handleUndo}
+              aria-label={L.undo}
+              title={L.undo}
+              className="amee-icon-btn"
+              style={{
+                ...smallIconBtnStyle(mode),
+                cursor: undoAvailable ? "pointer" : "default",
+                opacity: undoAvailable ? 1 : 0.35,
+              }}
+            >
+              <UndoIcon />
+            </div>
+            <div
+              onClick={handleRedo}
+              aria-label={L.redo}
+              title={L.redo}
+              className="amee-icon-btn"
+              style={{
+                ...smallIconBtnStyle(mode),
+                cursor: redoAvailable ? "pointer" : "default",
+                opacity: redoAvailable ? 1 : 0.35,
+              }}
+            >
+              <RedoIcon />
+            </div>
             {saveError && (
               <span role="alert" style={{ fontSize: "12px", color: "#ef4444" }}>
                 {saveError}
@@ -829,6 +1042,8 @@ export default function Editor(): JSX.Element {
               singleColor={Boolean(editingSegment)}
               onSelectPreset={selectPreset}
               onChangeOverrides={handleChangeStyleOverrides}
+              onLiveChangeOverrides={handleChangeStyleOverridesLive}
+              onCommitOverrides={commitPendingEdit}
             />
           ) : (
             <div style={{ flex: 1, fontSize: "13px", color: mode.textFaint3, padding: "40px 22px", textAlign: "center" }}>
@@ -863,6 +1078,7 @@ export default function Editor(): JSX.Element {
                   style={resolvedStyle}
                   containerWidth={videoBoxSize.width}
                   containerHeight={videoBoxSize.height}
+                  isPlaying={isPlaying}
                 />
               )}
             </div>
@@ -941,6 +1157,42 @@ export default function Editor(): JSX.Element {
         </div>
       </div>
     </div>
+  );
+}
+
+function UndoIcon(): JSX.Element {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 7v6h6" />
+      <path d="M3 13a9 9 0 1 0 3-6.7L3 9" />
+    </svg>
+  );
+}
+
+function RedoIcon(): JSX.Element {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 7v6h-6" />
+      <path d="M21 13a9 9 0 1 1-3-6.7L21 9" />
+    </svg>
   );
 }
 
