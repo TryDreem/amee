@@ -52,6 +52,29 @@ def proxy_path(project_id: UUID) -> tuple[Path, str]:
     return dest, f"/files/projects/{project_id}/{dest.name}"
 
 
+def export_paths(
+    project_id: UUID, job_id: UUID
+) -> tuple[Path, Path, Path, str, str, str]:
+    """Destinations for the three export artifacts (contract §12's
+    `ExportResult` shape) — namespaced under the job id (not just the
+    project id) so a re-export never overwrites a previous job's still-
+    referenced files."""
+    directory = project_dir(project_id) / "exports" / str(job_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    url_prefix = f"/files/projects/{project_id}/exports/{job_id}"
+    video_path = directory / "video.mp4"
+    srt_path = directory / "captions.srt"
+    json_path = directory / "bundle.json"
+    return (
+        video_path,
+        srt_path,
+        json_path,
+        f"{url_prefix}/{video_path.name}",
+        f"{url_prefix}/{srt_path.name}",
+        f"{url_prefix}/{json_path.name}",
+    )
+
+
 def resolve_url(url: str) -> Path:
     """Maps a `/files/...` URL (as returned by save_video, or anything else
     stored this way) back to its real disk path — the only other place

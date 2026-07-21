@@ -1,21 +1,31 @@
 import asyncio
+import tempfile
 import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from app.db import async_session_factory
 from app.integrations import storage
 from app.integrations.ffmpeg import (
     VideoProbe,
+    burn_in_captions,
     extract_thumbnail,
     probe_video,
     transcode_proxy,
 )
+from app.integrations.subtitles import generate_ass, generate_srt
 from app.integrations.whisperx import TranscribedWord
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
+from app.schemas.ecs import ECSPutBody
+from app.schemas.export import ExportedJsonBundle
 from app.schemas.job import JobProgress, JobStatus
+from app.schemas.style import CaptionStyleSpecPutBody
 from app.services import ecs as ecs_service
+from app.services import presets as presets_service
 from app.services import raw_transcript as raw_transcript_service
+from app.services import style as style_service
 from app.workers.celery_app import celery_app
 
 # Above 1080p, the source is downscaled for the editor's preview player
@@ -153,4 +163,83 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
     async with async_session_factory() as session:
         await job_repo.update_status(
             session, job_id, status=JobStatus.done, progress=None
+        )
+
+
+@celery_app.task(queue="export")
+def export_task(job_id: str) -> None:
+    asyncio.run(_run_export(uuid.UUID(job_id)))
+
+
+async def _run_export(job_id: uuid.UUID) -> None:
+    """`app/services/export.py` has already validated and persisted the
+    submitted ecs/style by the time this runs (X4/X5) - this task only
+    renders the three output artifacts from what's now on disk/DB."""
+    async with async_session_factory() as session:
+        job = await job_repo.update_status(
+            session, job_id, status=JobStatus.processing, progress=None
+        )
+        project_id = job.project_id
+
+    try:
+        async with async_session_factory() as session:
+            project = await project_repo.get(session, project_id)
+            if project is None:
+                raise ValueError(f"project {project_id} not found")
+            if project.video_width is None or project.video_height is None:
+                raise ValueError(f"project {project_id} has no probed video dimensions")
+
+            ecs = await ecs_service.get_ecs(session, project_id)
+            if ecs is None:
+                raise ValueError(f"project {project_id} has no ECS")
+            style = await style_service.get_style(session, project_id)
+            if style is None:
+                raise ValueError(f"project {project_id} has no style")
+            preset = await presets_service.get_preset(session, style.presetId)
+            if preset is None:
+                raise ValueError(f"preset {style.presetId} not found")
+
+        video_path = storage.resolve_url(project.video_url)
+        video_dest, srt_dest, json_dest, video_url, srt_url, json_url = (
+            storage.export_paths(project_id, job_id)
+        )
+
+        ass_text = generate_ass(
+            ecs, style, preset, project.video_width, project.video_height
+        )
+        srt_text = generate_srt(ecs, style, preset)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ass_path = Path(tmp_dir) / "captions.ass"
+            ass_path.write_text(ass_text)
+            await burn_in_captions(video_path, ass_path, video_dest)
+
+        srt_dest.write_text(srt_text)
+
+        bundle = ExportedJsonBundle(
+            project_id=project_id,
+            owner_id=project.owner_id,
+            exported_at=datetime.now(UTC),
+            ecs=ECSPutBody(segments=ecs.segments),
+            style=CaptionStyleSpecPutBody(
+                presetId=style.presetId,
+                perPhraseStyle=style.perPhraseStyle,
+                overrides=style.overrides,
+            ),
+        )
+        json_dest.write_text(bundle.model_dump_json())
+    except Exception as exc:
+        async with async_session_factory() as session:
+            await job_repo.update_status(
+                session, job_id, status=JobStatus.failed, progress=None, error=str(exc)
+            )
+        return
+
+    async with async_session_factory() as session:
+        await job_repo.update_status(
+            session,
+            job_id,
+            status=JobStatus.done,
+            progress=None,
+            result={"video_url": video_url, "srt_url": srt_url, "json_url": json_url},
         )

@@ -1,7 +1,12 @@
-from fastapi import APIRouter, HTTPException
+import uuid
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import get_db
 from app.schemas.export import ExportRequestBody
 from app.schemas.job import Job
+from app.services import export as export_service
 
 router = APIRouter(prefix="/projects", tags=["export"])
 
@@ -14,7 +19,12 @@ router = APIRouter(prefix="/projects", tags=["export"])
         422: {"description": "Validation failed (shared with PUT /ecs, PUT /style)"}
     },
 )
-def export_project(project_id: str, body: ExportRequestBody) -> Job:
-    raise HTTPException(
-        status_code=501, detail="POST /projects/{id}/export not implemented"
-    )
+async def export_project(
+    project_id: uuid.UUID,
+    body: ExportRequestBody,
+    session: AsyncSession = Depends(get_db),
+) -> Job:
+    job = await export_service.start_export(session, project_id, body)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return job
