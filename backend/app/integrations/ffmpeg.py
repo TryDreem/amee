@@ -96,3 +96,36 @@ async def transcode_proxy(path: Path, dest: Path) -> None:
         "copy",
         str(dest),
     )
+
+
+def _escape_ffmpeg_filter_path(path: str) -> str:
+    """libavfilter's own escaping for a filter option value (not the shell —
+    `_run_ffmpeg` execs argv directly, no shell is ever involved): backslash,
+    single quote, and colon are significant inside a filtergraph string."""
+    return path.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+
+
+async def burn_in_captions(video_path: Path, ass_path: Path, dest: Path) -> None:
+    """Burns Step 10's `.ass` (the libass intermediate, INVARIANTS X3) into
+    the video via ffmpeg's `ass` filter (arch §2.5, contract §12's
+    `video_url` output). Always runs against the **original** upload, never
+    the preview proxy — same "full quality at final output" rule §2.8a
+    already applies to WhisperX (audio extraction always uses the original,
+    never the downscaled proxy).
+
+    CRF 18, not proxy's CRF 23: this is the deliverable, not an editor
+    convenience copy — a flagged choice, not pinned by any doc."""
+    escaped = _escape_ffmpeg_filter_path(str(ass_path))
+    await _run_ffmpeg(
+        "-i",
+        str(video_path),
+        "-vf",
+        f"ass='{escaped}'",
+        "-c:v",
+        "libx264",
+        "-crf",
+        "18",
+        "-c:a",
+        "copy",
+        str(dest),
+    )
