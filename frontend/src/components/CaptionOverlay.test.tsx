@@ -193,4 +193,58 @@ describe("CaptionOverlay", () => {
     );
     expect(screen.getByText("Hello,").style.animation).toContain("capWordPop");
   });
+
+  // "progressive" is a MOVING highlight (arch §7 Behavior Matrix): only the single
+  // currently-active word takes the highlight color at any instant. Words already passed must
+  // revert to the base color, not stay highlighted (the bug: every revealed word turned red and
+  // stayed red, i.e. karaoke-style cumulative highlighting instead of a moving one).
+  it('highlights only the single currently-active word in "progressive" mode, not every word up to it', () => {
+    const threeWords: Segment[] = [
+      {
+        id: "seg-1",
+        words: [
+          { id: "w-1", text: "I", start: 0, end: 0.3 },
+          { id: "w-2", text: "love", start: 0.3, end: 0.6 },
+          { id: "w-3", text: "you", start: 0.6, end: 0.9 },
+        ],
+      },
+    ];
+    render(
+      <CaptionOverlay
+        segments={threeWords}
+        currentTime={0.4}
+        style={{ ...baseStyle, revealMode: "progressive" }}
+        containerWidth={300}
+        containerHeight={500}
+      />
+    );
+    expect(screen.getByText("I").style.color).toBe("rgb(255, 255, 255)");
+    expect(screen.getByText("love").style.color).toBe("rgb(255, 230, 0)");
+    expect(screen.getByText("you").style.color).toBe("rgb(255, 255, 255)");
+  });
+
+  it('highlights every word at once in "phrase" mode', () => {
+    const threeWords: Segment[] = [
+      {
+        id: "seg-1",
+        words: [
+          { id: "w-1", text: "I", start: 0, end: 0.3 },
+          { id: "w-2", text: "love", start: 0.3, end: 0.6 },
+          { id: "w-3", text: "you", start: 0.6, end: 0.9 },
+        ],
+      },
+    ];
+    render(
+      <CaptionOverlay
+        segments={threeWords}
+        currentTime={0.4}
+        style={{ ...baseStyle, revealMode: "phrase" }}
+        containerWidth={300}
+        containerHeight={500}
+      />
+    );
+    expect(screen.getByText("I").style.color).toBe("rgb(255, 230, 0)");
+    expect(screen.getByText("love").style.color).toBe("rgb(255, 230, 0)");
+    expect(screen.getByText("you").style.color).toBe("rgb(255, 230, 0)");
+  });
 });

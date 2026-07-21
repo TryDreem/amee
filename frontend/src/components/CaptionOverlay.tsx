@@ -113,10 +113,6 @@ export default function CaptionOverlay({
     style.verticalPosition < style.safeArea.top ||
     style.verticalPosition > 1 - style.safeArea.bottom;
 
-  // Progressive gates highlighting on the active word; single-word/phrase modes have only one
-  // thing to highlight (the sole displayed word, or the whole phrase) — Infinity always passes.
-  const revealIdx = style.revealMode === "progressive" ? activeWordIdx : Infinity;
-
   const highlightColor = highlightColorFor(style.highlightColors, activeIndex, style.color);
   let wordCursor = 0;
 
@@ -170,6 +166,13 @@ export default function CaptionOverlay({
         fontSize: `${fontSizePx}px`,
         lineHeight: 1.25,
         WebkitTextStroke: outlineCss,
+        // -webkit-text-stroke paints centered ON the glyph outline, extending both inward and
+        // outward from it -- by default the fill is painted first and the stroke on top, so the
+        // stroke's inward half covers the fill entirely and the glyph reads as one solid blob of
+        // the outline color instead of a bordered letter (the bug: "красит весь текст, а не
+        // границы"). paint-order flips that: fill paints over the stroke, so only the outward
+        // half -- the true edge -- stays visible, which is the actual "outline" look.
+        paintOrder: outlineCss ? "stroke fill" : undefined,
         outline: wrapped.overflow ? "2px solid #ef4444" : undefined,
         outlineOffset: "6px",
       }}
@@ -178,7 +181,14 @@ export default function CaptionOverlay({
         <div key={lineIdx} style={{ whiteSpace: "nowrap" }}>
           {line.map((text, wordInLine) => {
             const word = displayWords?.[wordCursor];
-            const isHighlighted = wordCursor <= revealIdx;
+            // "progressive": a moving highlight -- only the single currently-active word gets the
+            // highlight color; every other word (before or after it) is the base color, matching
+            // CaptionsPanel's own `wordIdx === activeWordIdx` (exact match, not "every word up to
+            // here") so the editing list and the preview never disagree (§12 parity). "phrase" and
+            // "single-word" have only one thing to color at all (the whole segment, or the sole
+            // displayed word) — always highlighted.
+            const isHighlighted =
+              style.revealMode === "progressive" ? wordCursor === activeWordIdx : true;
             const animation = word ? wordAnimationCss(word.start, text.length) : undefined;
             wordCursor += 1;
             const color = isHighlighted ? highlightColor : style.color;

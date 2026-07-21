@@ -51,6 +51,12 @@ input[type="file"] {
 .amee-back-link:hover {
   transform: scale(1.05);
 }
+.amee-menu-item {
+  transition: background 0.15s ease;
+}
+.amee-menu-item:hover {
+  background: rgba(128, 128, 128, 0.14);
+}
 
 @keyframes homeFrameIn {
   from {

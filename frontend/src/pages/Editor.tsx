@@ -87,6 +87,23 @@ function smallIconBtnStyle(mode: { textFaint2: string }): CSSProperties {
   };
 }
 
+// Top-bar icon button (undo / redo / ⋯), ported from the design's e_iconBtnStyle: a filled
+// rounded square with the glyph centered, 34×34.
+function headerIconBtnStyle(mode: { iconBg: string; iconText: string }): CSSProperties {
+  return {
+    width: "34px",
+    height: "34px",
+    borderRadius: "9px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: mode.iconBg,
+    color: mode.iconText,
+    fontSize: "15px",
+    cursor: "pointer",
+  };
+}
+
 export default function Editor(): JSX.Element {
   const { id } = useParams<{ id: string }>();
   const { prefs } = useAmeePrefs();
@@ -108,6 +125,11 @@ export default function Editor(): JSX.Element {
 
   // Step 6a: left-panel tab. "style" is the default to match the design's own default view.
   const [activeTab, setActiveTab] = useState<"style" | "captions">("style");
+
+  // The "⋯" export options menu in the top bar (design's `menuOpen`). Anchored to the dots
+  // button, closed on outside-click / Escape.
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   // Editing UI state. Split segment / delete segment mutation logic lands in Steps 5c/5d;
   // Add word (Step 5b) is real below.
@@ -465,6 +487,30 @@ export default function Editor(): JSX.Element {
     // `history` closure, specifically so this listener attaches once instead of on every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Close the "⋯" export menu on an outside click or Escape (same dismissal pattern as the
+  // TopBar/color-picker popovers). Only attached while the menu is open.
+  useEffect(() => {
+    if (!exportMenuOpen) {
+      return;
+    }
+    function onDown(e: MouseEvent) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setExportMenuOpen(false);
+      }
+    }
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [exportMenuOpen]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -839,19 +885,19 @@ export default function Editor(): JSX.Element {
         </div>
 
         {ecs && (
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <div
               onClick={handleUndo}
               aria-label={L.undo}
               title={L.undo}
               className="amee-icon-btn"
               style={{
-                ...smallIconBtnStyle(mode),
+                ...headerIconBtnStyle(mode),
                 cursor: undoAvailable ? "pointer" : "default",
                 opacity: undoAvailable ? 1 : 0.35,
               }}
             >
-              <UndoIcon />
+              ↺
             </div>
             <div
               onClick={handleRedo}
@@ -859,12 +905,61 @@ export default function Editor(): JSX.Element {
               title={L.redo}
               className="amee-icon-btn"
               style={{
-                ...smallIconBtnStyle(mode),
+                ...headerIconBtnStyle(mode),
                 cursor: redoAvailable ? "pointer" : "default",
                 opacity: redoAvailable ? 1 : 0.35,
               }}
             >
-              <RedoIcon />
+              ↻
+            </div>
+            {/* "⋯" export options menu (design: menuOpen). Anchored to the dots button so the
+                dropdown drops directly under it regardless of Save/Export widths. */}
+            <div ref={exportMenuRef} style={{ position: "relative", display: "flex" }}>
+              <div
+                onClick={() => setExportMenuOpen((v) => !v)}
+                aria-label={L.export}
+                title={L.export}
+                className="amee-icon-btn"
+                style={headerIconBtnStyle(mode)}
+              >
+                ⋯
+              </div>
+              {exportMenuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: 0,
+                    width: "240px",
+                    background: mode.frameBg,
+                    border: "1px solid " + mode.cardBorder,
+                    borderRadius: "10px",
+                    boxShadow: "0 20px 50px rgba(0,0,0,.5)",
+                    padding: "6px",
+                    zIndex: 20,
+                    transformOrigin: "top right",
+                    animation: "menuPanelIn .22s cubic-bezier(.2,.8,.2,1) both",
+                  }}
+                >
+                  {[L.downloadSrt, L.exportSubsOnly].map((label) => (
+                    <div
+                      key={label}
+                      className="amee-menu-item"
+                      onClick={() => setExportMenuOpen(false)}
+                      style={{
+                        padding: "9px 10px",
+                        borderRadius: "6px",
+                        fontSize: "12.5px",
+                        fontWeight: 500,
+                        color: mode.textMain,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {label}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             {saveError && (
               <span role="alert" style={{ fontSize: "12px", color: "#ef4444" }}>
@@ -1157,42 +1252,6 @@ export default function Editor(): JSX.Element {
         </div>
       </div>
     </div>
-  );
-}
-
-function UndoIcon(): JSX.Element {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 7v6h6" />
-      <path d="M3 13a9 9 0 1 0 3-6.7L3 9" />
-    </svg>
-  );
-}
-
-function RedoIcon(): JSX.Element {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 7v6h-6" />
-      <path d="M21 13a9 9 0 1 1-3-6.7L21 9" />
-    </svg>
   );
 }
 
