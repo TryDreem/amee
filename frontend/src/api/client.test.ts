@@ -6,9 +6,26 @@
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { ecsFixture, presetsFixture, projectFixture } from "../mocks/fixtures";
+import {
+  ecsFixture,
+  exportJobFixture,
+  exportSrtJobFixture,
+  presetsFixture,
+  projectFixture,
+} from "../mocks/fixtures";
 import { server } from "../mocks/server";
-import { ApiError, createProject, listProjects, putEcs, resolveStyleLayers } from "./client";
+import {
+  ApiError,
+  createProject,
+  exportProject,
+  exportProjectSrt,
+  exportSrtUrl,
+  exportVideoUrl,
+  listProjects,
+  putEcs,
+  resolveStyleLayers,
+  type ExportPayload,
+} from "./client";
 
 describe("api client", () => {
   it("listProjects parses the fixture project list", async () => {
@@ -131,5 +148,79 @@ describe("resolveStyleLayers (preset.base -> doc overrides -> segment overrides)
     const merged = resolveStyleLayers(preset, { fontSize: null }, { italic: undefined });
     expect(merged.fontSize).toBe(preset.base.fontSize);
     expect(merged.italic).toBe(preset.base.italic);
+  });
+});
+
+describe("export", () => {
+  const exportPreset = presetsFixture[0];
+  if (!exportPreset) {
+    throw new Error("presetsFixture is empty");
+  }
+
+  const payload: ExportPayload = {
+    segments: ecsFixture.segments,
+    presetId: exportPreset.id,
+    perPhraseStyle: false,
+    overrides: { fontSize: 0.1 },
+  };
+
+  const expectedBody = {
+    ecs: { segments: ecsFixture.segments },
+    style: { presetId: exportPreset.id, perPhraseStyle: false, overrides: { fontSize: 0.1 } },
+  };
+
+  // Both endpoints share ExportRequestBody verbatim (contract §12) — the body must carry the
+  // whole ecs+style, since export renders what's on screen, not what was last saved.
+  it("exportProject posts the whole ecs+style and returns the export job", async () => {
+    let body: unknown;
+    server.use(
+      http.post("*/api/v1/projects/:projectId/export", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(exportJobFixture, { status: 202 });
+      })
+    );
+
+    const job = await exportProject(projectFixture.id, payload);
+
+    expect(body).toEqual(expectedBody);
+    expect(job.type).toBe("export");
+  });
+
+  it("exportProjectSrt hits /export-srt with the same body shape", async () => {
+    let body: unknown;
+    let path = "";
+    server.use(
+      http.post("*/api/v1/projects/:projectId/export-srt", async ({ request }) => {
+        body = await request.json();
+        path = new URL(request.url).pathname;
+        return HttpResponse.json(exportSrtJobFixture, { status: 202 });
+      })
+    );
+
+    const job = await exportProjectSrt(projectFixture.id, payload);
+
+    expect(path.endsWith("/export-srt")).toBe(true);
+    expect(body).toEqual(expectedBody);
+    expect(job.type).toBe("export_srt");
+  });
+
+  // Job.result is a union keyed on job.type (contract §5/§12) — each reader must only see its
+  // own url, never the other job's.
+  it("narrows a finished job's result to the url its own type carries", () => {
+    expect(exportVideoUrl(exportJobFixture)).toBe(
+      "/files/projects/9f2b7e10/exports/1e6a1c1e/output.mp4"
+    );
+    expect(exportSrtUrl(exportJobFixture)).toBeNull();
+
+    expect(exportSrtUrl(exportSrtJobFixture)).toBe(
+      "/files/projects/9f2b7e10/exports/2f7b2d2f/captions.srt"
+    );
+    expect(exportVideoUrl(exportSrtJobFixture)).toBeNull();
+  });
+
+  it("returns null for a job that has no result yet (still running)", () => {
+    const running = { ...exportJobFixture, status: "processing" as const, result: null };
+    expect(exportVideoUrl(running)).toBeNull();
+    expect(exportSrtUrl(running)).toBeNull();
   });
 });

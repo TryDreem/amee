@@ -13,6 +13,7 @@ export const PROJECT_ID = "9f2b7e10-1234-4a3d-8f21-abc987654321";
 
 const TRANSCRIBE_JOB_ID = "6a1c1e9c-2b4a-3d8f-8f21-abc123456700";
 const EXPORT_JOB_ID = "1e6a1c1e-9c2b-4a3d-8f21-abc123456789";
+const EXPORT_SRT_JOB_ID = "2f7b2d2f-0d3c-4b4e-9032-bcd234567890";
 const PRESET_ID = "c1a1a1a1-0000-4000-8000-000000000001";
 const SEGMENT_ID = "a0000000-0000-4000-8000-000000000001";
 const WORD_ID_1 = "a0000000-0000-4000-8000-000000000002";
@@ -70,6 +71,24 @@ export const exportJobFixture: Job = {
   error: null,
   result: {
     video_url: "/files/projects/9f2b7e10/exports/1e6a1c1e/output.mp4",
+  },
+};
+
+// Separate job type on the same queue (contract §12, X6) — its result carries `srt_url` only,
+// never `video_url`, which is what the client's result-narrowing has to get right.
+export const exportSrtJobFixture: Job = {
+  id: EXPORT_SRT_JOB_ID,
+  project_id: PROJECT_ID,
+  owner_id: OWNER_ID,
+  type: "export_srt",
+  status: "done",
+  progress: null,
+  thumbnail_url: null,
+  created_at: "2026-07-08T10:00:00Z",
+  updated_at: "2026-07-08T10:00:03Z",
+  error: null,
+  result: {
+    srt_url: "/files/projects/9f2b7e10/exports/2f7b2d2f/captions.srt",
   },
 };
 

@@ -13,6 +13,8 @@ export type StyleOverrides = components["schemas"]["StyleOverrides"];
 export type OutlineOrShadow = components["schemas"]["OutlineOrShadow"];
 export type RevealMode = components["schemas"]["RevealMode"];
 export type CaptionAnimation = components["schemas"]["CaptionAnimation"];
+export type ExportResult = components["schemas"]["ExportResult"];
+export type ExportSrtResult = components["schemas"]["ExportSrtResult"];
 
 export class ApiError extends Error {
   readonly status: number;
@@ -132,6 +134,54 @@ export async function putStyle(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ presetId, perPhraseStyle, overrides }),
   });
+}
+
+// Both export endpoints take the identical body (contract §12 — `ExportRequestBody` is shared
+// verbatim by the two): the whole ECS + style documents, so the render reflects exactly what's on
+// screen rather than whatever happened to be saved last.
+export interface ExportPayload {
+  segments: Segment[];
+  presetId: string;
+  perPhraseStyle: boolean;
+  overrides: StyleOverrides;
+}
+
+function exportRequestInit(payload: ExportPayload): RequestInit {
+  return {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ecs: { segments: payload.segments },
+      style: {
+        presetId: payload.presetId,
+        perPhraseStyle: payload.perPhraseStyle,
+        overrides: payload.overrides,
+      },
+    }),
+  };
+}
+
+// Burned-in video only (contract §12, X1). Persists the submitted ecs+style as a side effect
+// (X5), so triggering an export also saves — the caller should treat the documents as saved.
+export async function exportProject(projectId: string, payload: ExportPayload): Promise<Job> {
+  return apiFetch<Job>(`/projects/${projectId}/export`, exportRequestInit(payload));
+}
+
+// SRT only (contract §12, X6). Deliberately does NOT persist: the submitted documents are used
+// once and discarded, so this exports unsaved edits without writing them to the project.
+export async function exportProjectSrt(projectId: string, payload: ExportPayload): Promise<Job> {
+  return apiFetch<Job>(`/projects/${projectId}/export-srt`, exportRequestInit(payload));
+}
+
+// `Job.result` is a union whose shape follows `job.type` (contract §5/§12). Narrow on the field
+// that's actually present rather than trusting `type` — a type/result mismatch then reads as
+// "no url yet" instead of silently handing back `undefined` as a string.
+export function exportVideoUrl(job: Job): string | null {
+  return job.result && "video_url" in job.result ? job.result.video_url : null;
+}
+
+export function exportSrtUrl(job: Job): string | null {
+  return job.result && "srt_url" in job.result ? job.result.srt_url : null;
 }
 
 // preset.base merged with the sparse CaptionStyleSpec.overrides — override wins per-field

@@ -4,6 +4,7 @@ import type { components } from "../api/types.gen";
 import {
   ecsFixture,
   exportJobFixture,
+  exportSrtJobFixture,
   presetsFixture,
   projectFixture,
   rawTranscriptFixture,
@@ -25,11 +26,15 @@ export const handlers = [
     HttpResponse.json(transcribeJobFixture, { status: 202 })
   ),
 
-  http.get("*/api/v1/jobs/:jobId", ({ params }) =>
-    HttpResponse.json(
-      params.jobId === exportJobFixture.id ? exportJobFixture : transcribeJobFixture
-    )
-  ),
+  http.get("*/api/v1/jobs/:jobId", ({ params }) => {
+    if (params.jobId === exportJobFixture.id) {
+      return HttpResponse.json(exportJobFixture);
+    }
+    if (params.jobId === exportSrtJobFixture.id) {
+      return HttpResponse.json(exportSrtJobFixture);
+    }
+    return HttpResponse.json(transcribeJobFixture);
+  }),
 
   http.get("*/api/v1/projects/:projectId/raw-transcript", () =>
     HttpResponse.json(rawTranscriptFixture)
@@ -69,5 +74,9 @@ export const handlers = [
 
   http.post("*/api/v1/projects/:projectId/export", () =>
     HttpResponse.json(exportJobFixture, { status: 202 })
+  ),
+
+  http.post("*/api/v1/projects/:projectId/export-srt", () =>
+    HttpResponse.json(exportSrtJobFixture, { status: 202 })
   ),
 ];
