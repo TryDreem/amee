@@ -4,6 +4,7 @@ import type { PresetBase, Segment } from "../api/client";
 import { activeWordIndexInSegment, findActiveSegmentIndex, highlightColorFor } from "../lib/activeSegment";
 import { findAnimationOption } from "../lib/animations";
 import { wrapWords } from "../lib/captionFit";
+import { cssFontFamily } from "../lib/fonts";
 import { stripPunctuation } from "../lib/stripPunctuation";
 
 interface CaptionOverlayProps {
@@ -72,7 +73,10 @@ export default function CaptionOverlay({
   const isSingleWord = style.revealMode === "single-word";
 
   const fontSizePx = style.fontSize * containerHeight;
-  const fontString = `${style.fontWeight} ${fontSizePx}px ${style.fontFamily}`;
+  // style.fontFamily is a bare family name (see lib/fonts.ts) — CSS and canvas both need a
+  // quoted stack, built here rather than stored, so nothing CSS-shaped ever reaches the wire.
+  const cssFamily = cssFontFamily(style.fontFamily);
+  const fontString = `${style.fontWeight} ${fontSizePx}px ${cssFamily}`;
 
   // showPunctuation: false (default) strips displayed punctuation; Word.text itself is never
   // touched (S7) — a word that strips to empty still occupies its own timeline slot/wrap
@@ -159,7 +163,7 @@ export default function CaptionOverlay({
         maxWidth: `${containerWidth * HORIZONTAL_SAFE_WIDTH_FRACTION}px`,
         textAlign: "center",
         pointerEvents: "none",
-        fontFamily: style.fontFamily,
+        fontFamily: cssFamily,
         fontWeight: style.fontWeight,
         fontStyle: style.italic ? "italic" : "normal",
         textTransform: style.textTransform === "uppercase" ? "uppercase" : "none",

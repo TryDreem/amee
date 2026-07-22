@@ -5,7 +5,15 @@ import ColorPickerModal from "./ColorPickerModal";
 import type { Strings } from "../i18n";
 import { CAPTION_ANIMATIONS, findAnimationOption, type AnimationOption } from "../lib/animations";
 import { colorWithAlpha, DEFAULT_HIGHLIGHT_COLORS, parseColorString } from "../lib/color";
-import { FONT_FILTERS, FONT_OPTIONS, fontMatchesFilter, type FontFilter, type FontOption } from "../lib/fonts";
+import {
+  cssFontFamily,
+  FONT_FILTERS,
+  FONT_OPTIONS,
+  fontMatchesFilter,
+  fontName,
+  type FontFilter,
+  type FontOption,
+} from "../lib/fonts";
 import { resolveTheme, UI_MODES, type Prefs } from "../theme";
 
 interface StylePanelProps {
@@ -254,7 +262,10 @@ export default function StylePanel({
 
   function isFontSelected(font: FontOption): boolean {
     return (
-      resolvedStyle.fontFamily === font.family &&
+      // fontName(), not a raw compare: a document saved before fontFamily was settled as a bare
+      // name holds a whole CSS stack, which would match no card and leave the gallery looking
+      // like nothing is selected.
+      fontName(resolvedStyle.fontFamily) === font.family &&
       resolvedStyle.fontWeight === font.weight &&
       resolvedStyle.italic === Boolean(font.italic) &&
       resolvedStyle.glow === Boolean(font.glow) &&
@@ -464,7 +475,7 @@ export default function StylePanel({
                       style={{
                         fontSize: "16px",
                         fontWeight: font.weight,
-                        fontFamily: font.family,
+                        fontFamily: cssFontFamily(font.family),
                         fontStyle: font.italic ? "italic" : "normal",
                         color: font.outline ? "transparent" : font.previewColor,
                         textAlign: "center",

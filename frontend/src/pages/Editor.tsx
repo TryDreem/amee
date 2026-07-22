@@ -32,6 +32,7 @@ import { useJobPolling } from "../hooks/useJobPolling";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
 import { findActiveSegmentIndex } from "../lib/activeSegment";
+import { fontName } from "../lib/fonts";
 import {
   addWordAt,
   commitWordEnd,
@@ -60,6 +61,20 @@ interface EditSnapshot {
   presetId: string;
   perPhraseStyle: boolean;
   overrides: StyleOverrides;
+}
+
+// `overrides.fontFamily` must be one bare family name: it ends up in the export's ASS `Style:`
+// line, which is comma-separated, so a CSS stack ("'Golos Text', sans-serif") shifts every field
+// after it and libass drops the style — the video burns with no captions. Documents written
+// before that was settled hold exactly that, so collapse it to the family name on load; the next
+// save/export then persists the repaired value. Applied before the save point is taken, so this
+// repair never shows up as an unsaved change.
+function normalizeStyle(style: CaptionStyleSpec): CaptionStyleSpec {
+  const family = style.overrides.fontFamily;
+  if (typeof family !== "string" || fontName(family) === family) {
+    return style;
+  }
+  return { ...style, overrides: { ...style.overrides, fontFamily: fontName(family) } };
 }
 
 function snapshotOf(ecs: ECS, style: CaptionStyleSpec): EditSnapshot {
@@ -489,10 +504,11 @@ export default function Editor(): JSX.Element {
     Promise.all([getEcs(id), getStyle(id), listPresets()])
       .then(([ecsResult, styleResult, presetsResult]) => {
         if (!cancelled) {
+          const normalized = normalizeStyle(styleResult);
           setEcs(ecsResult);
-          setStyleSpec(styleResult);
+          setStyleSpec(normalized);
           setPresets(presetsResult);
-          const snapshot = snapshotOf(ecsResult, styleResult);
+          const snapshot = snapshotOf(ecsResult, normalized);
           lastSavedRef.current = snapshot;
           setHistory(initHistory(snapshot));
         }
