@@ -28,3 +28,22 @@ async def export_project(
     if job is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return job
+
+
+@router.post(
+    "/{project_id}/export-srt",
+    response_model=Job,
+    status_code=202,
+    responses={
+        422: {"description": "Validation failed (request body is not persisted)"}
+    },
+)
+async def export_project_srt(
+    project_id: uuid.UUID,
+    body: ExportRequestBody,
+    session: AsyncSession = Depends(get_db),
+) -> Job:
+    job = await export_service.start_export_srt(session, project_id, body)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return job

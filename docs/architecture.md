@@ -87,7 +87,8 @@ Unlike other product-readiness concerns, background job processing is **not defe
 
 - `transcribe` — the full post-upload processing job: WhisperX transcription and the initial segmentation step (§5.1, synchronous within this same job since it's cheap), running alongside video-probe, thumbnail, and preview-proxy generation as three more parallel steps within the same job (§2.8).
 
-- `export` — final rendering (burning captions into video via ffmpeg).
+- `export` — final rendering (burning captions into video via ffmpeg), and standalone SRT subtitle file generation (a separate, non-persisting job type on the same queue — cheap per-message CPU work, not a new load profile, so it doesn't warrant its own queue).
+
  
 These are kept as two distinct queues because they have very different load profiles (ML inference vs. video encoding), and separating them now costs almost nothing but preserves the ability to scale or prioritize them independently later, without a migration.
  
@@ -101,14 +102,16 @@ Because service-layer functions are written to take only serializable input (ids
 - **Payments:** not implemented in the MVP, but the layered architecture anticipates it: a quota/subscription check is expected to sit at the service-layer boundary, immediately before expensive operations are kicked off (most obviously, export). Because the service layer is already the single choke point for orchestration, inserting this check later doesn't require touching the API layer or the data layer.
  
 ### 2.5 Export outputs (MVP)
- 
-Three outputs are produced per project, decided explicitly (see also §14 for the deferred alternative):
- 
-1. **Burned-in video** — captions rendered directly into the video file via ffmpeg.
-2. **SRT file** — a widely compatible subtitle file, for import into third-party tools.
-3. **Internal project JSON** — the full-fidelity project data (ECS + CaptionStyleSpec), for re-import into this same tool or for programmatic use.
- 
-A known limitation was explicitly acknowledged and accepted: standard SRT has no concept of word-level timing — it only supports phrase-level start/end. Since word-level highlighting is central to this product, exporting to plain SRT necessarily **loses** word-level timing data; the internal JSON is what preserves it. A richer subtitle format (ASS, which supports karaoke-style word timing and is the same format likely used internally as an intermediate step before the ffmpeg/libass burn-in render) was discussed and **deliberately deferred** — it can be added later as an additional export option without affecting anything else in the architecture.
+
+Two outputs are produced, from two independent calls:
+
+1. **Burned-in video** (`POST /export`) — captions rendered directly into the video file via ffmpeg. Persists the submitted `ecs`/`style` as a side effect before rendering.
+2. **SRT file** (`POST /export-srt`) — a widely compatible subtitle file, for import into third-party tools. Generated on demand from the submitted `ecs`/`style` without touching the persisted documents.
+
+A known limitation was explicitly acknowledged and accepted: standard SRT has no concept of word-level timing — it only supports phrase-level start/end. A richer subtitle format (ASS, which supports karaoke-style word timing and is the same format likely used internally as an intermediate step before the ffmpeg/libass burn-in render) was discussed and **deliberately deferred** — it can be added later as an additional export option without affecting anything else in the architecture.
+
+An earlier revision of this MVP also produced a third output, an internal project JSON bundle (ECS + CaptionStyleSpec together, for re-import/programmatic use). It has been **removed from scope**, not deferred like ASS — no endpoint currently produces it. Worth reconsidering as its own endpoint later if a concrete re-import need arises.
+
 
 ### 2.6 Logging
 

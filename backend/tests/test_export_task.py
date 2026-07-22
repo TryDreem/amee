@@ -1,5 +1,4 @@
 import asyncio
-import json
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -14,7 +13,6 @@ from app.integrations.whisperx import TranscribedWord
 from app.models.job import JobModel
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
-from app.schemas.export import ExportedJsonBundle
 from app.schemas.job import JobStatus, JobType
 from app.services import ecs as ecs_service
 from app.services import style as style_service
@@ -85,7 +83,7 @@ async def _get_job(job_id: uuid.UUID) -> JobModel:
         return job
 
 
-def test_export_task_produces_video_srt_and_json(
+def test_export_task_produces_video_only(
     eager_celery: None, sample_video: Path
 ) -> None:
     job_id = asyncio.run(_create_export_job(sample_video))
@@ -96,19 +94,10 @@ def test_export_task_produces_video_srt_and_json(
     assert finished.status == JobStatus.done
     assert finished.error is None
     assert finished.result is not None
+    assert set(finished.result.keys()) == {"video_url"}
 
     video_path = storage.resolve_url(finished.result["video_url"])
-    srt_path = storage.resolve_url(finished.result["srt_url"])
-    json_path = storage.resolve_url(finished.result["json_url"])
-
     assert video_path.exists() and video_path.stat().st_size > 0
-    assert "hello" in srt_path.read_text()
-
-    bundle = ExportedJsonBundle.model_validate(json.loads(json_path.read_text()))
-    assert [w.text for seg in bundle.ecs.segments for w in seg.words] == [
-        "hello",
-        "world",
-    ]
 
 
 def test_export_task_marks_job_failed_when_setup_fails(

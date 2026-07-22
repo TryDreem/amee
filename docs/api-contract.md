@@ -87,7 +87,8 @@ GET  /jobs/{jobId}           (poll until status = done)          → result.vide
 | Presets | `GET /presets` |
 | Recalculate Groups | `POST /projects/{id}/recalculate-groups` |
 | Reset to Raw Transcript | `POST /projects/{id}/reset-to-raw` |
-| Export | `POST /projects/{id}/export` |
+| Export | `POST /projects/{id}/export` (video only, persists ecs + style) · `POST /projects/{id}/export-srt` (SRT only, does not persist) |
+
 
 Project management beyond create/list (rename, delete, sharing) is intentionally out of scope for this pass — nothing in architecture doc §14 calls for it, and it wasn't part of what this contract set out to fix.
 
@@ -171,14 +172,16 @@ One shape, shared by both queues (architecture doc §2.3 — status is applicati
   "id": "uuid",
   "project_id": "uuid",
   "owner_id": "uuid",
-  "type": "transcribe" | "export",
+  "type": "transcribe" | "export" | "export_srt",
   "status": "queued" | "processing" | "done" | "failed",
   "progress": "preparing" | "transcribing" | "generating_preview" | null,
   "thumbnail_url": "string | null",
   "created_at": "ISO8601 string",
   "updated_at": "ISO8601 string",
   "error": "string | null",
-  "result": null | { "video_url": "string", "srt_url": "string", "json_url": "string" }
+  "result": null
+    | { "video_url": "string" }              // type: "export"
+    | { "srt_url": "string" }                // type: "export_srt"
 }
 ```
 
@@ -188,7 +191,8 @@ best-effort basis, not a strict per-step state machine; clients poll `GET /jobs/
 the same way they already poll for status (contract §14 — the app database stays the source of
 truth either way).
 
-`result` is always `null` for `type: "transcribe"` — a completed transcription is signaled by `status: "done"` alone; the actual data is fetched via `GET /ecs` and `GET /raw-transcript` once that's true, not duplicated into the job. `result` is populated only for `type: "export"`, and only once `status: "done"`.
+`result` is always `null` for `type: "transcribe"` — a completed transcription is signaled by `status: "done"` alone; the actual data is fetched via `GET /ecs` and `GET /raw-transcript` once that's true, not duplicated into the job. `result` is populated only for `type: "export"`/`"export_srt"`, and only once `status: "done"` — its shape depends on `type` (see §12).
+
 
 ---
 
@@ -442,7 +446,7 @@ Body:
 
 **Why export carries the whole documents, not just a project id:** architecture doc §6 says the backend receives `CaptionStyleSpec` "when the user explicitly saves *or exports*" — treating export as its own trigger for transmitting the whole object, not something that silently trusts whatever was last saved. Read literally: hitting Export without a preceding explicit Save should still export exactly what's on screen, not stale backend state. So this endpoint **persists both documents as a side effect** (same validation as `PUT /ecs` / `PUT /style` — one validation path, not two that can drift apart) and *then* enqueues the export job — one call does what would otherwise be three (`PUT /ecs`, `PUT /style`, `POST /export`) with a window in between for the second `PUT` to fail or race. This is an interpretation of §6's wording, not something stated unambiguously — flagged again in §13.
 
-**202** → `Job` (`type: "export"`). Poll `GET /jobs/{id}`; once `status: "done"`, `result` carries the three outputs (architecture doc §2.5):
+**202** → `Job` (`type: "export"`). Poll `GET /jobs/{id}`; once `status: "done"`, `result` carries the one output (architecture doc §2.5):
 
 **Example — completed export job:**
 ```json
@@ -456,28 +460,26 @@ Body:
   "updated_at": "2026-07-08T10:02:14Z",
   "error": null,
   "result": {
-    "video_url": "/files/projects/9f2b7e10/exports/1e6a1c1e/output.mp4",
-    "srt_url": "/files/projects/9f2b7e10/exports/1e6a1c1e/captions.srt",
-    "json_url": "/files/projects/9f2b7e10/exports/1e6a1c1e/project.json"
+    "video_url": "/files/projects/9f2b7e10/exports/1e6a1c1e/video.mp4"
   }
 }
 ```
 
 These URLs come from the storage abstraction (architecture doc §2.1) — relative paths under local disk today, potentially signed cloud URLs later; the contract doesn't care which, by design.
 
-**`json_url` is a bundled document, not a re-export of the two split endpoints:**
+### `POST /projects/{id}/export-srt`
+
+Same body shape as `POST /projects/{id}/export` — `{ecs, style}`. Unlike `/export`, this endpoint does **not** persist either document: it validates the submitted `ecs`/`style` (same shared path as `PUT /ecs` / `PUT /style` / `POST /export`) and generates an SRT file from exactly what was submitted, discarding the body once the job is enqueued. This matters when the editor screen has unsaved edits — `/export-srt` reflects them without requiring a save first, and without writing them to the project.
+
+**202** → `Job` (`type: "export_srt"`). Poll `GET /jobs/{id}`; once `status: "done"`:
 ```json
-{
-  "project_id": "uuid",
-  "owner_id": "uuid",
-  "exported_at": "ISO8601 string",
-  "ecs": { "segments": [ "..." ] },
-  "style": { "presetId": "uuid", "overrides": { "...": "..." } }
-}
+{ "result": { "srt_url": "/files/projects/9f2b7e10/exports/<job_id>/captions.srt" } }
 ```
-This doesn't reopen the ECS/Style split decision (§1) — that decision is about how the two documents are **persisted and edited** (two endpoints, two round trips). The exported JSON is a separate concern: a **portable snapshot** meant for "re-import into this same tool or for programmatic use" (architecture doc §2.5), which needs to be one self-contained file, not two files a re-importer has to keep in sync by hand.
 
 **SRT export** loses word-level timing by construction — a known, accepted limitation, not a bug (architecture doc §2.5). ASS export (which would preserve it) has no endpoint here; it's still explicitly deferred (architecture doc §14 item 5).
+
+**The internal project JSON bundle (`json_url`) has been removed** — it is no longer produced by any endpoint. (Previously bundled `ecs`+`style` as one portable snapshot alongside the video export; dropped from scope. If a re-import/portable-snapshot need resurfaces, it should be designed as its own endpoint against whatever that need actually requires, not reinstated as a side effect of video export.)
+
 
 ---
 
@@ -489,7 +491,7 @@ This doesn't reopen the ECS/Style split decision (§1) — that decision is abou
 | 2 | ECS/Style persistence granularity | Separate: `/ecs` and `/style`, two endpoints, two documents. |
 | 3 | Document versioning | Not in MVP. No `version` field, no optimistic-concurrency check, last-write-wins on `PUT`. |
 | 4 | Autosave | Still excluded from MVP; the same `PUT` endpoints support it later by being called more often — no contract change needed. |
-| 5 | Subtitle export formats | Video + SRT + internal JSON, always all three per export (architecture doc §2.5). ASS still deferred — no endpoint. |
+| 5 | Subtitle export formats | Video (POST /export) and SRT (POST /export-srt) are separate, independently-triggerable outputs — SRT does not persist ecs/style. Internal JSON bundle removed (was: always all three per export). ASS still deferred — no endpoint. |
 | 6 | Retokenization algorithm | Still deferred — irrelevant to this contract, since `PUT /ecs` just validates whatever `Word[]` arrives, regardless of how it was produced. |
 | 7 | Per-word link to Raw Transcript | Still excluded. Confirmed at the wire level: Raw Transcript words carry no `id` (§6). |
 | 8 | Empty-segment behavior | Frontend drops the segment as part of the word-deletion edit; backend rejects an empty segment defensively on `PUT /ecs` (§7). |
@@ -503,7 +505,7 @@ This doesn't reopen the ECS/Style split decision (§1) — that decision is abou
 **New judgment calls in this document worth a second look** (not forced by the architecture doc the way most of the above is):
 - **Preset+delta wire shape** (§8) — inferred, not re-derived from something written down.
 - **`POST /projects` vs. `POST /projects/{id}/transcribe` as two separate calls**, rather than upload auto-triggering transcription (§4). Leaning toward **keeping them separate**: the retry-after-failure path (§4's 409 guard) needs an explicit trigger to call again regardless of what upload does, so merging the calls wouldn't remove the need for this endpoint — it would only add a combined-response shape to design and build for the first-call case alone. Not a forced conclusion; revisit if the two-call frontend flow turns out to be awkward in practice.
-- **Export bundling `ecs`+`style` into its own request body and persisting them as a side effect** (§12) — a reading of architecture doc §6's "saves or exports" phrasing, not something stated unambiguously.
+- **Export bundling `ecs`+`style` into its own request body and persisting them as a side effect** (§12) — a reading of architecture doc §6's "saves or exports" phrasing, not something stated unambiguously. Note this only applies to `POST /export`; `POST /export-srt` deliberately does not persist.
 
 ---
 

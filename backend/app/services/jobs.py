@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.job import JobModel
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
-from app.schemas.job import ExportResult, Job
+from app.schemas.job import ExportResult, ExportSrtResult, Job, JobType
 
 
 async def _to_schema(session: AsyncSession, model: JobModel) -> Job:
@@ -15,6 +15,17 @@ async def _to_schema(session: AsyncSession, model: JobModel) -> Job:
     # response time so there's exactly one place that field is stored.
     project = await project_repo.get(session, model.project_id)
     thumbnail_url = project.thumbnail_url if project else None
+
+    # result's shape is discriminated by type, not guessed via Pydantic
+    # union matching - export and export_srt have disjoint required fields
+    # today, but explicit beats implicit for a wire-contract type. transcribe
+    # jobs never populate `result` (see JobModel.result's own comment).
+    result: ExportResult | ExportSrtResult | None = None
+    if model.result is not None:
+        if model.type == JobType.export:
+            result = ExportResult(**model.result)
+        elif model.type == JobType.export_srt:
+            result = ExportSrtResult(**model.result)
 
     return Job(
         id=model.id,
@@ -27,7 +38,7 @@ async def _to_schema(session: AsyncSession, model: JobModel) -> Job:
         created_at=model.created_at,
         updated_at=model.updated_at,
         error=model.error,
-        result=ExportResult(**model.result) if model.result else None,
+        result=result,
     )
 
 

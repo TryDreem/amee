@@ -6,11 +6,13 @@ from pydantic import BaseModel
 
 
 class JobType(str, Enum):
-    """Only the two queues that actually exist (INVARIANTS P5). A future `split`
-    queue is a pure addition to this enum, not modeled here."""
+    """`export_srt` shares the `export` queue (INVARIANTS P5, X6) - it is not
+    a third queue, just a second job type on an existing one. A future
+    `split` queue is a pure addition to this enum, not modeled here."""
 
     transcribe = "transcribe"
     export = "export"
+    export_srt = "export_srt"
 
 
 class JobStatus(str, Enum):
@@ -32,8 +34,10 @@ class JobProgress(str, Enum):
 
 class ExportResult(BaseModel):
     video_url: str
+
+
+class ExportSrtResult(BaseModel):
     srt_url: str
-    json_url: str
 
 
 class Job(BaseModel):
@@ -47,4 +51,4 @@ class Job(BaseModel):
     created_at: datetime
     updated_at: datetime
     error: str | None
-    result: ExportResult | None
+    result: ExportResult | ExportSrtResult | None

@@ -1,7 +1,7 @@
 import asyncio
 import tempfile
 import uuid
-from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +18,10 @@ from app.integrations.subtitles import generate_ass, generate_srt
 from app.integrations.whisperx import TranscribedWord
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
-from app.schemas.ecs import ECSPutBody
-from app.schemas.export import ExportedJsonBundle
+from app.schemas.ecs import ECS
+from app.schemas.export import ExportRequestBody
 from app.schemas.job import JobProgress, JobStatus
-from app.schemas.style import CaptionStyleSpecPutBody
+from app.schemas.style import CaptionStyleSpec
 from app.services import ecs as ecs_service
 from app.services import presets as presets_service
 from app.services import raw_transcript as raw_transcript_service
@@ -166,15 +166,18 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
         )
 
 
-@celery_app.task(queue="export")
-def export_task(job_id: str) -> None:
-    asyncio.run(_run_export(uuid.UUID(job_id)))
-
-
-async def _run_export(job_id: uuid.UUID) -> None:
-    """`app/services/export.py` has already validated and persisted the
-    submitted ecs/style by the time this runs (X4/X5) - this task only
-    renders the three output artifacts from what's now on disk/DB."""
+async def _run_job(
+    job_id: uuid.UUID,
+    do_work: Callable[[uuid.UUID, uuid.UUID], Awaitable[dict[str, str]]],
+) -> None:
+    """Shared status-transition skeleton for the two export-flavored tasks
+    below (`_do_export`, `_do_srt_export`): mark `processing`, run the
+    caller's work with `(project_id, job_id)`, mark `failed` with the
+    exception message on any error, mark `done` with the work's returned
+    result dict otherwise. `_run_transcribe` above is deliberately NOT built
+    on this - it has multiple progress phases and concurrent branches with
+    their own cancellation-on-failure handling, a genuinely different shape
+    this skeleton would only obscure, not simplify."""
     async with async_session_factory() as session:
         job = await job_repo.update_status(
             session, job_id, status=JobStatus.processing, progress=None
@@ -182,52 +185,7 @@ async def _run_export(job_id: uuid.UUID) -> None:
         project_id = job.project_id
 
     try:
-        async with async_session_factory() as session:
-            project = await project_repo.get(session, project_id)
-            if project is None:
-                raise ValueError(f"project {project_id} not found")
-            if project.video_width is None or project.video_height is None:
-                raise ValueError(f"project {project_id} has no probed video dimensions")
-
-            ecs = await ecs_service.get_ecs(session, project_id)
-            if ecs is None:
-                raise ValueError(f"project {project_id} has no ECS")
-            style = await style_service.get_style(session, project_id)
-            if style is None:
-                raise ValueError(f"project {project_id} has no style")
-            preset = await presets_service.get_preset(session, style.presetId)
-            if preset is None:
-                raise ValueError(f"preset {style.presetId} not found")
-
-        video_path = storage.resolve_url(project.video_url)
-        video_dest, srt_dest, json_dest, video_url, srt_url, json_url = (
-            storage.export_paths(project_id, job_id)
-        )
-
-        ass_text = generate_ass(
-            ecs, style, preset, project.video_width, project.video_height
-        )
-        srt_text = generate_srt(ecs, style, preset)
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            ass_path = Path(tmp_dir) / "captions.ass"
-            ass_path.write_text(ass_text)
-            await burn_in_captions(video_path, ass_path, video_dest)
-
-        srt_dest.write_text(srt_text)
-
-        bundle = ExportedJsonBundle(
-            project_id=project_id,
-            owner_id=project.owner_id,
-            exported_at=datetime.now(UTC),
-            ecs=ECSPutBody(segments=ecs.segments),
-            style=CaptionStyleSpecPutBody(
-                presetId=style.presetId,
-                perPhraseStyle=style.perPhraseStyle,
-                overrides=style.overrides,
-            ),
-        )
-        json_dest.write_text(bundle.model_dump_json())
+        result = await do_work(project_id, job_id)
     except Exception as exc:
         async with async_session_factory() as session:
             await job_repo.update_status(
@@ -237,9 +195,97 @@ async def _run_export(job_id: uuid.UUID) -> None:
 
     async with async_session_factory() as session:
         await job_repo.update_status(
-            session,
-            job_id,
-            status=JobStatus.done,
-            progress=None,
-            result={"video_url": video_url, "srt_url": srt_url, "json_url": json_url},
+            session, job_id, status=JobStatus.done, progress=None, result=result
         )
+
+
+@celery_app.task(queue="export")
+def export_task(job_id: str) -> None:
+    asyncio.run(_run_job(uuid.UUID(job_id), _do_export))
+
+
+async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]:
+    """`app/services/export.py` has already validated and persisted the
+    submitted ecs/style by the time this runs (X5) - renders the one output
+    artifact, the burned-in video, from what's now on disk/DB. SRT
+    generation is a separate job (`_do_srt_export`) that does not persist
+    anything (X6); the internal JSON bundle this used to also produce has
+    been removed entirely (Step 13)."""
+    async with async_session_factory() as session:
+        project = await project_repo.get(session, project_id)
+        if project is None:
+            raise ValueError(f"project {project_id} not found")
+        if project.video_width is None or project.video_height is None:
+            raise ValueError(f"project {project_id} has no probed video dimensions")
+
+        ecs = await ecs_service.get_ecs(session, project_id)
+        if ecs is None:
+            raise ValueError(f"project {project_id} has no ECS")
+        style = await style_service.get_style(session, project_id)
+        if style is None:
+            raise ValueError(f"project {project_id} has no style")
+        preset = await presets_service.get_preset(session, style.presetId)
+        if preset is None:
+            raise ValueError(f"preset {style.presetId} not found")
+
+    video_path = storage.resolve_url(project.video_url)
+    video_dest, video_url = storage.video_export_paths(project_id, job_id)
+
+    ass_text = generate_ass(
+        ecs, style, preset, project.video_width, project.video_height
+    )
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ass_path = Path(tmp_dir) / "captions.ass"
+        ass_path.write_text(ass_text)
+        await burn_in_captions(video_path, ass_path, video_dest)
+
+    return {"video_url": video_url}
+
+
+@celery_app.task(queue="export")
+def export_srt_task(job_id: str, export_request: dict[str, Any]) -> None:
+    body = ExportRequestBody.model_validate(export_request)
+    asyncio.run(
+        _run_job(uuid.UUID(job_id), lambda pid, jid: _do_srt_export(pid, jid, body))
+    )
+
+
+async def _do_srt_export(
+    project_id: uuid.UUID, job_id: uuid.UUID, body: ExportRequestBody
+) -> dict[str, str]:
+    """Unlike `_do_export`, nothing has been persisted (X6): ecs/style come
+    straight from the request body captured at enqueue time, never reloaded
+    from ecs_repo/style_repo - this function never imports either of those
+    repositories, which is what actually guarantees it can't persist
+    anything, not just a comment saying so. The only DB reads are read-only
+    lookups needed to build the domain ECS/CaptionStyleSpec objects and
+    resolve the style cascade: the project (for owner_id - ECS/
+    CaptionStyleSpec require one, otherwise unused by generate_srt) and the
+    preset (to resolve showPunctuation, S7). No video_width/height check, no
+    video_path resolution, no ffmpeg call - SRT is plain text, it never
+    touches the source video."""
+    async with async_session_factory() as session:
+        project = await project_repo.get(session, project_id)
+        if project is None:
+            raise ValueError(f"project {project_id} not found")
+        preset = await presets_service.get_preset(session, body.style.presetId)
+        if preset is None:
+            raise ValueError(f"preset {body.style.presetId} not found")
+
+    ecs = ECS(
+        project_id=project_id, owner_id=project.owner_id, segments=body.ecs.segments
+    )
+    style = CaptionStyleSpec(
+        project_id=project_id,
+        owner_id=project.owner_id,
+        presetId=body.style.presetId,
+        perPhraseStyle=body.style.perPhraseStyle,
+        overrides=body.style.overrides,
+    )
+
+    srt_text = generate_srt(ecs, style, preset)
+    srt_dest, srt_url = storage.srt_export_paths(project_id, job_id)
+    srt_dest.write_text(srt_text)
+
+    return {"srt_url": srt_url}

@@ -70,8 +70,6 @@ export const exportJobFixture: Job = {
   error: null,
   result: {
     video_url: "/files/projects/9f2b7e10/exports/1e6a1c1e/output.mp4",
-    srt_url: "/files/projects/9f2b7e10/exports/1e6a1c1e/captions.srt",
-    json_url: "/files/projects/9f2b7e10/exports/1e6a1c1e/project.json",
   },
 };
 

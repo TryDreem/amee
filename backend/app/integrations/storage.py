@@ -52,27 +52,27 @@ def proxy_path(project_id: UUID) -> tuple[Path, str]:
     return dest, f"/files/projects/{project_id}/{dest.name}"
 
 
-def export_paths(
-    project_id: UUID, job_id: UUID
-) -> tuple[Path, Path, Path, str, str, str]:
-    """Destinations for the three export artifacts (contract §12's
-    `ExportResult` shape) — namespaced under the job id (not just the
-    project id) so a re-export never overwrites a previous job's still-
-    referenced files."""
+def video_export_paths(project_id: UUID, job_id: UUID) -> tuple[Path, str]:
+    """Destination for `POST /export`'s one artifact, the burned-in video
+    (contract §12's `ExportResult` shape) — namespaced under the job id
+    (not just the project id) so a re-export never overwrites a previous
+    job's still-referenced file. SRT has its own job id and its own helper
+    (srt_export_paths) since Step 13 split the two into separate jobs."""
     directory = project_dir(project_id) / "exports" / str(job_id)
     directory.mkdir(parents=True, exist_ok=True)
-    url_prefix = f"/files/projects/{project_id}/exports/{job_id}"
-    video_path = directory / "video.mp4"
-    srt_path = directory / "captions.srt"
-    json_path = directory / "bundle.json"
-    return (
-        video_path,
-        srt_path,
-        json_path,
-        f"{url_prefix}/{video_path.name}",
-        f"{url_prefix}/{srt_path.name}",
-        f"{url_prefix}/{json_path.name}",
-    )
+    dest = directory / "video.mp4"
+    return dest, f"/files/projects/{project_id}/exports/{job_id}/{dest.name}"
+
+
+def srt_export_paths(project_id: UUID, job_id: UUID) -> tuple[Path, str]:
+    """Destination for `POST /export-srt`'s one artifact — its own job id
+    (minted by start_export_srt's own Job row), so it lands in its own
+    exports/{job_id}/ directory, never colliding with a video-export job's
+    directory even for the same project."""
+    directory = project_dir(project_id) / "exports" / str(job_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    dest = directory / "captions.srt"
+    return dest, f"/files/projects/{project_id}/exports/{job_id}/{dest.name}"
 
 
 def resolve_url(url: str) -> Path:

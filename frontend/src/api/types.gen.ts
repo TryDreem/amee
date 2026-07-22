@@ -194,6 +194,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/export-srt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export Project Srt */
+        post: operations["export_project_srt_api_v1_projects__project_id__export_srt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -294,7 +311,10 @@ export interface components {
          * ExportRequestBody
          * @description Carries the whole ECS + style documents, not just a project id — export
          *     must reflect exactly what's on screen, not stale backend state (contract
-         *     §12).
+         *     §12). Shared verbatim by `POST /export` and `POST /export-srt` — both
+         *     need the same ecs/style to do their respective jobs, and a second,
+         *     structurally identical schema would just be one more thing that can
+         *     drift from this one.
          */
         ExportRequestBody: {
             ecs: components["schemas"]["ECSPutBody"];
@@ -304,10 +324,11 @@ export interface components {
         ExportResult: {
             /** Video Url */
             video_url: string;
+        };
+        /** ExportSrtResult */
+        ExportSrtResult: {
             /** Srt Url */
             srt_url: string;
-            /** Json Url */
-            json_url: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -348,7 +369,8 @@ export interface components {
             updated_at: string;
             /** Error */
             error: string | null;
-            result: components["schemas"]["ExportResult"] | null;
+            /** Result */
+            result: components["schemas"]["ExportResult"] | components["schemas"]["ExportSrtResult"] | null;
         };
         /**
          * JobProgress
@@ -365,11 +387,12 @@ export interface components {
         JobStatus: "queued" | "processing" | "done" | "failed";
         /**
          * JobType
-         * @description Only the two queues that actually exist (INVARIANTS P5). A future `split`
-         *     queue is a pure addition to this enum, not modeled here.
+         * @description `export_srt` shares the `export` queue (INVARIANTS P5, X6) - it is not
+         *     a third queue, just a second job type on an existing one. A future
+         *     `split` queue is a pure addition to this enum, not modeled here.
          * @enum {string}
          */
-        JobType: "transcribe" | "export";
+        JobType: "transcribe" | "export" | "export_srt";
         /**
          * OutlineOrShadow
          * @description Shared shape for `outline`/`shadow` (contract §8). `size` and `color`
@@ -1158,6 +1181,39 @@ export interface operations {
                 };
             };
             /** @description Validation failed (shared with PUT /ecs, PUT /style) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    export_project_srt_api_v1_projects__project_id__export_srt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description Validation failed (request body is not persisted) */
             422: {
                 headers: {
                     [name: string]: unknown;

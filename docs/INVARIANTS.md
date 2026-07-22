@@ -100,11 +100,14 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 
 | # | Invariant | Ref |
 |---|---|---|
-| X1 | MVP produces all three per export: burned-in video, SRT, internal project JSON. | arch §2.5, contract §12 |
+| X1 | `POST /export` produces burned-in video alone (`{video_url}`). `POST /export-srt` produces SRT alone, as a separate async job that does not persist — see X6. | arch §2.5, contract §12 |
 | X2 | SRT loses word-level timing. Known and accepted. Do not "fix" it by inventing an SRT extension. | arch §2.5 |
 | X3 | ASS export is **deferred**. No endpoint, no flag. (ASS may still be used internally as the libass intermediate.) | arch §2.5, §14.5 |
-| X4 | `json_url` is one self-contained bundle (`ecs` + `style` together). This does not reopen the two-endpoint persistence split. | contract §12 |
 | X5 | `POST /export` persists both documents as a side effect, then enqueues. One validation path shared with `PUT /ecs` / `PUT /style`. | contract §12 |
+| X6 | `POST /export-srt` shares `POST /export`'s ECS+style validation but does not persist ecs/style — X5's persist-then-enqueue rule does not apply to it. The submitted body is used once, handed to the Celery task as plain data, and discarded. | contract §12 |
+
+(X4, the internal-JSON-bundle invariant, was removed in Step 13 along with the `json_url` output it
+described — nothing produces it anymore.)
 
 ## Architecture hygiene
 
