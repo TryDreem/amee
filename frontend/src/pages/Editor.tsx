@@ -895,6 +895,14 @@ export default function Editor(): JSX.Element {
 
   // An export is in flight from the click until the polled job reaches done/failed.
   const exportBusy = exportStarting || exportJobId !== null;
+  const menuItemStyle: CSSProperties = {
+    padding: "9px 10px",
+    borderRadius: "6px",
+    fontSize: "12.5px",
+    fontWeight: 500,
+    color: mode.textMain,
+    cursor: "pointer",
+  };
 
   // RENDERING resolution (arch §4.2): the segment active at the current time gets its own
   // effective style. CaptionOverlay independently re-derives the active segment from the same
@@ -1040,23 +1048,31 @@ export default function Editor(): JSX.Element {
                     animation: "menuPanelIn .22s cubic-bezier(.2,.8,.2,1) both",
                   }}
                 >
-                  {[L.downloadSrt, L.exportSubsOnly].map((label) => (
-                    <div
-                      key={label}
-                      className="amee-menu-item"
-                      onClick={() => setExportMenuOpen(false)}
-                      style={{
-                        padding: "9px 10px",
-                        borderRadius: "6px",
-                        fontSize: "12.5px",
-                        fontWeight: 500,
-                        color: mode.textMain,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {label}
-                    </div>
-                  ))}
+                  <div
+                    className="amee-menu-item"
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      void startExport("srt");
+                    }}
+                    style={{
+                      ...menuItemStyle,
+                      cursor: exportBusy ? "default" : "pointer",
+                      opacity: exportBusy ? 0.5 : 1,
+                    }}
+                  >
+                    {exportBusy && exportKind === "srt" ? L.exporting : L.downloadSrt}
+                  </div>
+                  {/* Subtitles-on-a-green-background has no backend support: the contract has
+                      only video (§12 /export) and SRT (/export-srt), and ffmpeg's burn-in always
+                      renders onto the source video. Shown disabled rather than wired to
+                      something that would quietly produce an ordinary export instead. */}
+                  <div
+                    title={L.notAvailableYet}
+                    aria-disabled
+                    style={{ ...menuItemStyle, cursor: "not-allowed", opacity: 0.4 }}
+                  >
+                    {L.exportSubsOnly}
+                  </div>
                 </div>
               )}
             </div>

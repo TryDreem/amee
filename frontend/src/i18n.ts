@@ -66,6 +66,7 @@ export interface Strings {
   exportSubsOnly: string;
   exporting: string;
   exportFailed: string;
+  notAvailableYet: string;
 
   captionsStyleLabel: string;
   captionsLabel: string;
@@ -178,6 +179,7 @@ export const STR: Record<Lang, Strings> = {
     exportSubsOnly: "Экспортировать только субтитры (зелёный фон)",
     exporting: "Экспортируем…",
     exportFailed: "Не удалось экспортировать",
+    notAvailableYet: "Пока недоступно",
 
     captionsStyleLabel: "Стиль субтитров",
     captionsLabel: "Субтитры",
@@ -287,6 +289,7 @@ export const STR: Record<Lang, Strings> = {
     exportSubsOnly: "Export only subtitles (green background)",
     exporting: "Exporting…",
     exportFailed: "Export failed",
+    notAvailableYet: "Not available yet",
 
     captionsStyleLabel: "Captions Style",
     captionsLabel: "Captions",
