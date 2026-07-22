@@ -7,6 +7,10 @@ import StylePanel from "../components/StylePanel";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
 import {
   ApiError,
+  exportProject,
+  exportProjectSrt,
+  exportSrtUrl,
+  exportVideoUrl,
   getEcs,
   getProject,
   getStyle,
@@ -17,12 +21,14 @@ import {
   resolveStyleLayers,
   type ECS,
   type CaptionStyleSpec,
+  type ExportPayload,
   type PresetBase,
   type Preset,
   type Project,
   type Segment,
   type StyleOverrides,
 } from "../api/client";
+import { useJobPolling } from "../hooks/useJobPolling";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
 import { findActiveSegmentIndex } from "../lib/activeSegment";
@@ -130,6 +136,20 @@ export default function Editor(): JSX.Element {
   // button, closed on outside-click / Escape.
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Export (Step 8). Both endpoints are async jobs (contract §12): POST returns 202 + a Job, then
+  // GET /jobs/{id} is polled until done/failed — the same hook already used for transcribe. Only
+  // one export runs at a time; `exportKind` records which url to pull off the finished job, since
+  // `Job.result` is a union whose shape follows the job type.
+  const [exportJobId, setExportJobId] = useState<string | null>(null);
+  const [exportKind, setExportKind] = useState<"video" | "srt" | null>(null);
+  const [exportStarting, setExportStarting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const { job: exportJob, error: exportPollError } = useJobPolling(exportJobId);
+  // Which job has already been handed to the user. Clearing exportJobId/exportKind re-runs the
+  // completion effect before the poller's own reset lands, which would otherwise download the
+  // same file twice — this makes handling a finished job idempotent per job id.
+  const handledExportJobRef = useRef<string | null>(null);
 
   // Editing UI state. Split segment / delete segment mutation logic lands in Steps 5c/5d;
   // Add word (Step 5b) is real below.
@@ -355,6 +375,52 @@ export default function Editor(): JSX.Element {
     setActiveTab("style");
   }
 
+  // Browsers ignore the `download` attribute for cross-origin URLs (the API is served from a
+  // different origin than the dev frontend), so this reliably *opens* the file and only gets to
+  // rename it same-origin. Either way the artifact reaches the user; nothing is silently dropped.
+  function triggerDownload(url: string, filename: string) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function startExport(kind: "video" | "srt") {
+    if (!id || !ecs || !styleSpec || exportStarting || exportJobId) {
+      return;
+    }
+    setExportError(null);
+    setExportStarting(true);
+    const payload: ExportPayload = {
+      segments: ecs.segments,
+      presetId: styleSpec.presetId,
+      perPhraseStyle: styleSpec.perPhraseStyle,
+      overrides: styleSpec.overrides,
+    };
+    try {
+      const job = kind === "srt" ? await exportProjectSrt(id, payload) : await exportProject(id, payload);
+      setExportKind(kind);
+      setExportJobId(job.id);
+      // POST /export persists the submitted ecs+style as a side effect (X5), so the document on
+      // the server now matches what's on screen — reflect that instead of leaving Save still
+      // claiming unsaved changes. /export-srt deliberately does NOT persist (X6), so it must not
+      // touch the save point.
+      if (kind === "video") {
+        lastSavedRef.current = snapshotOf(ecs, styleSpec);
+        setDirty(false);
+        setStyleDirty(false);
+      }
+    } catch (err) {
+      setExportError(err instanceof ApiError ? `${err.status}: ${err.message}` : L.exportFailed);
+    } finally {
+      setExportStarting(false);
+    }
+  }
+
   async function handleSave() {
     if (!id || saving || (!dirty && !styleDirty) || !ecs || !styleSpec) {
       return;
@@ -487,6 +553,36 @@ export default function Editor(): JSX.Element {
     // `history` closure, specifically so this listener attaches once instead of on every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Finished export job -> hand the artifact to the user, then clear the job so the poller stops
+  // and a new export can start. `result` is a union keyed on job type, so the url is read through
+  // the matching narrowing helper rather than by indexing a field that may not be there.
+  useEffect(() => {
+    if (!exportJob || (exportJob.status !== "done" && exportJob.status !== "failed")) {
+      return;
+    }
+    if (handledExportJobRef.current === exportJob.id) {
+      return;
+    }
+    handledExportJobRef.current = exportJob.id;
+    if (exportJob.status === "done") {
+      const url = exportKind === "srt" ? exportSrtUrl(exportJob) : exportVideoUrl(exportJob);
+      if (url) {
+        triggerDownload(resolveMediaUrl(url), exportKind === "srt" ? "captions.srt" : "video.mp4");
+      } else {
+        setExportError(L.exportFailed);
+      }
+      setExportJobId(null);
+      setExportKind(null);
+    } else if (exportJob.status === "failed") {
+      setExportError(exportJob.error ?? L.exportFailed);
+      setExportJobId(null);
+      setExportKind(null);
+    }
+    // `triggerDownload`/`L` are stable enough for this effect's purpose; re-running it on every
+    // render would re-fire the download.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportJob, exportKind]);
 
   // Close the "⋯" export menu on an outside click or Escape (same dismissal pattern as the
   // TopBar/color-picker popovers). Only attached while the menu is open.
@@ -797,6 +893,9 @@ export default function Editor(): JSX.Element {
   const undoAvailable = history != null && canUndoHistory(history);
   const redoAvailable = history != null && canRedoHistory(history);
 
+  // An export is in flight from the click until the polled job reaches done/failed.
+  const exportBusy = exportStarting || exportJobId !== null;
+
   // RENDERING resolution (arch §4.2): the segment active at the current time gets its own
   // effective style. CaptionOverlay independently re-derives the active segment from the same
   // currentTime/segments, so the two always agree on which segment this style belongs to. When
@@ -961,9 +1060,9 @@ export default function Editor(): JSX.Element {
                 </div>
               )}
             </div>
-            {saveError && (
+            {(saveError || exportError || exportPollError) && (
               <span role="alert" style={{ fontSize: "12px", color: "#ef4444" }}>
-                {saveError}
+                {saveError ?? exportError ?? exportPollError}
               </span>
             )}
             {justSaved && !dirty && !styleDirty && (
@@ -985,22 +1084,23 @@ export default function Editor(): JSX.Element {
             >
               {saving ? L.saving : L.save}
             </div>
-            {/* POST /export is still 501 on the backend (backend/app/api/v1/export.py) --
-                shown, not hidden, so the gap is visible rather than silently dropped. */}
+            {/* POST /export renders the burned-in video and persists ecs+style as a side
+                effect (X5), so it works with or without a preceding Save. */}
             <div
-              title="POST /projects/{id}/export — not implemented yet"
+              onClick={() => void startExport("video")}
+              className="amee-cta-btn"
               style={{
                 fontSize: "13px",
                 fontWeight: 700,
-                color: mode.textFaint3,
+                color: mode.textMain,
                 background: mode.cardBg,
                 padding: "8px 18px",
                 borderRadius: "8px",
-                cursor: "not-allowed",
-                opacity: 0.5,
+                cursor: exportBusy ? "default" : "pointer",
+                opacity: exportBusy ? 0.6 : 1,
               }}
             >
-              {L.export}
+              {exportBusy && exportKind !== "srt" ? L.exporting : L.export}
             </div>
           </div>
         )}

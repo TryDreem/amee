@@ -64,6 +64,8 @@ export interface Strings {
   redo: string;
   downloadSrt: string;
   exportSubsOnly: string;
+  exporting: string;
+  exportFailed: string;
 
   captionsStyleLabel: string;
   captionsLabel: string;
@@ -174,6 +176,8 @@ export const STR: Record<Lang, Strings> = {
     redo: "Повторить",
     downloadSrt: "Скачать файл .srt",
     exportSubsOnly: "Экспортировать только субтитры (зелёный фон)",
+    exporting: "Экспортируем…",
+    exportFailed: "Не удалось экспортировать",
 
     captionsStyleLabel: "Стиль субтитров",
     captionsLabel: "Субтитры",
@@ -281,6 +285,8 @@ export const STR: Record<Lang, Strings> = {
     redo: "Redo",
     downloadSrt: "Download srt file",
     exportSubsOnly: "Export only subtitles (green background)",
+    exporting: "Exporting…",
+    exportFailed: "Export failed",
 
     captionsStyleLabel: "Captions Style",
     captionsLabel: "Captions",
