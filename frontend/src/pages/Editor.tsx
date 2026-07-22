@@ -160,6 +160,9 @@ export default function Editor(): JSX.Element {
   const [exportKind, setExportKind] = useState<"video" | "srt" | null>(null);
   const [exportStarting, setExportStarting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // The last finished artifact, kept until the next export replaces it, so a blocked or failed
+  // automatic download never leaves the user with nothing to click.
+  const [exportReady, setExportReady] = useState<{ url: string; filename: string } | null>(null);
   const { job: exportJob, error: exportPollError } = useJobPolling(exportJobId);
   // Which job has already been handed to the user. Clearing exportJobId/exportKind re-runs the
   // completion effect before the poller's own reset lands, which would otherwise download the
@@ -390,18 +393,25 @@ export default function Editor(): JSX.Element {
     setActiveTab("style");
   }
 
-  // Browsers ignore the `download` attribute for cross-origin URLs (the API is served from a
-  // different origin than the dev frontend), so this reliably *opens* the file and only gets to
-  // rename it same-origin. Either way the artifact reaches the user; nothing is silently dropped.
-  function triggerDownload(url: string, filename: string) {
+  // The finished file arrives from a poll, not from the click, so there's no user activation left
+  // by then: opening it in a new tab is silently swallowed by the popup blocker and the export
+  // appears to do nothing. Fetching it as a blob sidesteps that entirely — a blob: URL is
+  // same-origin, so `download` is honored and no window is opened. Whatever happens here, the
+  // caller also leaves a visible link, so a failure can't lose the artifact.
+  async function triggerDownload(url: string, filename: string) {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`${response.status}`);
+    }
+    const objectUrl = URL.createObjectURL(await response.blob());
     const a = document.createElement("a");
-    a.href = url;
+    a.href = objectUrl;
     a.download = filename;
-    a.rel = "noopener";
-    a.target = "_blank";
     document.body.appendChild(a);
     a.click();
     a.remove();
+    // Revoking synchronously can cancel the download that was just started.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
   }
 
   async function startExport(kind: "video" | "srt") {
@@ -409,6 +419,7 @@ export default function Editor(): JSX.Element {
       return;
     }
     setExportError(null);
+    setExportReady(null);
     setExportStarting(true);
     const payload: ExportPayload = {
       segments: ecs.segments,
@@ -584,7 +595,15 @@ export default function Editor(): JSX.Element {
     if (exportJob.status === "done") {
       const url = exportKind === "srt" ? exportSrtUrl(exportJob) : exportVideoUrl(exportJob);
       if (url) {
-        triggerDownload(resolveMediaUrl(url), exportKind === "srt" ? "captions.srt" : "video.mp4");
+        const filename = exportKind === "srt" ? "captions.srt" : "video.mp4";
+        const absolute = resolveMediaUrl(url);
+        // Kept in state as well as auto-downloaded: the link is the guarantee. If the automatic
+        // download is blocked or the fetch fails, a finished export must still be reachable
+        // rather than silently lost.
+        setExportReady({ url: absolute, filename });
+        void triggerDownload(absolute, filename).catch(() => {
+          /* the visible link above remains the way to get it */
+        });
       } else {
         setExportError(L.exportFailed);
       }
@@ -1099,6 +1118,26 @@ export default function Editor(): JSX.Element {
             )}
             {justSaved && !dirty && !styleDirty && (
               <span style={{ fontSize: "12px", color: mode.textFaint3 }}>{L.saved}</span>
+            )}
+            {exportReady && (
+              <a
+                href={exportReady.url}
+                download={exportReady.filename}
+                target="_blank"
+                rel="noreferrer"
+                className="amee-cta-btn"
+                style={{
+                  fontSize: "12.5px",
+                  fontWeight: 700,
+                  color: theme.text,
+                  background: theme.accent,
+                  padding: "7px 14px",
+                  borderRadius: "8px",
+                  textDecoration: "none",
+                }}
+              >
+                {L.downloadReady}
+              </a>
             )}
             <div
               onClick={handleSave}
