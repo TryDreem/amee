@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -22,6 +23,17 @@ _TEST_DB_NAME = "amee_test"
 _dev_url_parts = urlsplit(os.environ["AMEE_DB_URL"])
 _test_db_url = urlunsplit(_dev_url_parts._replace(path=f"/{_TEST_DB_NAME}"))
 os.environ["AMEE_DB_URL"] = _test_db_url
+
+# Same problem as AMEE_DB_URL above, for uploaded files instead of DB rows:
+# app.integrations.storage.storage_dir() reads this env var fresh on every
+# call (no import-time caching to race), but tests that call
+# storage.save_video/video_export_paths/etc. would otherwise write real
+# files straight into .env.local's dev storage dir forever - nothing ever
+# deletes them, since _clean_database (below) only touches Postgres. A
+# fresh OS temp dir per test-session keeps this from accumulating in the
+# repo at all, unlike the previous state where it silently grew to 700+
+# orphaned project directories over the life of this repo.
+os.environ["AMEE_STORAGE_DIR"] = tempfile.mkdtemp(prefix="amee-test-storage-")
 
 
 def _create_test_database_if_missing() -> None:
