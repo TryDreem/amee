@@ -17,7 +17,9 @@ describe("App", () => {
 
     fireEvent.click(card);
 
-    expect(await screen.findByRole("link", { name: "Back to projects" })).toBeInTheDocument();
+    // The home icon performs an async save-then-navigate (Editor.tsx handleGoHome), so it's a
+    // button now, not a plain <Link> -- role="link" would no longer match it.
+    expect(await screen.findByRole("button", { name: "Back to projects" })).toBeInTheDocument();
     expect(await screen.findAllByText(projectFixture.name)).not.toHaveLength(0);
   });
 });

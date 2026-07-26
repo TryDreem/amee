@@ -68,6 +68,7 @@ export interface Strings {
   exportFailed: string;
   notAvailableYet: string;
   downloadReady: string;
+  projectSaved: string;
 
   captionsStyleLabel: string;
   captionsLabel: string;
@@ -182,6 +183,7 @@ export const STR: Record<Lang, Strings> = {
     exportFailed: "Не удалось экспортировать",
     notAvailableYet: "Пока недоступно",
     downloadReady: "Скачать файл",
+    projectSaved: "Проект сохранён",
 
     captionsStyleLabel: "Стиль субтитров",
     captionsLabel: "Субтитры",
@@ -293,6 +295,7 @@ export const STR: Record<Lang, Strings> = {
     exportFailed: "Export failed",
     notAvailableYet: "Not available yet",
     downloadReady: "Download file",
+    projectSaved: "Project saved",
 
     captionsStyleLabel: "Captions Style",
     captionsLabel: "Captions",

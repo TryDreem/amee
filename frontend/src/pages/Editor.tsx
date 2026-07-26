@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import CaptionOverlay from "../components/CaptionOverlay";
 import CaptionsPanel, { type CaptionPopup } from "../components/CaptionsPanel";
@@ -127,6 +127,7 @@ function headerIconBtnStyle(mode: { iconBg: string; iconText: string }): CSSProp
 
 export default function Editor(): JSX.Element {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { prefs } = useAmeePrefs();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -447,9 +448,17 @@ export default function Editor(): JSX.Element {
     }
   }
 
-  async function handleSave() {
-    if (!id || saving || (!dirty && !styleDirty) || !ecs || !styleSpec) {
-      return;
+  // Shared by the Save button and "go home" (below): both need "persist whatever is dirty, then
+  // do the thing" with identical error handling, so there's one save path instead of two that
+  // could drift. Returns true when it's safe to proceed (saved, or there was nothing to save) —
+  // false on a real failure, which the caller must NOT treat as "safe to navigate away from
+  // unsaved work".
+  async function performSave(): Promise<boolean> {
+    if (!id || !ecs || !styleSpec) {
+      return true;
+    }
+    if (!dirty && !styleDirty) {
+      return true;
     }
     setSaving(true);
     setSaveError(null);
@@ -472,13 +481,39 @@ export default function Editor(): JSX.Element {
       const savedSnapshot = snapshotOf(nextEcs, nextStyle);
       lastSavedRef.current = savedSnapshot;
       setHistory((h) => (h ? { ...h, present: savedSnapshot } : h));
+      return true;
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? `${err.status}: ${err.message}` : L.saveFailed);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSave() {
+    if (saving) {
+      return;
+    }
+    const ok = await performSave();
+    if (ok) {
       setJustSaved(true);
       clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setJustSaved(false), 2000);
-    } catch (err) {
-      setSaveError(err instanceof ApiError ? `${err.status}: ${err.message}` : L.saveFailed);
-    } finally {
-      setSaving(false);
+    }
+  }
+
+  // Leaving the editor via the home icon (design: e_onGoHome) persists whatever is dirty first,
+  // same as clicking Save, then navigates with a "just saved" flag the Home page reads once to
+  // play the toast (design's sessionStorage flag, done via router state instead since this is one
+  // SPA rather than two static pages). A failed save must NOT navigate away — that would silently
+  // strand the user's edits behind a page they can no longer see, having just told them it worked.
+  async function handleGoHome() {
+    if (saving) {
+      return;
+    }
+    const ok = await performSave();
+    if (ok) {
+      navigate("/", { state: { justSaved: true } });
     }
   }
 
@@ -980,8 +1015,9 @@ export default function Editor(): JSX.Element {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: "1 1 auto", overflow: "hidden" }}>
-          <Link
-            to="/"
+          <div
+            onClick={() => void handleGoHome()}
+            role="button"
             aria-label={L.backToProjects}
             title={L.backToProjects}
             className="amee-icon-btn"
@@ -995,6 +1031,7 @@ export default function Editor(): JSX.Element {
               justifyContent: "center",
               background: mode.iconBg,
               color: mode.iconText,
+              cursor: "pointer",
             }}
           >
             <svg
@@ -1010,7 +1047,7 @@ export default function Editor(): JSX.Element {
               <path d="M3 11l9-8 9 8" />
               <path d="M5 10v10h14V10" />
             </svg>
-          </Link>
+          </div>
           <div
             style={{
               fontSize: "13.5px",

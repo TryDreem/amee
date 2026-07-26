@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitForElementToBeRemoved } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -7,9 +7,9 @@ import { projectFixture, transcribeJobFixture } from "../mocks/fixtures";
 import { server } from "../mocks/server";
 import Home from "./Home";
 
-function renderHome() {
+function renderHome(initialEntries?: { pathname: string; state?: unknown }[]) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/projects/:id" element={<div>Editor placeholder</div>} />
@@ -127,5 +127,20 @@ describe("Home", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("422");
     expect(screen.getByText("Drag video here")).toBeInTheDocument();
+  });
+
+  // Set by Editor.tsx's home icon (handleGoHome) after a real save — the SPA equivalent of the
+  // design's sessionStorage flag: navigate with router state, read it once here, then clear it.
+  it('plays the "Project saved" toast once when arriving with justSaved router state, then hides it', async () => {
+    renderHome([{ pathname: "/", state: { justSaved: true } }]);
+
+    expect(await screen.findByText("Project saved")).toBeInTheDocument();
+    await waitForElementToBeRemoved(() => screen.queryByText("Project saved"), { timeout: 2500 });
+  });
+
+  it("does not show the toast on a plain visit with no justSaved state", async () => {
+    renderHome();
+    await screen.findByText(projectFixture.name);
+    expect(screen.queryByText("Project saved")).not.toBeInTheDocument();
   });
 });

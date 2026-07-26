@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import TopBar from "../components/TopBar";
 import ProjectGrid from "../components/ProjectGrid";
+import SavedToast from "../components/SavedToast";
 import UploadZone from "../components/UploadZone";
 import ProcessingStatus from "../components/ProcessingStatus";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
@@ -15,6 +16,7 @@ import {
   transcribeProject,
   type Project,
 } from "../api/client";
+import { STR } from "../i18n";
 import { AUTO_LANGUAGE_CODE } from "../lib/languages";
 import { UI_MODES } from "../theme";
 
@@ -26,8 +28,14 @@ function describeError(err: unknown): string {
 
 export default function Home(): JSX.Element {
   const navigate = useNavigate();
+  const location = useLocation();
   const { prefs, update } = useAmeePrefs();
   const [view, setView] = useState<View>("list");
+  // Set by the Editor's home icon (design: e_onGoHome's sessionStorage flag; a router-state flag
+  // is the SPA equivalent of the same "flag it, land here, read it once" trick) -- played once,
+  // then the router state is cleared so a refresh or back-navigation doesn't replay it.
+  const [showSavedToast, setShowSavedToast] = useState(false);
+  const savedToastTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -58,6 +66,20 @@ export default function Home(): JSX.Element {
   }, []);
 
   useEffect(() => refetchProjects(), [refetchProjects]);
+
+  useEffect(() => {
+    const state = location.state as { justSaved?: boolean } | null;
+    if (!state?.justSaved) {
+      return;
+    }
+    setShowSavedToast(true);
+    navigate(location.pathname, { replace: true, state: {} });
+    savedToastTimerRef.current = setTimeout(() => setShowSavedToast(false), 1600);
+    return () => clearTimeout(savedToastTimerRef.current);
+    // Runs once on mount only -- this consumes a one-shot navigation flag, not something that
+    // should replay on every location/navigate identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function startTranscribe(project: Project) {
     setStartError(null);
@@ -111,9 +133,11 @@ export default function Home(): JSX.Element {
   }
 
   const mode = UI_MODES[prefs.mode];
+  const L = STR[prefs.lang];
 
   return (
     <div style={{ minHeight: "100vh", background: mode.pageBg }}>
+      {showSavedToast && <SavedToast prefs={prefs} text={L.projectSaved} />}
       <TopBar prefs={prefs} onUpdatePrefs={update} />
 
       {view === "list" && (
