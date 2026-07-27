@@ -497,7 +497,7 @@ Same body shape as `POST /projects/{id}/export` — `{ecs, style}`. Unlike `/exp
 | 8 | Empty-segment behavior | Frontend drops the segment as part of the word-deletion edit; backend rejects an empty segment defensively on `PUT /ecs` (§7). |
 | 9 | Undo scope of Reset to Raw Transcript | Participates in the normal undo stack — enabled by Reset being non-persisting on the backend, exactly like Recalculate Groups (§11). |
 | 10 | UI confirmation before Recalculate Groups | Still open — a frontend UX question with no contract impact. |
-| 11 | Queue granularity beyond `transcribe`/`export` | Resolved: a third queue, `split`, was added for the LLM smart re-splitter (arch §2.3/§5.3) — a required, blocking step of the transcribe pipeline, not exposed as its own polymorphic response. Queue choice stays an internal detail behind the `Job` abstraction. |
+| 11 | Queue granularity beyond `transcribe`/`export` | Still just two today; a third queue (`split`) is the designated future home if an expensive splitter strategy (§5.3) lands — see §10/§11's polymorphic response. Queue choice stays an internal detail behind the `Job` abstraction either way. |
 | 12 | Payment/quota integration point | Still deferred. The natural insertion point is the top of `POST /projects/{id}/export`, before the job is enqueued — noted, not built. |
 | 13 | Authentication mechanism | Still deferred. `owner_id` is present on every entity architecture doc §2.4 names, resolving to one placeholder value everywhere in the MVP. |
 | — | `Word.id` lifecycle at retokenization | New item, raised during contract design. Explicitly left unspecified — see §7. No wire-format consequence either way. |
