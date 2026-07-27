@@ -81,19 +81,17 @@ The backend is organized into four layers with strict responsibility boundaries,
 The reason for this separation: each of the "grow into a product" requirements below becomes a localized change instead of a rewrite, *because* the layers don't leak into each other.
  
 ### 2.3 Asynchronous processing: Celery + RabbitMQ, from the start
- 
-Unlike other product-readiness concerns, background job processing is **not deferred** — Celery with RabbitMQ is part of the MVP, not a future upgrade. Two separate queues are used from day one:
- 
 
-- `transcribe` — the full post-upload processing job: WhisperX transcription and the initial segmentation step (§5.1, synchronous within this same job since it's cheap), running alongside video-probe, thumbnail, and preview-proxy generation as three more parallel steps within the same job (§2.8).
+Unlike other product-readiness concerns, background job processing is **not deferred** — Celery with RabbitMQ is part of the MVP, not a future upgrade. Two separate queues are used from day one:
+
+- `transcribe` — the full post-upload processing job: WhisperX transcription and the initial segmentation step (§5.1, synchronous within this same job since it's cheap), running alongside video-probe, thumbnail, and preview-proxy generation as three more parallel steps within the same job (§2.8). The LLM smart re-splitter (§5.3) also runs here, as a fifth step of the same job — not on its own queue, since it's a required, blocking refinement (the job can't reach `done` before it resolves, avoiding a race with the user starting to edit) and a separate queue would buy no real concurrency for work that's awaited synchronously regardless.
 
 - `export` — final rendering (burning captions into video via ffmpeg), and standalone SRT subtitle file generation (a separate, non-persisting job type on the same queue — cheap per-message CPU work, not a new load profile, so it doesn't warrant its own queue).
 
- 
-These are kept as two distinct queues because they have very different load profiles (ML inference vs. video encoding), and separating them now costs almost nothing but preserves the ability to scale or prioritize them independently later, without a migration.
- 
+These are kept as two distinct queues because they have very different load profiles (ML inference vs. video encoding), and separating them costs almost nothing while preserving the ability to scale or prioritize them independently, without a migration.
+
 **Job status is a first-class piece of data, not an implementation detail.** Every asynchronous operation is represented by a job with a status (`queued` / `processing` / `done` / `failed`), and this status lives in the application's own database — **not** in Celery's result backend. The worker process updates this status as it progresses. This avoids having two divergent sources of truth for "what's the state of this operation," which is a common failure mode when application code reads status from the queue system directly.
- 
+
 Because service-layer functions are written to take only serializable input (ids, paths, parameters) and never a framework request object, wrapping a call as a Celery task is a thin adapter, not a redesign.
  
 ### 2.4 Forward compatibility: auth and payments
@@ -399,9 +397,9 @@ This is a user-triggered action, never an automatic side effect of anything.
 - **Undo support:** Recalculate Groups is a normal, undoable mutation of `Segments[]`, and requires **no special-case handling** in the undo/redo system (§11) — it's simply another discrete state change in the same history stack as split, merge, or a text edit. Pressing undo immediately after Recalculate Groups restores the exact grouping that existed right before it ran.
  
 ### 5.3 Future splitter strategies
- 
+
 The splitter is architected as a replaceable strategy behind a fixed interface, not something the data model depends on:
- 
+
 ```
 Simple Splitter                       (MVP default)
       |
@@ -409,11 +407,14 @@ Simple Splitter                       (MVP default)
       |
       +── Punctuation splitter        (uses sentence/clause punctuation)
       |
-      +── AI semantic splitter        (uses a language model for meaning-aware breaks)
+      +── AI semantic splitter        (uses a language model for meaning-aware breaks) — IMPLEMENTED
 ```
- 
+
 All of these share the same `Words[] → Segments[]` contract. Only the internal algorithm changes; neither the Edited Caption Structure's shape nor any other part of the architecture needs to change to support swapping the strategy, or even offering the user a choice of strategy, later.
- 
+
+**The AI semantic splitter is implemented** (§2.3): it runs automatically as a required, blocking step of the same `transcribe` job, immediately after the Initial Splitter (Simple Splitter) has already run and persisted its output — it is a *refinement pass*, not a replacement of §5.1's Initial Splitter, which still always runs first. Not its own queue: the job can't reach `done` before this step resolves either way (avoiding a race with the user starting to edit), so a separate queue would add machinery without buying real concurrency. The LLM receives word text alongside position/index and inter-word pause length — it needs the actual words to find real clause/sentence boundaries, which pause length and position alone can't determine — but its *output* is index-only (break-point indices, never text); segments are always reconstructed from the backend's own already-known words by index, so a word can never be lost, duplicated, or rewritten regardless of what the LLM returns. Sending word text to the LLM provider is a deliberate privacy trade-off, not an oversight. Only a fixed allowlist of languages get this treatment; any other language keeps the Initial Splitter's output as final. If the LLM call fails or its response fails validation after 3 attempts, the Initial Splitter's output is kept — this never fails the overall transcribe job (INVARIANTS P7).
+
+
 ---
  
 ## 6. Separation of Style / Layout / Data
@@ -630,7 +631,7 @@ These are the decisions intentionally left open by this document. None of them b
 8. **Empty-segment behavior:** what happens when the last word in a segment is deleted (edge case #2 in §13) — not yet decided.
 9. **Undo scope of "Reset to Raw Transcript":** whether this hard-reset action participates in the normal undo stack or sits outside it (edge case #7 in §13) — not yet decided.
 10. **UI confirmation before Recalculate Groups**, since it discards manual grouping decisions (§5.2, edge case #5 in §13) — flagged as a reasonable idea, not yet a settled requirement.
-11. **Queue granularity beyond the current two queues** (`transcribe`, `export`) — no further subdivision has been considered; the current two-queue split (§2.3) is the only decision made so far.
+11. **Queue granularity beyond the current two queues** (`transcribe`, `export`) — no further subdivision has been considered; the current two-queue split (§2.3) is the only decision made so far. The LLM smart re-splitter (§5.3) runs inside `transcribe`, not a third queue — see §2.3.
 12. **Payment/quota integration point** — architecturally anticipated as a service-layer boundary check before expensive operations (§2.4), but no quota model, pricing structure, or provider has been chosen.
 13. **Authentication mechanism** — the data model reserves `owner_id`/`user_id` on every entity from day one (§2.4), but the actual auth mechanism (sessions, JWT, a specific provider) has not been chosen.
 14. **Metrics/observability** — not part of the MVP. RabbitMQ's own management UI gives queue-level metrics (message counts, consumer counts) but nothing about application behavior (job duration,failure rate). If usage grows past single-user, a Prometheus/Grafana-style setup is the natural next step, and it slots in next to §2.6's logging module rather than replacing it — both would read from the same request_id/job_id context. Not needed to design now; flagged so it isn't forgotten.
