@@ -27,7 +27,7 @@ under 200 lines: the big documents live one hop away, not inline.
 ## Settled — do not re-open
 
 Preset+delta style model · relative units (fontSize, verticalPosition, safeArea are fractions of
-video dimensions) · two Celery queues (`transcribe`, `export`) · explicit user-triggered
+video dimensions) · three Celery queues (`transcribe`, `export`, `split`) · explicit user-triggered
 Recalculate Groups · segment bounds derived, never stored · center-only horizontal alignment ·
 whole-document PUT (no PATCH) · undo/redo is frontend-only.
 
@@ -90,7 +90,7 @@ A route that touches a repository directly is a bug. A service that imports `fas
 make dev        # docker compose up + backend + frontend, ports derived from this worktree's slot
 make check      # ruff + mypy + pytest + tsc + eslint + vitest  (must pass before any PR)
 make types      # regenerate frontend/src/api/types.gen.ts from backend OpenAPI
-make migrate    # run Alembic migrations (backend/alembic) — lands in M1, not deferred
+make migrate    # run Alembic migrations (backend/alembic) -- lands in M1, not deferred
 scripts/wt-env.sh   # allocate this worktree's port slot, write .env.local
 ```
 
@@ -108,6 +108,13 @@ unless the task explicitly assigns them to you. A `PreToolUse` hook blocks the w
 rest is on you.
 
 Commit to your worktree branch. Never `git push --force`. Never merge to `main` yourself — open a PR.
+
+When a command needs approval (`git push`, installing a dependency, anything else that lands in
+"ask"), say in one short line what you're about to do and why before running it -- not just the raw
+command. "Pushing this worktree's branch so I can open a PR" is enough; don't over-explain.
+
+Commit messages describe the change only -- no "Generated with Claude", no "Co-Authored-By: Claude",
+no mention of Claude Code or any AI tool anywhere in the message or the diff.
 
 ## Style
 
