@@ -107,3 +107,13 @@ SUPPORTED_LANGUAGE_CODES: frozenset[str] = frozenset(
         "zh",
     }
 )
+
+# The LLM smart re-splitter (Step 14, arch §5.3's "AI semantic splitter") is
+# only attempted for languages the chosen provider/prompt has been validated
+# against - all 9 confirmed members of SUPPORTED_LANGUAGE_CODES above. Any
+# other language (including None/auto-detect resolving outside this set)
+# skips the smart-split step entirely - no LLM call attempted, the Initial
+# Splitter's dumb output stands as final.
+SMART_SPLIT_LANGUAGES: frozenset[str] = frozenset(
+    {"en", "ru", "uk", "pl", "fr", "es", "de", "it", "pt"}
+)

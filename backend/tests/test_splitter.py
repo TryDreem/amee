@@ -1,5 +1,5 @@
 from app.integrations.whisperx import TranscribedWord
-from app.services.splitter import split_words
+from app.services.splitter import apply_breaks, split_words
 
 
 def _word(text: str, start: float) -> TranscribedWord:
@@ -38,3 +38,22 @@ def test_word_order_is_preserved_within_and_across_groups() -> None:
     groups = split_words(words)
     flattened = [w for group in groups for w in group]
     assert flattened == words
+
+
+def test_apply_breaks_with_no_breaks_returns_one_group() -> None:
+    words = [_word(f"w{i}", i * 0.3) for i in range(5)]
+    assert apply_breaks(words, []) == [words]
+
+
+def test_apply_breaks_every_word_its_own_group_except_last() -> None:
+    words = [_word(f"w{i}", i * 0.3) for i in range(4)]
+    groups = apply_breaks(words, [0, 1, 2])
+    assert groups == [[words[0]], [words[1]], [words[2]], [words[3]]]
+
+
+def test_apply_breaks_preserves_word_identity_and_order() -> None:
+    words = [_word(f"w{i}", i * 0.3) for i in range(10)]
+    groups = apply_breaks(words, [2, 5])
+    flattened = [w for group in groups for w in group]
+    assert flattened == words
+    assert groups == [words[0:3], words[3:6], words[6:10]]

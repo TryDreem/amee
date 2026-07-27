@@ -15,8 +15,9 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | P2 | `POST /projects/{id}/transcribe` returns **409** if a transcribe job is `queued`/`processing`/`done`. A `failed` job does not count. | contract §4 |
 | P3 | Initial Splitter runs **synchronously inside the transcribe job**. It has no queue of its own. | arch §5.1, §2.3 |
 | P4 | Splitter interface is exactly `Words[] → Segments[]`. It **never receives `CaptionStyleSpec`**. | arch §5.1, §5.3 |
-| P5 | Exactly two Celery queues: `transcribe`, `export`. A `split` queue is *designated future*, not built. | arch §2.3, contract §13.11 |
+| P5 | Exactly two Celery queues: `transcribe`, `export`. The LLM smart re-splitter (§5.3) has no queue of its own — it runs as a plain awaited function call inside the transcribe job, not a dispatched task, since it blocks that job's `done` transition either way and a separate queue would buy no real concurrency. | arch §2.3 |
 | P6 | Job status lives in the **app database**, not Celery's result backend. `Project` has no `transcription_status` field. | arch §2.3, contract §4 |
+| P7 | Smart-split failure — LLM error or exhausted validation retries — **never fails the overall transcribe Job**. The dumb-split ECS is kept as the accepted fallback. | arch §5.3 |
 
 ## Data model
 

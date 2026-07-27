@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import tempfile
 import uuid
 from collections.abc import Awaitable, Callable
@@ -16,17 +17,22 @@ from app.integrations.ffmpeg import (
 )
 from app.integrations.subtitles import generate_ass, generate_srt
 from app.integrations.whisperx import TranscribedWord
+from app.repositories import ecs as ecs_repo
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
-from app.schemas.ecs import ECS
+from app.schemas.ecs import ECS, Segment
 from app.schemas.export import ExportRequestBody
 from app.schemas.job import JobProgress, JobStatus
 from app.schemas.style import CaptionStyleSpec
 from app.services import ecs as ecs_service
 from app.services import presets as presets_service
 from app.services import raw_transcript as raw_transcript_service
+from app.services import smart_splitter
 from app.services import style as style_service
+from app.services.language import SMART_SPLIT_LANGUAGES
 from app.workers.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
 
 # Above 1080p, the source is downscaled for the editor's preview player
 # (arch §2.8d) — the standard "proxy editing" pattern.
@@ -105,6 +111,63 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
             async with async_session_factory() as session:
                 await ecs_service.create_initial_ecs(
                     session, project_id=project_id, owner_id=raw.owner_id, words=words
+                )
+
+            # Smart re-split (Step 14, arch §5.3's "AI semantic splitter",
+            # P7): a required refinement of the ECS just persisted above,
+            # not a replacement of the Initial Splitter. Awaited directly,
+            # not dispatched as a separate Celery task/queue: this closure
+            # already has to block until it resolves (so the overall
+            # transcribe Job's `done` transition, gated on `await task_a`
+            # below, waits too - GET /ecs must never 404-then-change-under-
+            # the-user mid-edit, D7), and since the transcribe worker slot
+            # sits occupied waiting either way, a separate queue would add
+            # machinery (a second Job row, cross-task dispatch) without
+            # buying any real concurrency.
+            # `raw.language` (what WhisperX actually detected/used), not
+            # `project.language` (the user's upload-time choice, arch §2.9
+            # - null forever when they picked "auto"): gating on the latter
+            # meant smart-split silently never ran for anyone who left the
+            # upload form on its default "auto detect" setting.
+            if raw.language not in SMART_SPLIT_LANGUAGES:
+                logger.info(
+                    "smart-split skipped for project %s: detected language %r "
+                    "not in allowlist %s",
+                    project_id,
+                    raw.language,
+                    sorted(SMART_SPLIT_LANGUAGES),
+                )
+                return  # no LLM call attempted at all - dumb split is final
+
+            logger.info(
+                "smart-split starting for project %s, language=%s",
+                project_id,
+                raw.language,
+            )
+            try:
+                applied = await _apply_smart_split(
+                    project_id,
+                    owner_id=raw.owner_id,
+                    language=raw.language,
+                )
+            except Exception:
+                # P7: smart-split failure (LLM error, exhausted validation
+                # retries, or anything else) never fails the overall
+                # transcribe Job - the dumb-split ECS persisted above is
+                # already the accepted fallback. Caught here, not left to
+                # propagate into _run_transcribe's own try/except, which
+                # would otherwise (wrongly) mark the whole transcribe Job
+                # `failed` over a smart-split-only problem.
+                logger.exception(
+                    "smart-split raised unexpectedly for project %s - keeping "
+                    "the dumb split",
+                    project_id,
+                )
+            else:
+                logger.info(
+                    "smart-split finished for project %s: applied=%s",
+                    project_id,
+                    applied,
                 )
 
         async def persist_probe_and_thumbnail() -> None:
@@ -289,3 +352,41 @@ async def _do_srt_export(
     srt_dest.write_text(srt_text)
 
     return {"srt_url": srt_url}
+
+
+async def _apply_smart_split(
+    project_id: uuid.UUID, *, owner_id: uuid.UUID, language: str | None
+) -> bool:
+    """Plain awaited function, not a Celery task (Step 14 - see the comment
+    in `transcribe_split_and_persist_ecs` for why). Re-fetches the ECS
+    `transcribe_split_and_persist_ecs` just persisted (the dumb split) and,
+    if the smart-splitter produces a valid result, replaces it. Returns
+    whether it was applied - `False` (language not in the allowlist -
+    already filtered by the caller, or 3 attempts exhausted without a valid
+    result) is a normal outcome, not an error: the dumb split is left as-is
+    either way."""
+    async with async_session_factory() as session:
+        ecs = await ecs_service.get_ecs(session, project_id)
+    if ecs is None:
+        return False
+
+    words = [w for segment in ecs.segments for w in segment.words]
+    groups = await smart_splitter.try_smart_split(words, language=language)
+    if groups is None:
+        return False
+
+    # Original Word id/text/start/end are reused unchanged from the
+    # already-persisted, already-valid ECS - only which segment each word
+    # belongs to changes. Fresh Segment.id per new boundary. No defensive
+    # ecs_validation.validate_segments call: apply_breaks only cuts an
+    # already-ascending, non-overlapping word list into contiguous ranges -
+    # it cannot reorder, duplicate, or drop a word, so V1-V5 hold by
+    # construction, not by re-checking.
+    new_segments = [
+        Segment(id=uuid.uuid4(), words=list(group), overrides=None) for group in groups
+    ]
+    async with async_session_factory() as session:
+        await ecs_repo.replace(
+            session, project_id=project_id, owner_id=owner_id, segments=new_segments
+        )
+    return True

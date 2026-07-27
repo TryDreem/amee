@@ -13,10 +13,15 @@ celery_app = Celery(
     include=["app.workers.tasks"],
 )
 
-# Exactly two queues, matching INVARIANTS P5. A `split` queue is designated
-# future, not built — do not add a third queue here speculatively. Exchange
-# and routing key are given explicitly per queue — leaving them implicit let
-# both queues collapse onto the same default exchange/routing key.
+# Exactly two queues, matching INVARIANTS P5. The LLM smart re-splitter
+# (Step 14, arch §5.3) was briefly given its own `split` queue, then
+# deliberately reverted: it runs as a blocking step inside the transcribe
+# job either way (the job can't reach `done` until it resolves, to avoid a
+# race with the user starting to edit), so a separate queue bought no real
+# concurrency — the transcribe worker slot sits occupied waiting regardless
+# of which queue the LLM call physically runs on. It's a plain awaited
+# function call inside `_run_transcribe` now, not a dispatched task. Do not
+# add a third queue here speculatively.
 celery_app.conf.task_queues = (
     Queue("transcribe", exchange="transcribe", routing_key="transcribe"),
     Queue("export", exchange="export", routing_key="export"),

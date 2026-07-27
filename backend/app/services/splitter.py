@@ -47,3 +47,22 @@ def split_words(words: list[T]) -> list[list[T]]:
     if current:
         groups.append(current)
     return groups
+
+
+def apply_breaks(words: list[T], breaks: list[int]) -> list[list[T]]:
+    """A second, generic `Words[] -> Segments[]` implementation (arch §5.3's
+    "AI semantic splitter" branch, P4): reconstructs segments by cutting
+    `words` after each index in `breaks`. Segment 0 is `words[0:breaks[0]+1]`,
+    segment i is `words[breaks[i-1]+1 : breaks[i]+1]`, and the final segment
+    runs from the last break to the end of `words`. Does not itself validate
+    `breaks` — the caller (`smart_splitter.validate_breaks`) must already
+    have confirmed they're strictly increasing and in range before this is
+    called; passing invalid breaks here produces undefined grouping, not a
+    raised error."""
+    groups: list[list[T]] = []
+    start = 0
+    for br in breaks:
+        groups.append(words[start : br + 1])
+        start = br + 1
+    groups.append(words[start:])
+    return groups

@@ -25,10 +25,15 @@ def test_transcribe_video_omits_language_kwarg_when_none() -> None:
     with patch.dict(sys.modules, {"whisperx": fake_whisperx}):
         from app.integrations.whisperx import transcribe_video
 
-        transcribe_video(Path("/tmp/whatever.mp4"), language=None)
+        transcription = transcribe_video(Path("/tmp/whatever.mp4"), language=None)
 
     _, kwargs = fake_whisperx.load_model.call_args
     assert "language" not in kwargs
+    # WhisperX's own auto-detection result ("en", from the mocked
+    # model.transcribe() return value) is surfaced on the result, not
+    # discarded - this is what Step 14's smart-split gate reads when the
+    # user picked "auto" and Project.language stays null forever.
+    assert transcription.language == "en"
 
 
 def test_transcribe_video_passes_language_kwarg_when_set() -> None:

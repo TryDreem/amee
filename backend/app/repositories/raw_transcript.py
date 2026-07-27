@@ -17,9 +17,10 @@ async def create(
     project_id: uuid.UUID,
     owner_id: uuid.UUID,
     words: list[dict[str, str | float]],
+    language: str | None = None,
 ) -> RawTranscriptModel:
     raw_transcript = RawTranscriptModel(
-        project_id=project_id, owner_id=owner_id, words=words
+        project_id=project_id, owner_id=owner_id, words=words, language=language
     )
     session.add(raw_transcript)
     await session.commit()

@@ -10,7 +10,7 @@ import pytest
 
 from app.db import async_session_factory
 from app.integrations import storage
-from app.integrations.whisperx import TranscribedWord
+from app.integrations.whisperx import Transcription, TranscribedWord
 from app.models.job import JobModel
 from app.models.project import ProjectModel
 from app.repositories import job as job_repo
@@ -29,6 +29,10 @@ _FAKE_WORDS = [
     TranscribedWord(text="hello", start=0.0, end=0.4),
     TranscribedWord(text="world", start=0.4, end=0.9),
 ]
+# "xx" is deliberately not in SMART_SPLIT_LANGUAGES - these tests aren't
+# about the smart re-splitter, so this keeps them from making a real
+# network call to an LLM provider.
+_FAKE_TRANSCRIPTION = Transcription(words=_FAKE_WORDS, language="xx")
 
 
 @pytest.fixture
@@ -104,7 +108,7 @@ def test_transcribe_task_transitions_queued_to_done(
     job = asyncio.run(_get_job(job_id))
 
     with patch(
-        "app.services.raw_transcript.transcribe_video", return_value=_FAKE_WORDS
+        "app.services.raw_transcript.transcribe_video", return_value=_FAKE_TRANSCRIPTION
     ):
         transcribe_task.delay(str(job_id))
 
@@ -134,7 +138,7 @@ def test_transcribe_task_generates_proxy_above_1080p(
     job = asyncio.run(_get_job(job_id))
 
     with patch(
-        "app.services.raw_transcript.transcribe_video", return_value=_FAKE_WORDS
+        "app.services.raw_transcript.transcribe_video", return_value=_FAKE_TRANSCRIPTION
     ):
         transcribe_task.delay(str(job_id))
 
@@ -157,11 +161,9 @@ def test_transcribe_task_reports_progress_while_processing(
     catch."""
     job_id = asyncio.run(_create_queued_job(sample_video))
 
-    def slow_transcribe(
-        path: Path, language: str | None = None
-    ) -> list[TranscribedWord]:
+    def slow_transcribe(path: Path, language: str | None = None) -> Transcription:
         time.sleep(0.4)
-        return _FAKE_WORDS
+        return _FAKE_TRANSCRIPTION
 
     observed: list[str | None] = []
 

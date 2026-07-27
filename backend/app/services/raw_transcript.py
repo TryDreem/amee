@@ -23,6 +23,7 @@ def _to_schema(model: RawTranscriptModel) -> RawTranscript:
             )
             for word in model.words
         ],
+        language=model.language,
     )
 
 
@@ -41,7 +42,7 @@ async def create_raw_transcript(
     # so the other three branches of the transcribe job (arch §2.8b-d), all
     # genuinely async ffmpeg subprocesses, can actually run concurrently
     # with it rather than waiting behind a blocked loop.
-    words = await asyncio.to_thread(
+    transcription = await asyncio.to_thread(
         transcribe_video, video_path, language=project.language
     )
 
@@ -49,7 +50,11 @@ async def create_raw_transcript(
         session,
         project_id=project_id,
         owner_id=project.owner_id,
-        words=[{"text": w.text, "start": w.start, "end": w.end} for w in words],
+        words=[
+            {"text": w.text, "start": w.start, "end": w.end}
+            for w in transcription.words
+        ],
+        language=transcription.language,
     )
     return _to_schema(model)
 

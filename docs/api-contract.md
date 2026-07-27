@@ -205,11 +205,12 @@ truth either way).
 {
   "project_id": "uuid",
   "owner_id": "uuid",
-  "words": [ { "text": "string", "start": "number", "end": "number" } ]
+  "words": [ { "text": "string", "start": "number", "end": "number" } ],
+  "language": "string | null"
 }
 ```
 
-No `id` per word. The architecture doc is explicit that a `Word` in the ECS carries no link back to a raw-transcript word (§4.2, §14 item 7) — giving raw-transcript words stable ids would imply an addressability that was deliberately excluded. This endpoint is otherwise **read-only forever**: no `PUT`/`DELETE`, matching immutability (architecture doc §4.1).
+No `id` per word. The architecture doc is explicit that a `Word` in the ECS carries no link back to a raw-transcript word (§4.2, §14 item 7) — giving raw-transcript words stable ids would imply an addressability that was deliberately excluded. This endpoint is otherwise **read-only forever**: no `PUT`/`DELETE`, matching immutability (architecture doc §4.1). `language` is what WhisperX actually detected/used for alignment — distinct from `Project.language` (§4, the user's upload-time choice, set once and never mutated, §2.9), which stays `null` forever if the user picked "auto." `null` here means the row predates this field, not that detection failed.
 
 ---
 

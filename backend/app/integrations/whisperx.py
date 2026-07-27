@@ -4,7 +4,7 @@ from pathlib import Path
 # "tiny" + CPU + int8: small enough to run without a GPU, which is what MVP
 # scale (arch §1.2) actually needs — swap via a bigger model name later if
 # transcription quality demands it, without touching the interface below.
-_MODEL_NAME = "tiny"
+_MODEL_NAME = "large-v3-turbo"
 _DEVICE = "cpu"
 _COMPUTE_TYPE = "int8"
 
@@ -16,7 +16,19 @@ class TranscribedWord:
     end: float
 
 
-def transcribe_video(path: Path, language: str | None = None) -> list[TranscribedWord]:
+@dataclass(frozen=True)
+class Transcription:
+    words: list[TranscribedWord]
+    # The language WhisperX actually used for alignment - either the caller's
+    # explicit `language` echoed back, or WhisperX's own auto-detection
+    # result when the caller passed None. Surfaced so callers can persist
+    # what was actually detected (e.g. to gate the LLM smart re-splitter,
+    # Step 14) even when the user picked "auto" and Project.language stays
+    # null forever (arch §2.9 - it's set once at upload, never mutated).
+    language: str
+
+
+def transcribe_video(path: Path, language: str | None = None) -> Transcription:
     """Word-level transcript via WhisperX (arch §1.3) — called exactly once
     per video (P1), never re-invoked by later edits.
 
@@ -57,4 +69,4 @@ def transcribe_video(path: Path, language: str | None = None) -> list[Transcribe
                 text=word["word"], start=float(word["start"]), end=float(word["end"])
             )
         )
-    return words
+    return Transcription(words=words, language=str(result["language"]))

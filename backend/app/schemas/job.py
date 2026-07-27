@@ -7,8 +7,12 @@ from pydantic import BaseModel
 
 class JobType(str, Enum):
     """`export_srt` shares the `export` queue (INVARIANTS P5, X6) - it is not
-    a third queue, just a second job type on an existing one. A future
-    `split` queue is a pure addition to this enum, not modeled here."""
+    a third queue, just a second job type on an existing one. The LLM smart
+    re-splitter (Step 14, arch §5.3) has no `JobType`/queue of its own - it
+    runs as a plain awaited function call inside `transcribe_task`, not a
+    dispatched task, since it blocks that job's own `done` transition either
+    way (no race with the user starting to edit) and a separate queue bought
+    no real concurrency for work that's awaited synchronously regardless."""
 
     transcribe = "transcribe"
     export = "export"

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, func
+from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,6 +24,13 @@ class RawTranscriptModel(Base):
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     words: Mapped[list[dict[str, str | float]]] = mapped_column(JSONB, nullable=False)
+    # What WhisperX actually detected/used for alignment - nullable because
+    # rows written before this column existed have no known value (treated
+    # the same as "language unsupported for smart-split", not backfilled
+    # with a guess). Distinct from Project.language (arch §2.9's explicit
+    # upload-time user choice, set once, never mutated) - this is what
+    # WhisperX itself determined, which matters when the user picked "auto".
+    language: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
