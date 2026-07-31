@@ -173,7 +173,9 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
         async def persist_probe_and_thumbnail() -> None:
             probe = await probe_task
             thumb_path, thumb_url = storage.thumbnail_path(project_id)
-            await extract_thumbnail(video_path, probe.duration_seconds, thumb_path)
+            await extract_thumbnail(
+                video_path, probe.duration_seconds, thumb_path, is_hdr=probe.is_hdr
+            )
             async with async_session_factory() as session:
                 await project_repo.update_media(
                     session,

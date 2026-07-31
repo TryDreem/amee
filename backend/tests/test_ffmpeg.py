@@ -4,7 +4,10 @@ import pytest
 
 from app.integrations.ffmpeg import (
     FfprobeError,
+    _is_hdr,
+    _rotation_degrees,
     burn_in_captions,
+    extract_thumbnail,
     probe_video,
 )
 
@@ -15,6 +18,68 @@ async def test_probe_video_reads_dimensions_and_duration(sample_video: Path) -> 
     assert probe.width == 320
     assert probe.height == 240
     assert probe.duration_seconds == pytest.approx(1.0, abs=0.2)
+    assert probe.is_hdr is False
+
+
+@pytest.mark.parametrize(
+    "stream,expected",
+    [
+        # PQ (HDR10/Dolby Vision) - confirmed against a real HDR upload.
+        ({"color_transfer": "smpte2084"}, True),
+        # HLG.
+        ({"color_transfer": "arib-std-b67"}, True),
+        # Plain SDR (the common case) and unknown/absent tags.
+        ({"color_transfer": "bt709"}, False),
+        ({}, False),
+    ],
+)
+def test_is_hdr(stream: dict[str, object], expected: bool) -> None:
+    assert _is_hdr(stream) is expected
+
+
+async def test_probe_video_detects_hdr(hdr_sample_video: Path) -> None:
+    probe = await probe_video(hdr_sample_video)
+
+    assert probe.is_hdr is True
+
+
+async def test_extract_thumbnail_with_tonemap_produces_a_valid_image(
+    hdr_sample_video: Path, tmp_path: Path
+) -> None:
+    """Proves the tonemap `-vf` chain is well-formed ffmpeg syntax that runs
+    end to end against real PQ-tagged source - not just a docstring claim.
+    Doesn't assert on pixel content (see this session's manual before/after
+    comparison against a real HDR phone video for that)."""
+    dest = tmp_path / "thumb.jpg"
+
+    await extract_thumbnail(
+        hdr_sample_video, duration_seconds=1.0, dest=dest, is_hdr=True
+    )
+
+    assert dest.exists()
+    probe = await probe_video(dest)
+    assert probe.width == 320
+    assert probe.height == 240
+
+
+@pytest.mark.parametrize(
+    "stream,expected",
+    [
+        # Modern Display Matrix side data - the shape a real iPhone HEVC
+        # clip actually probes as (confirmed against a real vertically-shot
+        # file: 3840x2160 sample dimensions, rotation: -90).
+        ({"side_data_list": [{}, {"rotation": -90}, {}]}, 270),
+        ({"side_data_list": [{"rotation": 90}]}, 90),
+        ({"side_data_list": [{"rotation": 180}]}, 180),
+        # Legacy `rotate` stream tag some older files use instead.
+        ({"tags": {"rotate": "90"}}, 90),
+        # No rotation info at all - the common case.
+        ({}, 0),
+        ({"side_data_list": [{}], "tags": {}}, 0),
+    ],
+)
+def test_rotation_degrees(stream: dict[str, object], expected: int) -> None:
+    assert _rotation_degrees(stream) == expected
 
 
 async def test_probe_video_raises_on_non_video_file(tmp_path: Path) -> None:

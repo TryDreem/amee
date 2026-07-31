@@ -117,6 +117,34 @@ def sample_video(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def hdr_sample_video(tmp_path: Path) -> Path:
+    """A real mp4 tagged with PQ/BT.2020 color metadata (`setparams` - a
+    plain `-color_trc`/`-color_primaries`/`-colorspace` CLI flag combo
+    doesn't reliably make it into the muxed file via libx264) - used to
+    exercise the HDR tonemap path in extract_thumbnail end to end, distinct
+    from test_is_hdr's pure-dict unit tests for the detection logic itself."""
+    path = tmp_path / "hdr_sample.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=1:size=320x240:rate=10",
+            "-pix_fmt",
+            "yuv420p",
+            "-vf",
+            "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return path
+
+
+@pytest.fixture
 def tall_sample_video(tmp_path: Path) -> Path:
     """A real mp4 above the 1080p proxy threshold (arch §2.8d) — used by
     tests that need the preview-proxy branch to actually trigger."""

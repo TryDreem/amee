@@ -66,10 +66,17 @@ def _build_payload(words: list[T], language: str) -> dict[str, Any]:
     return {"words": indexed_words, "language": language}
 
 
-def _system_prompt(max_words: int, max_chars: int) -> str:
-    # max_words/max_chars are threaded in from splitter.py's own constants at
-    # call time (see request_breaks) rather than hand-typed here, so a future
-    # constant change can't silently desync this prompt from the validator.
+def _system_prompt(max_words: int, max_chars: int, word_count: int) -> str:
+    # max_words/max_chars are threaded in from splitter.py's own constants
+    # (minus the prompt margin) at call time (see request_breaks) rather than
+    # hand-typed here, so a future constant change can't silently desync this
+    # prompt from the validator. word_count is this request's actual word
+    # count, so the valid break range is stated as concrete numbers instead
+    # of a relative description - a real failure mode this fixed (observed
+    # in manual testing): the model output the last word's own index as a
+    # break despite the old relative wording ("never include the very last
+    # word's index").
+    last_valid_break = word_count - 2
     return (
         "You segment transcribed speech into caption groups by meaning, for "
         "a word-highlighting subtitle editor. You will receive a JSON object "
@@ -82,14 +89,28 @@ def _system_prompt(max_words: int, max_chars: int) -> str:
         "no prose, no markdown fences, and never echo back any word text. "
         "Each value in `breaks` is the index of the LAST word of a caption "
         "group: breaks [4, 9] on a 10-word input means group 1 = words 0-4, "
-        "group 2 = words 5-9, group 3 = words 10 to the end. `breaks` must "
-        "be strictly increasing and never include the very last word's "
-        "index (nothing would follow it).\n\n"
-        f"Hard limits, do not exceed: at most {max_words} words per group, "
-        f"at most {max_chars} characters per group. Prefer breaking at "
+        "group 2 = words 5-9, group 3 = words 10 to the end.\n\n"
+        f"This input has exactly {word_count} words, indexed 0 to "
+        f"{word_count - 1}. `breaks` must be strictly increasing integers, "
+        f"each between 0 and {last_valid_break} inclusive. NEVER output "
+        f"{word_count - 1} (the last word - nothing would follow it) and "
+        f"never output any value >= {word_count}.\n\n"
+        f"Hard limits per group, do not exceed: at most {max_words} words, "
+        f"at most {max_chars} characters (each word's letters plus one space "
+        "between each pair of words in the group). Prefer breaking at "
         "natural clause/sentence boundaries first, using the largest pauses "
         "as a secondary signal when a sentence has more than one plausible "
-        "break point."
+        "break point.\n\n"
+        "Before you answer, silently re-check every value in your `breaks` "
+        "array against all the rules above (range, strictly increasing, "
+        "per-group word/character limits) and correct any violation - only "
+        "then output the final JSON. This self-check is what gets it right "
+        "on the first attempt instead of needing a retry.\n\n"
+        'If the user message includes a line starting "Your previous '
+        'attempt was invalid:", it states the exact rule your last answer '
+        "for this same input broke. Treat it as a mandatory correction for "
+        "this attempt, not a suggestion: fix precisely that, and make sure "
+        "your self-check confirms you haven't reintroduced it."
     )
 
 
@@ -130,7 +151,9 @@ async def request_breaks(
             {
                 "role": "system",
                 "content": _system_prompt(
-                    max_words - _PROMPT_WORDS_MARGIN, max_chars - _PROMPT_CHARS_MARGIN
+                    max_words - _PROMPT_WORDS_MARGIN,
+                    max_chars - _PROMPT_CHARS_MARGIN,
+                    len(words),
                 ),
             },
             {"role": "user", "content": user_content},
