@@ -69,6 +69,12 @@ export interface Strings {
   notAvailableYet: string;
   downloadReady: string;
   projectSaved: string;
+  exportDone: string;
+  exportCancel: string;
+  exportCancelHint: string;
+  returnToMenu: string;
+  continueEditing: string;
+  returnToEditor: string;
 
   captionsStyleLabel: string;
   captionsLabel: string;
@@ -184,6 +190,12 @@ export const STR: Record<Lang, Strings> = {
     notAvailableYet: "Пока недоступно",
     downloadReady: "Скачать файл",
     projectSaved: "Проект сохранён",
+    exportDone: "Экспорт завершён",
+    exportCancel: "Отмена",
+    exportCancelHint: "Видео всё равно дорендерится на сервере — просто перестаём показывать прогресс",
+    returnToMenu: "Вернуться в главное меню",
+    continueEditing: "Продолжить редактирование",
+    returnToEditor: "Вернуться в редактор",
 
     captionsStyleLabel: "Стиль субтитров",
     captionsLabel: "Субтитры",
@@ -296,6 +308,12 @@ export const STR: Record<Lang, Strings> = {
     notAvailableYet: "Not available yet",
     downloadReady: "Download file",
     projectSaved: "Project saved",
+    exportDone: "Export complete",
+    exportCancel: "Cancel",
+    exportCancelHint: "The video still finishes rendering on the server — this just stops showing progress",
+    returnToMenu: "Return to main menu",
+    continueEditing: "Continue editing",
+    returnToEditor: "Return to editor",
 
     captionsStyleLabel: "Captions Style",
     captionsLabel: "Captions",

@@ -159,6 +159,26 @@ input[type="file"] {
   }
 }
 
+@keyframes exportShimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+/* No real Job.progress_percent yet (Step 11, Track 2 -- backend work), so the export modal's
+   progress phase is honestly indeterminate: a sliding block, not a percentage-driven fill. */
+@keyframes exportIndeterminate {
+  0% {
+    left: -35%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
 @keyframes videoLangMenuIn {
   0% {
     opacity: 0;

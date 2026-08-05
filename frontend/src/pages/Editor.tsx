@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import CaptionOverlay from "../components/CaptionOverlay";
 import CaptionsPanel, { type CaptionPopup } from "../components/CaptionsPanel";
+import ExportModal from "../components/ExportModal";
 import StylePanel from "../components/StylePanel";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
 import {
@@ -441,6 +442,22 @@ export default function Editor(): JSX.Element {
     setExportStarting(false);
   }
 
+  // ExportModal's four exits (Step 11b). Cancel and Continue-editing/Return-to-editor are all
+  // "stop watching, keep the record dismissed" -- distinguished only by which phase they're
+  // reachable from and, for Return-to-menu, whether they also navigate away. Real cancellation
+  // (actually stopping the backend render) is Track 2 / backend work, not landed yet -- confirmed
+  // with the human this turn to ship honest for now (stop watching + say so, not pretend).
+  function handleExportDismiss() {
+    if (myExportRecord) {
+      exportCtx.dismiss(myExportRecord.id);
+    }
+  }
+
+  function handleExportReturnToMenu() {
+    handleExportDismiss();
+    navigate("/");
+  }
+
   // Shared by the Save button and "go home" (below): both need "persist whatever is dirty, then
   // do the thing" with identical error handling, so there's one save path instead of two that
   // could drift. Returns true when it's safe to proceed (saved, or there was nothing to save) —
@@ -635,9 +652,16 @@ export default function Editor(): JSX.Element {
       } else {
         setExportError(L.exportFailed);
       }
-      exportCtx.dismiss(myExportRecord.id);
     } else if (exportJob.status === "failed") {
       setExportError(exportJob.error ?? L.exportFailed);
+    }
+    // SRT has no modal (Step 11b's modal only covers the video kind, matching the design -- the
+    // ⋯ menu's SRT item was never wired into the design's export-modal system either), so nothing
+    // else will ever dismiss its record -- do it here, same as before Step 11b. A video record is
+    // deliberately left tracked: the new ExportModal's own Done/Failed screen needs it to still
+    // exist so "Continue editing"/"Return to main menu"/"Return to editor" have something to act
+    // on, instead of the record vanishing the instant the job finishes.
+    if (exportKind === "srt") {
       exportCtx.dismiss(myExportRecord.id);
     }
     // `triggerDownload`/`L`/`exportCtx` are stable enough for this effect's purpose; re-running it
@@ -995,6 +1019,21 @@ export default function Editor(): JSX.Element {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: mode.pageBg }}>
+      {/* Step 11b: only the "video" kind gets the full modal, matching the design -- the ⋯
+          menu's SRT export was never wired into the design's export-modal system either. */}
+      {myExportRecord && exportKind === "video" && exportJob && (
+        <ExportModal
+          prefs={prefs}
+          strings={L}
+          projectName={project.name}
+          status={exportJob.status}
+          errorMessage={exportJob.error ?? exportPollError ?? null}
+          onCancel={handleExportDismiss}
+          onReturnToMenu={handleExportReturnToMenu}
+          onContinueEditing={handleExportDismiss}
+          onReturnToEditor={handleExportDismiss}
+        />
+      )}
       <div
         style={{
           display: "flex",
