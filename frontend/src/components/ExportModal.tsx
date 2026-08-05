@@ -13,6 +13,9 @@ interface ExportModalProps {
   onReturnToMenu: () => void;
   onContinueEditing: () => void;
   onReturnToEditor: () => void;
+  // Step 11c: hides the modal without stopping the export (design's ✕ in the progress phase's
+  // corner) -- only shown while still running, matching the design exactly.
+  onMinimize: () => void;
 }
 
 // Ported from the design's buildExportModalVals/e_exportCardStyle. One real divergence from the
@@ -33,6 +36,7 @@ export default function ExportModal({
   onReturnToMenu,
   onContinueEditing,
   onReturnToEditor,
+  onMinimize,
 }: ExportModalProps): JSX.Element {
   const mode = UI_MODES[prefs.mode];
   const theme = resolveTheme(prefs.theme, prefs.mode);
@@ -95,6 +99,28 @@ export default function ExportModal({
       <div style={cardStyle}>
         {(status === "queued" || status === "processing") && (
           <>
+            <div
+              onClick={onMinimize}
+              aria-label="Minimize"
+              title="Minimize"
+              style={{
+                position: "absolute",
+                top: "12px",
+                right: "12px",
+                width: "24px",
+                height: "24px",
+                borderRadius: "50%",
+                background: mode.iconBg,
+                color: mode.textFaint2,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "14px",
+                cursor: "pointer",
+              }}
+            >
+              ✕
+            </div>
             <div style={nameStyle}>{projectName}</div>
             <div style={titleStyle}>{L.exporting}</div>
             <div

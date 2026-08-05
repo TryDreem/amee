@@ -75,6 +75,8 @@ export interface Strings {
   returnToMenu: string;
   continueEditing: string;
   returnToEditor: string;
+  exportOpen: string;
+  exportDownload: string;
 
   captionsStyleLabel: string;
   captionsLabel: string;
@@ -196,6 +198,8 @@ export const STR: Record<Lang, Strings> = {
     returnToMenu: "Вернуться в главное меню",
     continueEditing: "Продолжить редактирование",
     returnToEditor: "Вернуться в редактор",
+    exportOpen: "Открыть",
+    exportDownload: "Скачать",
 
     captionsStyleLabel: "Стиль субтитров",
     captionsLabel: "Субтитры",
@@ -314,6 +318,8 @@ export const STR: Record<Lang, Strings> = {
     returnToMenu: "Return to main menu",
     continueEditing: "Continue editing",
     returnToEditor: "Return to editor",
+    exportOpen: "Open",
+    exportDownload: "Download",
 
     captionsStyleLabel: "Captions Style",
     captionsLabel: "Captions",

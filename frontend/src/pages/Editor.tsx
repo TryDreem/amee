@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import CaptionOverlay from "../components/CaptionOverlay";
 import CaptionsPanel, { type CaptionPopup } from "../components/CaptionsPanel";
 import ExportModal from "../components/ExportModal";
+import ExportToast from "../components/ExportToast";
 import StylePanel from "../components/StylePanel";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
 import {
@@ -980,6 +981,14 @@ export default function Editor(): JSX.Element {
 
   // An export is in flight from the click until the polled job reaches done/failed.
   const exportBusy = exportStarting || myExportRecord !== undefined;
+  // Step 11c: drives the Export button's spinner+reopen behavior specifically -- narrower than
+  // exportBusy (which also covers the brief POST-in-flight window and the SRT kind) because a
+  // finished-but-undismissed video record (done/failed, modal or toast still showing) should NOT
+  // spin the button forever.
+  const videoExportRunning =
+    myExportRecord?.kind === "video" &&
+    exportJob != null &&
+    (exportJob.status === "queued" || exportJob.status === "processing");
   const menuItemStyle: CSSProperties = {
     padding: "9px 10px",
     borderRadius: "6px",
@@ -1019,9 +1028,9 @@ export default function Editor(): JSX.Element {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: mode.pageBg }}>
-      {/* Step 11b: only the "video" kind gets the full modal, matching the design -- the ⋯
+      {/* Step 11b/11c: only the "video" kind gets the full modal, matching the design -- the ⋯
           menu's SRT export was never wired into the design's export-modal system either. */}
-      {myExportRecord && exportKind === "video" && exportJob && (
+      {myExportRecord && exportKind === "video" && exportJob && !myExportRecord.minimized && (
         <ExportModal
           prefs={prefs}
           strings={L}
@@ -1032,8 +1041,31 @@ export default function Editor(): JSX.Element {
           onReturnToMenu={handleExportReturnToMenu}
           onContinueEditing={handleExportDismiss}
           onReturnToEditor={handleExportDismiss}
+          onMinimize={() => exportCtx.minimize(myExportRecord.id)}
         />
       )}
+      {/* Minimized AND actually finished -- a still-running minimized export has no persistent
+          indicator of its own (design's own choice), only the button's spinner above/below. */}
+      {myExportRecord &&
+        exportKind === "video" &&
+        exportJob &&
+        myExportRecord.minimized &&
+        (exportJob.status === "done" || exportJob.status === "failed") && (
+          <ExportToast
+            prefs={prefs}
+            strings={L}
+            isDone={exportJob.status === "done"}
+            onOpen={() => exportCtx.reopen(myExportRecord.id)}
+            onDownload={
+              exportReady
+                ? () => {
+                    void triggerDownload(exportReady.url, exportReady.filename);
+                  }
+                : undefined
+            }
+            onDismiss={handleExportDismiss}
+          />
+        )}
       <div
         style={{
           display: "flex",
@@ -1223,22 +1255,49 @@ export default function Editor(): JSX.Element {
               {saving ? L.saving : L.save}
             </div>
             {/* POST /export renders the burned-in video and persists ecs+style as a side
-                effect (X5), so it works with or without a preceding Save. */}
+                effect (X5), so it works with or without a preceding Save. Step 11c: while a
+                video export is tracked (running, minimized or not), the button shows a spinner
+                instead of the label and reopens the modal on click rather than starting a
+                second export (design: e_onOpenExport). No real percentage yet (Track 2), so this
+                is an indeterminate spin, not the design's percent-filled ring. */}
             <div
-              onClick={() => void startExport("video")}
+              onClick={() => {
+                if (myExportRecord?.kind === "video") {
+                  exportCtx.reopen(myExportRecord.id);
+                } else {
+                  void startExport("video");
+                }
+              }}
               className="amee-cta-btn"
               style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "7px",
                 fontSize: "13px",
                 fontWeight: 700,
                 color: mode.textMain,
                 background: mode.cardBg,
                 padding: "8px 18px",
                 borderRadius: "8px",
-                cursor: exportBusy ? "default" : "pointer",
-                opacity: exportBusy ? 0.6 : 1,
+                cursor: exportStarting ? "default" : "pointer",
+                opacity: exportStarting ? 0.6 : 1,
               }}
             >
-              {exportBusy && exportKind !== "srt" ? L.exporting : L.export}
+              {videoExportRunning && (
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  style={{ animation: "exportRingSpin .9s linear infinite", flex: "none" }}
+                >
+                  <path d="M21 12a9 9 0 1 1-3.5-7.13" />
+                </svg>
+              )}
+              {videoExportRunning ? L.exporting : L.export}
             </div>
           </div>
         )}

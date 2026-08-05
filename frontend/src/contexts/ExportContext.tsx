@@ -22,6 +22,11 @@ export interface ExportRecord {
   projectId: string;
   projectName: string;
   kind: "video" | "srt";
+  // Step 11c: the modal is closed but the export keeps polling in the background (design:
+  // e_exportMinimized). While minimized, a finished/failed record surfaces as a corner toast
+  // instead of the full modal; a still-running one shows only as the ring on the Export button --
+  // no separate persistent indicator, matching the design exactly.
+  minimized: boolean;
 }
 
 const SESSION_KEY = "amee_exports";
@@ -64,6 +69,9 @@ interface ExportContextValue {
   // Stops tracking/polling a record (minimized-and-finished dismissed, or a "stop watching"
   // cancel today -- see Step 11b, real cancel is Track 2/backend work not landed yet).
   dismiss: (recordId: string) => void;
+  // Hide the modal without stopping the export (Step 11c) / bring it back.
+  minimize: (recordId: string) => void;
+  reopen: (recordId: string) => void;
   // Result URL helpers, kept here so callers don't need to re-import the narrowing functions.
   videoUrl: (job: Job) => string | null;
   srtUrl: (job: Job) => string | null;
@@ -132,7 +140,7 @@ export function ExportProvider({ children }: { children: ReactNode }): JSX.Eleme
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
       try {
         const job = kind === "srt" ? await exportProjectSrt(projectId, payload) : await exportProject(projectId, payload);
-        const record: ExportRecord = { id: job.id, projectId, projectName, kind };
+        const record: ExportRecord = { id: job.id, projectId, projectName, kind, minimized: false };
         setRecords((prev) => [...prev, record]);
         setJobsById((prev) => ({ ...prev, [job.id]: job }));
         return { ok: true };
@@ -149,12 +157,20 @@ export function ExportProvider({ children }: { children: ReactNode }): JSX.Eleme
     setPollErrorsById((prev) => omitKey(prev, recordId));
   }, []);
 
+  const setMinimized = useCallback((recordId: string, minimized: boolean) => {
+    setRecords((prev) => prev.map((r) => (r.id === recordId ? { ...r, minimized } : r)));
+  }, []);
+  const minimize = useCallback((recordId: string) => setMinimized(recordId, true), [setMinimized]);
+  const reopen = useCallback((recordId: string) => setMinimized(recordId, false), [setMinimized]);
+
   const value: ExportContextValue = {
     records,
     jobsById,
     pollErrorsById,
     start,
     dismiss,
+    minimize,
+    reopen,
     videoUrl: exportVideoUrl,
     srtUrl: exportSrtUrl,
   };
