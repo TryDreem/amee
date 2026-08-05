@@ -7,10 +7,6 @@ import StylePanel from "../components/StylePanel";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
 import {
   ApiError,
-  exportProject,
-  exportProjectSrt,
-  exportSrtUrl,
-  exportVideoUrl,
   getEcs,
   getProject,
   getStyle,
@@ -28,7 +24,7 @@ import {
   type Segment,
   type StyleOverrides,
 } from "../api/client";
-import { useJobPolling } from "../hooks/useJobPolling";
+import { useExport } from "../contexts/ExportContext";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
 import { findActiveSegmentIndex } from "../lib/activeSegment";
@@ -153,21 +149,23 @@ export default function Editor(): JSX.Element {
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
-  // Export (Step 8). Both endpoints are async jobs (contract §12): POST returns 202 + a Job, then
-  // GET /jobs/{id} is polled until done/failed — the same hook already used for transcribe. Only
-  // one export runs at a time; `exportKind` records which url to pull off the finished job, since
-  // `Job.result` is a union whose shape follows the job type.
-  const [exportJobId, setExportJobId] = useState<string | null>(null);
-  const [exportKind, setExportKind] = useState<"video" | "srt" | null>(null);
+  // Export (Step 8, lifted to a shared context in Step 11a so it survives navigating away from
+  // this page and is visible from Home too). `myRecord` is this project's own tracked export, if
+  // any -- the context can hold records for other projects too (started from a different Editor
+  // visit), which this page must ignore for its own busy/kind state.
+  const exportCtx = useExport();
+  const myExportRecord = exportCtx.records.find((r) => r.projectId === id);
+  const exportJob = myExportRecord ? exportCtx.jobsById[myExportRecord.id] : undefined;
+  const exportPollError = myExportRecord ? exportCtx.pollErrorsById[myExportRecord.id] : undefined;
+  const exportKind = myExportRecord?.kind ?? null;
   const [exportStarting, setExportStarting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   // The last finished artifact, kept until the next export replaces it, so a blocked or failed
   // automatic download never leaves the user with nothing to click.
   const [exportReady, setExportReady] = useState<{ url: string; filename: string } | null>(null);
-  const { job: exportJob, error: exportPollError } = useJobPolling(exportJobId);
-  // Which job has already been handed to the user. Clearing exportJobId/exportKind re-runs the
-  // completion effect before the poller's own reset lands, which would otherwise download the
-  // same file twice — this makes handling a finished job idempotent per job id.
+  // Which job has already been handed to the user. The completion effect below dismisses the
+  // context record once handled, but that dismissal itself re-runs the effect one more time
+  // before `myExportRecord` goes away -- this makes handling a finished job idempotent per id.
   const handledExportJobRef = useRef<string | null>(null);
 
   // Editing UI state. Split segment / delete segment mutation logic lands in Steps 5c/5d;
@@ -416,7 +414,7 @@ export default function Editor(): JSX.Element {
   }
 
   async function startExport(kind: "video" | "srt") {
-    if (!id || !ecs || !styleSpec || exportStarting || exportJobId) {
+    if (!id || !project || !ecs || !styleSpec || exportStarting || myExportRecord) {
       return;
     }
     setExportError(null);
@@ -428,24 +426,19 @@ export default function Editor(): JSX.Element {
       perPhraseStyle: styleSpec.perPhraseStyle,
       overrides: styleSpec.overrides,
     };
-    try {
-      const job = kind === "srt" ? await exportProjectSrt(id, payload) : await exportProject(id, payload);
-      setExportKind(kind);
-      setExportJobId(job.id);
+    const result = await exportCtx.start(id, project.name, kind, payload);
+    if (!result.ok) {
+      setExportError(result.error);
+    } else if (kind === "video") {
       // POST /export persists the submitted ecs+style as a side effect (X5), so the document on
       // the server now matches what's on screen — reflect that instead of leaving Save still
       // claiming unsaved changes. /export-srt deliberately does NOT persist (X6), so it must not
       // touch the save point.
-      if (kind === "video") {
-        lastSavedRef.current = snapshotOf(ecs, styleSpec);
-        setDirty(false);
-        setStyleDirty(false);
-      }
-    } catch (err) {
-      setExportError(err instanceof ApiError ? `${err.status}: ${err.message}` : L.exportFailed);
-    } finally {
-      setExportStarting(false);
+      lastSavedRef.current = snapshotOf(ecs, styleSpec);
+      setDirty(false);
+      setStyleDirty(false);
     }
+    setExportStarting(false);
   }
 
   // Shared by the Save button and "go home" (below): both need "persist whatever is dirty, then
@@ -620,7 +613,7 @@ export default function Editor(): JSX.Element {
   // and a new export can start. `result` is a union keyed on job type, so the url is read through
   // the matching narrowing helper rather than by indexing a field that may not be there.
   useEffect(() => {
-    if (!exportJob || (exportJob.status !== "done" && exportJob.status !== "failed")) {
+    if (!exportJob || !myExportRecord || (exportJob.status !== "done" && exportJob.status !== "failed")) {
       return;
     }
     if (handledExportJobRef.current === exportJob.id) {
@@ -628,7 +621,7 @@ export default function Editor(): JSX.Element {
     }
     handledExportJobRef.current = exportJob.id;
     if (exportJob.status === "done") {
-      const url = exportKind === "srt" ? exportSrtUrl(exportJob) : exportVideoUrl(exportJob);
+      const url = exportKind === "srt" ? exportCtx.srtUrl(exportJob) : exportCtx.videoUrl(exportJob);
       if (url) {
         const filename = exportKind === "srt" ? "captions.srt" : "video.mp4";
         const absolute = resolveMediaUrl(url);
@@ -642,17 +635,15 @@ export default function Editor(): JSX.Element {
       } else {
         setExportError(L.exportFailed);
       }
-      setExportJobId(null);
-      setExportKind(null);
+      exportCtx.dismiss(myExportRecord.id);
     } else if (exportJob.status === "failed") {
       setExportError(exportJob.error ?? L.exportFailed);
-      setExportJobId(null);
-      setExportKind(null);
+      exportCtx.dismiss(myExportRecord.id);
     }
-    // `triggerDownload`/`L` are stable enough for this effect's purpose; re-running it on every
-    // render would re-fire the download.
+    // `triggerDownload`/`L`/`exportCtx` are stable enough for this effect's purpose; re-running it
+    // on every render would re-fire the download.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exportJob, exportKind]);
+  }, [exportJob, exportKind, myExportRecord]);
 
   // Close the "⋯" export menu on an outside click or Escape (same dismissal pattern as the
   // TopBar/color-picker popovers). Only attached while the menu is open.
@@ -964,7 +955,7 @@ export default function Editor(): JSX.Element {
   const redoAvailable = history != null && canRedoHistory(history);
 
   // An export is in flight from the click until the polled job reaches done/failed.
-  const exportBusy = exportStarting || exportJobId !== null;
+  const exportBusy = exportStarting || myExportRecord !== undefined;
   const menuItemStyle: CSSProperties = {
     padding: "9px 10px",
     borderRadius: "6px",
