@@ -382,9 +382,13 @@ export interface components {
         JobProgress: "preparing" | "transcribing" | "generating_preview";
         /**
          * JobStatus
+         * @description `cancelled` is deliberately distinct from `failed` (contract §5): it
+         *     means a user stopped the job on purpose, never that the work errored on
+         *     its own. Collapsing the two would make "did this break?" unanswerable
+         *     from the status alone, in logs and in the UI.
          * @enum {string}
          */
-        JobStatus: "queued" | "processing" | "done" | "failed";
+        JobStatus: "queued" | "processing" | "done" | "failed" | "cancelled";
         /**
          * JobType
          * @description `export_srt` shares the `export` queue (INVARIANTS P5, X6) - it is not
@@ -517,6 +521,13 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Last Opened At */
+            last_opened_at: string | null;
             /** Latest Transcribe Job Id */
             latest_transcribe_job_id: string | null;
             /** Export Job Ids */

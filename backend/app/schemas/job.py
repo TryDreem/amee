@@ -20,10 +20,16 @@ class JobType(str, Enum):
 
 
 class JobStatus(str, Enum):
+    """`cancelled` is deliberately distinct from `failed` (contract §5): it
+    means a user stopped the job on purpose, never that the work errored on
+    its own. Collapsing the two would make "did this break?" unanswerable
+    from the status alone, in logs and in the UI."""
+
     queued = "queued"
     processing = "processing"
     done = "done"
     failed = "failed"
+    cancelled = "cancelled"
 
 
 class JobProgress(str, Enum):

@@ -37,3 +37,18 @@ class ProjectModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Deliberately NO `onupdate=func.now()` (unlike JobModel.updated_at):
+    # D12 scopes this to caption/style saves only, and the transcribe job
+    # writes this same row twice (update_media, update_preview) — an
+    # automatic onupdate would bump it from those writes too, silently
+    # making "last edited" mean "last touched by any background step".
+    # Set explicitly by the PUT /ecs and PUT /style paths instead.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Null until the first POST /projects/{id}/open — never written as a
+    # side effect of GET /projects/{id} (D13), so this stays meaningful even
+    # if that read is cached later.
+    last_opened_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

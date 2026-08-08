@@ -42,6 +42,8 @@ async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
         video_height=model.video_height,
         video_duration_seconds=model.video_duration_seconds,
         created_at=model.created_at,
+        updated_at=model.updated_at,
+        last_opened_at=model.last_opened_at,
         latest_transcribe_job_id=latest_transcribe_job.id
         if latest_transcribe_job
         else None,

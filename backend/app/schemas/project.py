@@ -16,5 +16,7 @@ class Project(BaseModel):
     video_height: int | None
     video_duration_seconds: float | None
     created_at: datetime
+    updated_at: datetime
+    last_opened_at: datetime | None
     latest_transcribe_job_id: UUID | None
     export_job_ids: list[UUID]

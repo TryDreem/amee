@@ -77,3 +77,31 @@ async def test_update_status_records_error() -> None:
         assert failed is not None
         assert failed.status == JobStatus.failed
         assert failed.error == "whisperx blew up"
+
+
+async def test_cancelled_status_roundtrips_through_postgres() -> None:
+    """`job_status` is a native Postgres enum, and SQLAlchemy's plain
+    `Enum` serializes by member *name*, not value - so a Python-side enum
+    addition that doesn't exactly match the `ALTER TYPE ... ADD VALUE` in
+    the migration blows up only at write time, not at import. Writing and
+    reading the value back is the only thing that actually proves the two
+    agree (this exact mismatch already bit once, in Step 14)."""
+    async with async_session_factory() as session:
+        project_id = await _make_project(session)
+        job = await job_repo.create(
+            session,
+            project_id=project_id,
+            owner_id=uuid.uuid4(),
+            job_type=JobType.export,
+        )
+
+        await job_repo.update_status(
+            session, job.id, status=JobStatus.cancelled, progress=None
+        )
+
+        cancelled = await job_repo.get(session, job.id)
+        assert cancelled is not None
+        assert cancelled.status == JobStatus.cancelled
+        # Distinct from `failed`, not a relabeling of it (contract §5).
+        assert cancelled.status != JobStatus.failed
+        assert cancelled.error is None
