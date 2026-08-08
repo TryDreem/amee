@@ -18,6 +18,7 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | P5 | Exactly two Celery queues: `transcribe`, `export`. The LLM smart re-splitter (§5.3) has no queue of its own — it runs as a plain awaited function call inside the transcribe job, not a dispatched task, since it blocks that job's `done` transition either way and a separate queue would buy no real concurrency. | arch §2.3 |
 | P6 | Job status lives in the **app database**, not Celery's result backend. `Project` has no `transcription_status` field. | arch §2.3, contract §4 |
 | P7 | Smart-split failure — LLM error or exhausted validation retries — **never fails the overall transcribe Job**. The dumb-split ECS is kept as the accepted fallback. | arch §5.3 |
+| P8 | Killing an export job's `ffmpeg` process is done by tracked PID (Redis), not by relying on Celery `revoke()` alone — under the `prefork` pool, a revoked task's signal does not reliably reach its grandchild subprocess, which would otherwise orphan and keep writing an untracked file. | contract §5 |
 
 ## Data model
 
@@ -34,6 +35,8 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | D9 | Every entity except `Preset` carries `owner_id` from the first schema. MVP resolves it to one placeholder UUID. | arch §2.4, contract §1 |
 | D10 | All ids are UUIDv4 strings, mintable by the frontend without a server round trip. | contract §1 |
 | D11 | `Segment.overrides` is the **one deliberate exception** to Data never carrying Style (cross-ref S1) — a per-segment style override, gated by `CaptionStyleSpec.perPhraseStyle`. Addressed by the segment's own `id`, never array index (index shifts on delete/split/merge). | arch §4.2 |
+| D12 | `Project.updated_at` is touched only by `PUT /ecs` and `PUT /style` — not `recalculate-groups`/`reset-to-raw`, even though both mutate ECS, because the current frontend never calls either. Revisit this list if that changes. | contract §4 |
+| D13 | `Project.last_opened_at` is written only by `POST /projects/{id}/open`, never as a side effect of `GET /projects/{id}` — a `GET` must stay side-effect-free so it can be safely cached later without silently breaking this tracking. | contract §4 |
 
 ## Validation (server-side, on `PUT /ecs`)
 
@@ -106,6 +109,8 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | X3 | ASS export is **deferred**. No endpoint, no flag. (ASS may still be used internally as the libass intermediate.) | arch §2.5, §14.5 |
 | X5 | `POST /export` persists both documents as a side effect, then enqueues. One validation path shared with `PUT /ecs` / `PUT /style`. | contract §12 |
 | X6 | `POST /export-srt` shares `POST /export`'s ECS+style validation but does not persist ecs/style — X5's persist-then-enqueue rule does not apply to it. The submitted body is used once, handed to the Celery task as plain data, and discarded. | contract §12 |
+| X7 | A cancelled export deletes its partial output file — same cleanup path as a genuinely failed export, both handled in the task's own except-block, not a separate cleanup job. | contract §5 |
+| X8 | `DELETE /projects/{id}` is always a hard delete — no trash, no recovery — and this does not change once auth exists; that's a deliberate, standing decision, not a placeholder pending auth. Cascades via a single recursive delete of the project's whole storage directory. | contract §4 |
 
 (X4, the internal-JSON-bundle invariant, was removed in Step 13 along with the `json_url` output it
 described — nothing produces it anymore.)
@@ -118,6 +123,7 @@ described — nothing produces it anymore.)
 | A2 | File access goes through `storage.py`. No direct disk paths in services or routes. | arch §2.1 |
 | A3 | Redis, if introduced, is **never a source of truth** for anything. Unavailable Redis ⇒ slower, never wrong, never stuck. | contract §14 |
 | A4 | Quota/payment checks, when they land, sit at the service-layer boundary before expensive operations (export). Not in routes. | arch §2.4, contract §13.12 |
+| A5 | `progress_percent` and an export job's tracked ffmpeg PID live in Redis only, never Postgres (A3 applies to both) — losing either mid-run degrades to "no progress shown" / "can't be cancelled anymore", never a stuck or wrong `Job` row. | contract §5 |
 
 ---
 

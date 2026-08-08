@@ -69,7 +69,7 @@ GET  /projects/{id}/ecs   +  GET /projects/{id}/style           → editor loads
   ... user edits locally, frontend-only, per architecture doc §4.2 / §6 ...
 PUT  /projects/{id}/ecs   +  PUT /projects/{id}/style            (on save)
 POST /projects/{id}/export                                      → Job (export)
-GET  /jobs/{jobId}           (poll until status = done)          → result.video_url / srt_url / json_url
+GET  /jobs/{jobId}           (poll until status = done)          → result.video_url
 ```
 
 ---
@@ -78,9 +78,9 @@ GET  /jobs/{jobId}           (poll until status = done)          → result.vide
 
 | Resource | Endpoints |
 |---|---|
-| Project | `POST /projects` · `GET /projects` · `GET /projects/{id}` |
+| Project | `POST /projects` · `GET /projects` · `GET /projects/{id}` · `DELETE /projects/{id}` · `POST /projects/{id}/open` |
 | Transcription | `POST /projects/{id}/transcribe` |
-| Job | `GET /jobs/{id}` |
+| Job | `GET /jobs/{id}` · `POST /projects/{id}/jobs/{job_id}/cancel` |
 | Raw Transcript | `GET /projects/{id}/raw-transcript` |
 | Edited Caption Structure | `GET /projects/{id}/ecs` · `PUT /projects/{id}/ecs` |
 | CaptionStyleSpec | `GET /projects/{id}/style` · `PUT /projects/{id}/style` |
@@ -89,8 +89,7 @@ GET  /jobs/{jobId}           (poll until status = done)          → result.vide
 | Reset to Raw Transcript | `POST /projects/{id}/reset-to-raw` |
 | Export | `POST /projects/{id}/export` (video only, persists ecs + style) · `POST /projects/{id}/export-srt` (SRT only, does not persist) |
 
-
-Project management beyond create/list (rename, delete, sharing) is intentionally out of scope for this pass — nothing in architecture doc §14 calls for it, and it wasn't part of what this contract set out to fix.
+Project management: delete is now in scope (see below) — hard delete, no trash/recovery, deliberately, even once auth exists (§13). Rename/sharing remain out of scope; nothing in architecture doc §14 calls for them yet.
 
 ---
 
@@ -125,8 +124,13 @@ Video width/height/duration, a thumbnail, and (conditionally) a preview proxy ar
   "video_height": "number | null",
   "video_duration_seconds": "number | null",
   "created_at": "ISO8601 string",
+  "updated_at": "ISO8601 string",
+  "last_opened_at": "ISO8601 string | null",
   "latest_transcribe_job_id": "uuid | null",
-  "export_job_ids": "uuid[]"
+  "export_job_ids": "uuid[]",
+  "latest_export_job_id": "uuid | null",
+  "latest_export_url": "string | null"
+
 }
 ```
 
@@ -144,21 +148,57 @@ Note what's **not** here: no `transcription_status` field. Status lives only on 
 (architecture doc §2.9). `null` means auto-detect and is the default when the field is omitted from
 the request.
 
+`updated_at` changes only on `PUT /ecs` and `PUT /style` — not `recalculate-groups`/`reset-to-raw`
+(the current frontend never calls either). `last_opened_at` is `null` until the first
+`POST .../open` call. `latest_export_job_id`/`latest_export_url` mirror `latest_transcribe_job_id`
+(derived by querying jobs, arch §4.2 — not a stored column): the most recent `type: "export"` job
+(never `"export_srt"`), and that job's `result.video_url` once it's `done`, else `null`.
 
-### `GET /projects` / `GET /projects/{id}`
-Same shape as above. List / single fetch. `404` if not found.
 
-### `POST /projects/{id}/transcribe`
-No body. Creates a `Job` (`type: "transcribe"`) on the `transcribe` queue. Despite the name, this job
-now orchestrates four parallel steps, not just transcription: WhisperX (then the Initial Splitter
-synchronously in the same branch), the ffmpeg probe, thumbnail extraction, and the conditional
-preview-proxy transcode (architecture doc §2.8). `type: "transcribe"` and the queue name are kept as
-they are — this is still one `Job`, still governed by the same `transcribe`/`export` two-queue split
-(architecture doc §2.3) — the name just now covers more than the literal word suggests.
+### `GET /projects/{id}`
+Same shape as `POST /projects`'s 201 body. Single fetch. `404` if not found.
 
-**Guard:** if `latest_transcribe_job_id` points at a job whose status is `queued`, `processing`, or `done`, this returns **409** — transcription runs exactly once per video (architecture doc §1.3), and the API enforces that, not just the frontend's own discipline. A prior `failed` job doesn't count against that budget (it never produced a result), so retrying after a failure is allowed.
+### `GET /projects`
+List, paginated. Query params, all optional:
+- `limit` — default `8`, clamped server-side to `1..50` regardless of what's requested.
+- `offset` — default `0`.
+- `q` — case-insensitive substring match against `Project.name`. Same pagination applies to
+  search results; there is no separate search endpoint.
+- `sort` — `newest` (default) | `oldest` | `updated` | `az` | `za` | `opened`. `newest`/`oldest`
+  order by `created_at`; `az`/`za` by `name`; `updated`/`opened` by the fields below.
 
-**202** → `Job` object (§5).
+Ordered `created_at DESC, id DESC` by default (the `id` tie-break keeps ordering stable when several
+projects share a `created_at`) — pagination without a deterministic order means pages drift as new
+projects are created between requests. Every `sort` value gets the same `id` tie-break.
+
+**200** →
+```json
+{
+  "items": [ /* Project, same shape as POST /projects's 201 body */ ],
+  "total": "number"
+}
+```
+
+`total` is the count of all projects matching `q` (or all projects, if `q` is omitted) — not just
+this page's `items.length`.
+
+### `DELETE /projects/{id}`
+Hard delete — no trash, no recovery, no soft-delete flag, and this stays true even once auth exists
+(§13's open item): the decision here is "always hard delete", not "hard delete until auth arrives."
+Deletes the `Project` row and cascade-deletes everything under its storage directory in one pass
+(source video, thumbnail, preview proxy, every past export) — one recursive delete of
+`storage/projects/{id}/`, not per-file cleanup (every file for a project already lives under that
+one path).
+
+If a `transcribe` or `export`/`export_srt` job for this project is `queued` or `processing`, it is
+cancelled first (same mechanism as `POST .../cancel` below), then the project and its files are
+removed. `204` on success, `404` if the project doesn't exist.
+
+### `POST /projects/{id}/open`
+No body. Records that the project was opened — updates `Project.last_opened_at` to now. Deliberately
+a separate call from `GET /projects/{id}`, not a side effect of that read: a `GET` is expected to stay
+side-effect-free so it stays safe to cache later (§13) without silently breaking "last opened"
+tracking. `204`. `404` if the project doesn't exist.
 
 ---
 
@@ -173,8 +213,9 @@ One shape, shared by both queues (architecture doc §2.3 — status is applicati
   "project_id": "uuid",
   "owner_id": "uuid",
   "type": "transcribe" | "export" | "export_srt",
-  "status": "queued" | "processing" | "done" | "failed",
+  "status": "queued" | "processing" | "done" | "failed" | "cancelled",
   "progress": "preparing" | "transcribing" | "generating_preview" | null,
+  "progress_percent": "number | null",
   "thumbnail_url": "string | null",
   "created_at": "ISO8601 string",
   "updated_at": "ISO8601 string",
@@ -191,8 +232,29 @@ best-effort basis, not a strict per-step state machine; clients poll `GET /jobs/
 the same way they already poll for status (contract §14 — the app database stays the source of
 truth either way).
 
+`progress_percent` is only meaningful for `type: "export"` while its ffmpeg burn-in step is actually
+running — computed from ffmpeg's own `-progress` output against `Project.video_duration_seconds`, not
+estimated. Lives in Redis, not Postgres (INVARIANTS A3 — never the source of truth for anything; an
+unavailable/evicted value just means this field reads `null`, nothing is stuck or wrong). `null` for
+every other `type`/status combination.
+
+`status: "cancelled"` is distinct from `"failed"` — set only when `POST .../cancel` below actually
+stopped the job, never used for a job that genuinely errored on its own.
+
 `result` is always `null` for `type: "transcribe"` — a completed transcription is signaled by `status: "done"` alone; the actual data is fetched via `GET /ecs` and `GET /raw-transcript` once that's true, not duplicated into the job. `result` is populated only for `type: "export"`/`"export_srt"`, and only once `status: "done"` — its shape depends on `type` (see §12).
 
+### `POST /projects/{id}/jobs/{job_id}/cancel`
+Only valid for `job.type == "export"` (video, not `export_srt` — its work is near-instant text
+generation, not worth cancelling; not `transcribe` — mid-transcription cancellation would leave Raw
+Transcript/ECS in a state this contract doesn't define, out of scope for this pass). `409` if the job
+isn't `queued`/`processing`, or isn't type `export`.
+
+Kills the running `ffmpeg` process directly, by PID (tracked in Redis alongside `progress_percent`
+while the job runs — not via Celery's own task-revocation, which isn't reliable for killing a
+grandchild process under the `prefork` pool). The task's own failure handling detects the kill, deletes
+the partial output file, and sets `status: "cancelled"`. **202** with the `Job` (still `processing` at
+the instant of this call — poll `GET /jobs/{id}` for the `cancelled` transition, same pattern as every
+other async action here).
 
 ---
 
@@ -514,16 +576,17 @@ Same body shape as `POST /projects/{id}/export` — `{ecs, style}`. Unlike `/exp
 
 None of this changes an endpoint or a JSON shape beyond the rate-limit convention already fixed in §1. Recorded here so it isn't lost, and so Redis never quietly becomes authoritative for something the app database already owns.
 
-**Redis — optional infrastructure component, added behind seams the architecture already has, not new ones:**
+**Redis — infrastructure component. One use below is already implemented (§5); the rest remain optional/future, added behind seams the architecture already has, not new ones:**
 
-| Potential use | Sits behind | Notes |
+| Use | Sits behind | Notes |
 |---|---|---|
+| Export progress + cancellation (`progress_percent`, tracked ffmpeg PID) | Job service (§5) | **Confirmed, not speculative — the only currently-implemented use in this table.** `Job.progress_percent` and a running export's ffmpeg PID live only in Redis, never Postgres. Losing either mid-export just means "no progress shown" / "can't be cancelled anymore" — never a stuck or wrong `Job` row. |
 | Cache (presets, job-status reads) | Data access layer (architecture doc §2.2) | Repository interface is unchanged; cache-aside lives inside the repository implementation. The app database stays authoritative — a cache miss just means "slower," never "wrong." |
 | Rate limiting counters | API-layer middleware (§1) | Standard token-bucket backing store. Keyed by `owner_id` (§1), same as the `429` convention above. |
 | Ephemeral job-status push | New — a poll→push channel for `GET /jobs/{id}` (raised earlier in this conversation as a genuine scaling win at high poll volume, distinct from the queue-count question) | Redis pub/sub carries "status changed" *notifications* only, to trigger a WebSocket/SSE push. It does not carry the status itself as something a client can trust on its own — the persisted row in the app database (architecture doc §2.3) is still what a client re-checks on reconnect. A dropped pub/sub message costs a UX delay until the next poll, never a wrong status. |
 | Sessions | Integration/data access layer, once real auth (§13, item 13) lands | Not needed while `owner_id` resolves to one placeholder. |
 
-**Not source of truth, anywhere, for anything** — the one invariant across all four uses above, and the thing that keeps Redis from reintroducing the "two divergent sources of truth" problem architecture doc §2.3 explicitly designed the job system to avoid. If Redis is unavailable, correctness degrades to "slower" (cache miss, fall through to the database) — never to "wrong" or "stuck."
+**Not source of truth, anywhere, for anything** — the one invariant across all five uses above, and the thing that keeps Redis from reintroducing the "two divergent sources of truth" problem architecture doc §2.3 explicitly designed the job system to avoid. If Redis is unavailable, correctness degrades to "slower" (cache miss, fall through to the database) — never to "wrong" or "stuck."
 
 **Nginx** — load-balances stateless FastAPI instances (architecture doc §2.2 already makes the service layer stateless, which is what makes this possible without touching business logic). Pure deployment topology; has no relationship to Celery worker concurrency in the `transcribe`/`export`/(future `split`) queues, which is tuned independently via worker process count per queue.
 
