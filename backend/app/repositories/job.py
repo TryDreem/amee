@@ -74,3 +74,18 @@ async def get_latest_by_project(
         .limit(1)
     )
     return result.scalars().first()
+
+
+async def list_ids_by_project(
+    session: AsyncSession, project_id: uuid.UUID, job_type: JobType
+) -> list[uuid.UUID]:
+    """Backs `Project.export_job_ids` (contract §4) — every id, not just the
+    latest, so the frontend can (eventually) show export history. Selects
+    only the id column rather than loading full `JobModel` rows, since
+    that's all this needs."""
+    result = await session.execute(
+        select(JobModel.id)
+        .where(JobModel.project_id == project_id, JobModel.type == job_type)
+        .order_by(JobModel.created_at.desc())
+    )
+    return list(result.scalars().all())

@@ -10,7 +10,7 @@ from app.models.project import ProjectModel
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
 from app.schemas.common import ErrorDetail
-from app.schemas.job import JobType
+from app.schemas.job import JobStatus, JobType
 from app.schemas.project import Project, ProjectPage, ProjectSort
 from app.services import style as style_service
 from app.services.language import SUPPORTED_LANGUAGE_CODES
@@ -32,11 +32,28 @@ MAX_PAGE_LIMIT = 50
 
 
 async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
-    # export_job_ids stays [] — export jobs are M2 scope, no repository query
-    # for them exists yet.
     latest_transcribe_job = await job_repo.get_latest_by_project(
         session, model.id, JobType.transcribe
     )
+    # Both derived by querying jobs, never a stored column (arch §4.2) - the
+    # same "no divergent second source of truth" reasoning already applied
+    # to latest_transcribe_job_id. Always `type: "export"`, never
+    # `"export_srt"` (contract §4) - an SRT-only export isn't "the export"
+    # a project-list card means by "Exported".
+    latest_export_job = await job_repo.get_latest_by_project(
+        session, model.id, JobType.export
+    )
+    export_job_ids = await job_repo.list_ids_by_project(
+        session, model.id, JobType.export
+    )
+    latest_export_url = None
+    if (
+        latest_export_job is not None
+        and latest_export_job.status == JobStatus.done
+        and latest_export_job.result is not None
+    ):
+        latest_export_url = latest_export_job.result.get("video_url")
+
     return Project(
         id=model.id,
         owner_id=model.owner_id,
@@ -54,7 +71,9 @@ async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
         latest_transcribe_job_id=latest_transcribe_job.id
         if latest_transcribe_job
         else None,
-        export_job_ids=[],
+        export_job_ids=export_job_ids,
+        latest_export_job_id=latest_export_job.id if latest_export_job else None,
+        latest_export_url=latest_export_url,
     )
 
 

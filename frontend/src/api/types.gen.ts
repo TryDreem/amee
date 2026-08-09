@@ -549,6 +549,10 @@ export interface components {
             latest_transcribe_job_id: string | null;
             /** Export Job Ids */
             export_job_ids: string[];
+            /** Latest Export Job Id */
+            latest_export_job_id: string | null;
+            /** Latest Export Url */
+            latest_export_url: string | null;
         };
         /**
          * ProjectPage

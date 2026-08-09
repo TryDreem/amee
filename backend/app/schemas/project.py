@@ -35,6 +35,8 @@ class Project(BaseModel):
     last_opened_at: datetime | None
     latest_transcribe_job_id: UUID | None
     export_job_ids: list[UUID]
+    latest_export_job_id: UUID | None
+    latest_export_url: str | None
 
 
 class ProjectPage(BaseModel):
