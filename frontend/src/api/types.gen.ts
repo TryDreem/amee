@@ -533,6 +533,27 @@ export interface components {
             /** Export Job Ids */
             export_job_ids: string[];
         };
+        /**
+         * ProjectPage
+         * @description `total` is a real count of everything matching the query, not
+         *     `len(items)` — the UI renders "page X of Y", which a `has_more` boolean
+         *     couldn't answer (contract §4).
+         */
+        ProjectPage: {
+            /** Items */
+            items: components["schemas"]["Project"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * ProjectSort
+         * @description A closed enum rather than a free-form field name + direction pair:
+         *     the set of orderings is a product decision (it's the dropdown in the
+         *     project list), and leaving it open would let a client order by any
+         *     column, which is a much larger surface to keep indexed and correct.
+         * @enum {string}
+         */
+        ProjectSort: "newest" | "oldest" | "updated" | "az" | "za" | "opened";
         /** RawTranscript */
         RawTranscript: {
             /**
@@ -705,7 +726,15 @@ export type $defs = Record<string, never>;
 export interface operations {
     list_projects_api_v1_projects_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page size. Clamped server-side to 1..50, never rejected. */
+                limit?: number;
+                /** @description Rows to skip. Negative values clamp to 0. */
+                offset?: number;
+                /** @description Case-insensitive match on project name. */
+                q?: string | null;
+                sort?: components["schemas"]["ProjectSort"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -718,7 +747,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"][];
+                    "application/json": components["schemas"]["ProjectPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

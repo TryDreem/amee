@@ -1,9 +1,11 @@
 import uuid
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import ProjectModel
+from app.schemas.project import ProjectSort
 
 
 async def create(
@@ -37,11 +39,69 @@ async def get(session: AsyncSession, project_id: uuid.UUID) -> ProjectModel | No
     return await session.get(ProjectModel, project_id)
 
 
-async def list_all(session: AsyncSession) -> list[ProjectModel]:
-    result = await session.execute(
-        select(ProjectModel).order_by(ProjectModel.created_at)
+def _order_by(sort: ProjectSort) -> list[ColumnElement[Any]]:
+    """Every ordering ends with `id DESC` as a tie-break. Without it, rows
+    sharing the sort key (same `created_at` on a bulk import, same `name`,
+    or the whole never-opened tail under `opened`) have no defined order
+    between them, and Postgres is free to return them differently per query
+    — which under limit/offset shows up as rows repeating on one page and
+    vanishing from another (contract §4).
+
+    `updated`/`opened` sort newest-first like `newest` does; for `opened`,
+    never-opened projects (`last_opened_at IS NULL`) go last. Postgres puts
+    NULLs first under DESC by default, which would rank "never opened" as
+    "most recently opened" — exactly backwards.
+    """
+    tie_break = ProjectModel.id.desc()
+    orderings: dict[ProjectSort, list[ColumnElement[Any]]] = {
+        ProjectSort.newest: [ProjectModel.created_at.desc()],
+        ProjectSort.oldest: [ProjectModel.created_at.asc()],
+        ProjectSort.updated: [ProjectModel.updated_at.desc()],
+        ProjectSort.opened: [ProjectModel.last_opened_at.desc().nullslast()],
+        # lower() so "apple" and "Apple" sort together — Postgres' default
+        # collation would otherwise group by case first, which reads as
+        # broken alphabetical ordering to a user.
+        ProjectSort.az: [func.lower(ProjectModel.name).asc()],
+        ProjectSort.za: [func.lower(ProjectModel.name).desc()],
+    }
+    return [*orderings[sort], tie_break]
+
+
+async def list_page(
+    session: AsyncSession,
+    *,
+    limit: int,
+    offset: int,
+    q: str | None = None,
+    sort: ProjectSort = ProjectSort.newest,
+) -> tuple[list[ProjectModel], int]:
+    """Returns one page plus the total number of rows matching `q` (not just
+    this page's length — contract §4). Two queries by design: a windowed
+    SELECT and a COUNT over the same filter, which is the standard shape and
+    keeps `total` honest when `offset` runs past the end.
+
+    `limit`/`offset` are taken as given — clamping them is a business rule
+    and lives in the service layer, not here.
+    """
+    filters = []
+    if q:
+        # ILIKE, not lower(name) LIKE lower(...): Postgres-native, and the
+        # escape below keeps a literal % or _ in the user's query from
+        # being read as a wildcard.
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        filters.append(ProjectModel.name.ilike(f"%{escaped}%", escape="\\"))
+
+    page = await session.execute(
+        select(ProjectModel)
+        .where(*filters)
+        .order_by(*_order_by(sort))
+        .limit(limit)
+        .offset(offset)
     )
-    return list(result.scalars().all())
+    total = await session.execute(
+        select(func.count()).select_from(ProjectModel).where(*filters)
+    )
+    return list(page.scalars().all()), total.scalar_one()
 
 
 async def update_media(

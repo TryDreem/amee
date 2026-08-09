@@ -42,7 +42,9 @@ async def test_create_list_get_project_roundtrip(sample_video: Path) -> None:
 
         list_response = await client.get("/api/v1/projects")
         assert list_response.status_code == 200
-        assert any(p["id"] == project_id for p in list_response.json())
+        listing = list_response.json()
+        assert any(p["id"] == project_id for p in listing["items"])
+        assert listing["total"] >= 1
 
         get_response = await client.get(f"/api/v1/projects/{project_id}")
         assert get_response.status_code == 200

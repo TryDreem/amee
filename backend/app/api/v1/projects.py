@@ -1,10 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.schemas.project import Project
+from app.schemas.project import Project, ProjectPage, ProjectSort
 from app.services import projects as project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -34,9 +34,26 @@ async def create_project(
     )
 
 
-@router.get("", response_model=list[Project])
-async def list_projects(session: AsyncSession = Depends(get_db)) -> list[Project]:
-    return await project_service.list_projects(session)
+@router.get("", response_model=ProjectPage)
+async def list_projects(
+    limit: int = Query(
+        project_service.DEFAULT_PAGE_LIMIT,
+        description=(
+            f"Page size. Clamped server-side to "
+            f"1..{project_service.MAX_PAGE_LIMIT}, never rejected."
+        ),
+    ),
+    offset: int = Query(0, description="Rows to skip. Negative values clamp to 0."),
+    q: str | None = Query(None, description="Case-insensitive match on project name."),
+    sort: ProjectSort = Query(ProjectSort.newest),
+    session: AsyncSession = Depends(get_db),
+) -> ProjectPage:
+    # No `ge=`/`le=` on limit/offset on purpose - those would make FastAPI
+    # 422 an out-of-range page size, and the contract says clamp instead.
+    # The clamping itself is a business rule, so it lives in the service.
+    return await project_service.list_projects(
+        session, limit=limit, offset=offset, q=q, sort=sort
+    )
 
 
 @router.get(

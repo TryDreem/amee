@@ -11,7 +11,7 @@ from app.repositories import job as job_repo
 from app.repositories import project as project_repo
 from app.schemas.common import ErrorDetail
 from app.schemas.job import JobType
-from app.schemas.project import Project
+from app.schemas.project import Project, ProjectPage, ProjectSort
 from app.services import style as style_service
 from app.services.language import SUPPORTED_LANGUAGE_CODES
 
@@ -22,6 +22,13 @@ from app.services.language import SUPPORTED_LANGUAGE_CODES
 # the transcribe job instead.
 _ALLOWED_UPLOAD_EXTENSIONS = {".mp4", ".mov"}
 _MAX_UPLOAD_BYTES = 2 * 1024**3  # 2GB
+
+# Public (not `_`-prefixed): the route advertises the default in its own
+# signature, and tests assert against the cap, so both are part of this
+# module's interface rather than internal detail. 8 matches the frontend's
+# fixed grid; 50 is the ceiling a client can't argue past (contract §4).
+DEFAULT_PAGE_LIMIT = 8
+MAX_PAGE_LIMIT = 50
 
 
 async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
@@ -116,6 +123,26 @@ async def get_project(session: AsyncSession, project_id: uuid.UUID) -> Project |
     return await _to_schema(session, model) if model else None
 
 
-async def list_projects(session: AsyncSession) -> list[Project]:
-    models = await project_repo.list_all(session)
-    return [await _to_schema(session, m) for m in models]
+async def list_projects(
+    session: AsyncSession,
+    *,
+    limit: int = DEFAULT_PAGE_LIMIT,
+    offset: int = 0,
+    q: str | None = None,
+    sort: ProjectSort = ProjectSort.newest,
+) -> ProjectPage:
+    """`limit`/`offset` are clamped, not rejected (contract §4): an
+    out-of-range page size is a client bug that shouldn't cost the user an
+    error screen, and the cap is what stops `limit=999999` from turning a
+    paginated endpoint back into "fetch everything". Clamping lives here
+    rather than as a FastAPI `le=` constraint precisely because `le=` would
+    422 instead.
+    """
+    limit = max(1, min(limit, MAX_PAGE_LIMIT))
+    offset = max(0, offset)
+    models, total = await project_repo.list_page(
+        session, limit=limit, offset=offset, q=q, sort=sort
+    )
+    return ProjectPage(
+        items=[await _to_schema(session, m) for m in models], total=total
+    )

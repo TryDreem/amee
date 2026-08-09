@@ -35,7 +35,7 @@ async def test_get_missing_returns_none() -> None:
         assert await project_repo.get(session, uuid.uuid4()) is None
 
 
-async def test_list_includes_created() -> None:
+async def test_list_page_includes_created() -> None:
     async with async_session_factory() as session:
         created = await project_repo.create(
             session,
@@ -44,9 +44,10 @@ async def test_list_includes_created() -> None:
             video_url="/files/projects/y/source.mp4",
         )
 
-        all_projects = await project_repo.list_all(session)
+        page, total = await project_repo.list_page(session, limit=50, offset=0)
 
-        assert any(p.id == created.id for p in all_projects)
+        assert any(p.id == created.id for p in page)
+        assert total >= 1
 
 
 async def test_update_media_and_update_preview_roundtrip() -> None:
