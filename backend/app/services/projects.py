@@ -123,6 +123,13 @@ async def get_project(session: AsyncSession, project_id: uuid.UUID) -> Project |
     return await _to_schema(session, model) if model else None
 
 
+async def open_project(session: AsyncSession, project_id: uuid.UUID) -> bool:
+    """Records that the project was opened (D13) — a separate call from
+    `GET /projects/{id}`, deliberately: a `GET` must stay side-effect-free
+    so it can be cached later without silently breaking this tracking."""
+    return await project_repo.touch_last_opened_at(session, project_id)
+
+
 async def list_projects(
     session: AsyncSession,
     *,

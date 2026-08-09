@@ -327,3 +327,39 @@ async def test_put_ecs_rejects_segment_override_out_of_bounds() -> None:
         ],
     )
     assert details[0]["field"] == "segments[0].overrides.verticalPosition"
+
+
+async def test_put_ecs_bumps_project_updated_at() -> None:
+    """D12: PUT /ecs is one of the two actions sort=updated cares about."""
+    project_id = await _make_transcribed_project()
+    async with async_session_factory() as session:
+        before = await project_repo.get(session, project_id)
+    assert before is not None
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.put(
+            f"/api/v1/projects/{project_id}/ecs",
+            json={
+                "segments": [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "words": [
+                            {
+                                "id": str(uuid.uuid4()),
+                                "text": "hi",
+                                "start": 0.0,
+                                "end": 0.3,
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+    assert response.status_code == 200
+
+    async with async_session_factory() as session:
+        after = await project_repo.get(session, project_id)
+    assert after is not None
+    assert after.updated_at > before.updated_at

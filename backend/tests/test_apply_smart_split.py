@@ -104,6 +104,32 @@ async def test_apply_smart_split_replaces_ecs_with_llm_groups(
     assert await _get_ecs_word_texts(project_id) == [w.text for w in _FAKE_WORDS]
 
 
+async def test_apply_smart_split_does_not_bump_project_updated_at(
+    sample_video: Path,
+) -> None:
+    """D12: updated_at tracks user edits (PUT /ecs, PUT /style) only. The
+    smart-split rewrite is an automatic post-transcribe refinement, not a
+    user action - it calls ecs_repo.replace() directly, bypassing
+    ecs_service.put_ecs() (the only place that bumps updated_at), precisely
+    so this stays true."""
+    project_id = await _create_project_with_ecs(sample_video, language="en")
+    async with async_session_factory() as session:
+        project = await project_repo.get(session, project_id)
+    assert project is not None
+    before = project.updated_at
+
+    with patch(
+        "app.services.smart_splitter.llm_split.request_breaks", new_callable=AsyncMock
+    ) as mock_request:
+        mock_request.return_value = [4]
+        await _apply_smart_split(project_id, owner_id=project.owner_id, language="en")
+
+    async with async_session_factory() as session:
+        after = await project_repo.get(session, project_id)
+    assert after is not None
+    assert after.updated_at == before
+
+
 async def test_apply_smart_split_keeps_dumb_split_when_llm_exhausts_attempts(
     sample_video: Path,
 ) -> None:

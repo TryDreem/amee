@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import DomainValidationError
 from app.models.style import CaptionStyleSpecModel
 from app.repositories import preset as preset_repo
+from app.repositories import project as project_repo
 from app.repositories import style as style_repo
 from app.schemas.common import ErrorDetail
 from app.schemas.preset import PresetBounds
@@ -76,4 +77,7 @@ async def put_style(
         per_phrase_style=body.perPhraseStyle,
         overrides=body.overrides.model_dump(exclude_none=True),
     )
+    # D12: only the real PUT /style counts as an edit for sort=updated -
+    # export.py's side-effect persistence calls style_repo.update() directly.
+    await project_repo.touch_updated_at(session, project_id)
     return _to_schema(updated)

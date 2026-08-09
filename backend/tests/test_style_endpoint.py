@@ -4,7 +4,9 @@ from pathlib import Path
 import httpx
 from httpx import ASGITransport
 
+from app.db import async_session_factory
 from app.main import app
+from app.repositories import project as project_repo
 
 _DEFAULT_PRESET_ID = "c1a1a1a1-0000-4000-8000-000000000001"
 
@@ -172,3 +174,25 @@ async def test_put_style_outline_alpha_out_of_fixed_range_returns_422(
     assert response.status_code == 422
     body = response.json()
     assert body["error"]["details"][0]["field"] == "overrides.outline.alpha"
+
+
+async def test_put_style_bumps_project_updated_at(sample_video: Path) -> None:
+    """D12: PUT /style is the other action sort=updated cares about."""
+    project_id = await _create_project(sample_video)
+    async with async_session_factory() as session:
+        before = await project_repo.get(session, uuid.UUID(project_id))
+    assert before is not None
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.put(
+            f"/api/v1/projects/{project_id}/style",
+            json={"presetId": _DEFAULT_PRESET_ID, "overrides": {"fontSize": 0.1}},
+        )
+    assert response.status_code == 200
+
+    async with async_session_factory() as session:
+        after = await project_repo.get(session, uuid.UUID(project_id))
+    assert after is not None
+    assert after.updated_at > before.updated_at

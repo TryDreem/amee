@@ -68,3 +68,16 @@ async def get_project(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+@router.post(
+    "/{project_id}/open",
+    status_code=204,
+    responses={404: {"description": "Project not found"}},
+)
+async def open_project(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> None:
+    found = await project_service.open_project(session, project_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Project not found")

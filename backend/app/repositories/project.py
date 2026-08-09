@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import ProjectModel
@@ -125,6 +125,38 @@ async def update_media(
     await session.commit()
     await session.refresh(project)
     return project
+
+
+async def touch_updated_at(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """Bumps `Project.updated_at` to now — called only from the `PUT /ecs`
+    and `PUT /style` service functions (D12), never from `replace()`/
+    `update()` themselves, since those are also called from the smart-split
+    and export-persistence paths, which must NOT count as an edit. `UPDATE
+    ... SET updated_at = now()` rather than a `session.get` + attribute set:
+    no need to load the row into the session just to bump one column, and
+    `func.now()` matches how every other timestamp column in this schema is
+    stamped (server_default/onupdate), not a Python-side `datetime.now()`."""
+    await session.execute(
+        update(ProjectModel)
+        .where(ProjectModel.id == project_id)
+        .values(updated_at=func.now())
+    )
+    await session.commit()
+
+
+async def touch_last_opened_at(session: AsyncSession, project_id: uuid.UUID) -> bool:
+    """Returns whether the project exists, so the caller (`POST
+    /projects/{id}/open`) can 404 without a second query. Fetches first
+    (like `update_media`/`update_preview` above) rather than checking
+    `CursorResult.rowcount` off a bare `UPDATE` — `AsyncSession.execute`'s
+    return type doesn't statically expose it, and this matches the existing
+    style in this file."""
+    project = await session.get(ProjectModel, project_id)
+    if project is None:
+        return False
+    project.last_opened_at = func.now()
+    await session.commit()
+    return True
 
 
 async def update_preview(

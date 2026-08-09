@@ -7,6 +7,7 @@ from app.integrations.whisperx import TranscribedWord
 from app.models.ecs import SegmentModel
 from app.repositories import ecs as ecs_repo
 from app.repositories import preset as preset_repo
+from app.repositories import project as project_repo
 from app.repositories import style as style_repo
 from app.schemas.ecs import ECS, ECSPutBody, Segment, Word
 from app.schemas.preset import PresetBounds
@@ -86,4 +87,8 @@ async def put_ecs(
     updated = await ecs_repo.replace(
         session, project_id=project_id, owner_id=owner_id, segments=body.segments
     )
+    # D12: only the real PUT /ecs counts as an edit for sort=updated. The
+    # smart-split path calls ecs_repo.replace() directly, bypassing this
+    # function, precisely so it doesn't also bump updated_at.
+    await project_repo.touch_updated_at(session, project_id)
     return _to_schema(project_id, owner_id, updated)
