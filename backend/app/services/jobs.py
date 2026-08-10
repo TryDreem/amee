@@ -2,10 +2,11 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.integrations import redis as redis_integration
 from app.models.job import JobModel
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
-from app.schemas.job import ExportResult, ExportSrtResult, Job, JobType
+from app.schemas.job import ExportResult, ExportSrtResult, Job, JobStatus, JobType
 
 
 async def _to_schema(session: AsyncSession, model: JobModel) -> Job:
@@ -27,6 +28,14 @@ async def _to_schema(session: AsyncSession, model: JobModel) -> Job:
         elif model.type == JobType.export_srt:
             result = ExportSrtResult(**model.result)
 
+    # Only meaningful for a currently-rendering export (contract §5) - never
+    # queried for other type/status combinations, so a transcribe job's
+    # poll never pays for a Redis round trip it can't use. Lives in Redis,
+    # not this row (A3/A5) - unavailable/absent just reads as null.
+    progress_percent: float | None = None
+    if model.type == JobType.export and model.status == JobStatus.processing:
+        progress_percent = await redis_integration.get_export_progress(str(model.id))
+
     return Job(
         id=model.id,
         project_id=model.project_id,
@@ -34,6 +43,7 @@ async def _to_schema(session: AsyncSession, model: JobModel) -> Job:
         type=model.type,
         status=model.status,
         progress=model.progress,
+        progress_percent=progress_percent,
         thumbnail_url=thumbnail_url,
         created_at=model.created_at,
         updated_at=model.updated_at,

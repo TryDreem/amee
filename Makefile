@@ -13,7 +13,7 @@ env:
 
 dev: ## bring up broker + db + backend + frontend on this worktree's ports
 	@test -f .env.local || scripts/wt-env.sh
-	docker compose up -d rabbitmq postgres
+	docker compose up -d rabbitmq postgres redis
 	cd backend && uvicorn app.main:app --reload --port $(API_PORT) & \
 	cd backend && celery -A app.workers.celery_app worker -Q transcribe,export -l info & \
 	cd frontend && pnpm dev --port $(WEB_PORT)

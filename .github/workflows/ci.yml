@@ -34,9 +34,22 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=5
+      # test_redis_integration.py / test_jobs_endpoint.py's progress_percent
+      # cases need a real round trip, not just the graceful-degradation path
+      # (A3 already covers "Redis absent" separately, on purpose).
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
     env:
       AMEE_DB_URL: postgresql://amee:amee@localhost:5432/amee
       CELERY_BROKER_URL: amqp://guest:guest@localhost:5672//
+      AMEE_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -78,6 +78,7 @@ POSTGRES_PORT=$((BASE + 5))
 
 CELERY_BROKER_URL=amqp://guest:guest@localhost:$((BASE + 2))//
 AMEE_DB_URL=postgresql://amee:amee@localhost:$((BASE + 5))/amee
+AMEE_REDIS_URL=redis://localhost:$((BASE + 4))/0
 AMEE_STORAGE_DIR=./.data/storage
 
 VITE_API_BASE=http://localhost:$BASE/api/v1

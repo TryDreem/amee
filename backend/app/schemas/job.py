@@ -57,6 +57,7 @@ class Job(BaseModel):
     type: JobType
     status: JobStatus
     progress: JobProgress | None
+    progress_percent: float | None
     thumbnail_url: str | None
     created_at: datetime
     updated_at: datetime

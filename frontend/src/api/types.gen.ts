@@ -372,6 +372,8 @@ export interface components {
             type: components["schemas"]["JobType"];
             status: components["schemas"]["JobStatus"];
             progress: components["schemas"]["JobProgress"] | null;
+            /** Progress Percent */
+            progress_percent: number | null;
             /** Thumbnail Url */
             thumbnail_url: string | null;
             /**

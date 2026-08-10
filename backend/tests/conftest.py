@@ -35,6 +35,16 @@ os.environ["AMEE_DB_URL"] = _test_db_url
 # orphaned project directories over the life of this repo.
 os.environ["AMEE_STORAGE_DIR"] = tempfile.mkdtemp(prefix="amee-test-storage-")
 
+# Same isolation concern, for Redis - a different DB index (not a different
+# server) so a test run's progress-key writes/deletes never collide with
+# whatever a locally-running dev Celery worker is reading/writing via
+# .env.local's own AMEE_REDIS_URL. Optional: app.integrations.redis
+# degrades to a no-op everywhere (A3), so a test environment that never set
+# this at all is exercising that exact path, not broken.
+if "AMEE_REDIS_URL" in os.environ:
+    _redis_url_parts = urlsplit(os.environ["AMEE_REDIS_URL"])
+    os.environ["AMEE_REDIS_URL"] = urlunsplit(_redis_url_parts._replace(path="/15"))
+
 
 def _create_test_database_if_missing() -> None:
     async def _create() -> None:

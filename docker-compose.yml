@@ -32,7 +32,6 @@ services:
   # NEVER a source of truth for anything (api-contract §14).
   redis:
     image: redis:7-alpine
-    profiles: ["redis"]
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
