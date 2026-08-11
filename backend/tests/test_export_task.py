@@ -9,7 +9,7 @@ import pytest
 from app.db import async_session_factory
 from app.integrations import redis as redis_integration
 from app.integrations import storage
-from app.integrations.ffmpeg import probe_video
+from app.integrations.ffmpeg import FfmpegError, probe_video
 from app.integrations.whisperx import TranscribedWord
 from app.models.job import JobModel
 from app.repositories import job as job_repo
@@ -133,9 +133,12 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
         *,
         on_progress: object = None,
         total_duration_seconds: float | None = None,
+        on_pid: object = None,
     ) -> None:
         assert on_progress is not None
         assert total_duration_seconds is not None
+        assert on_pid is not None
+        await on_pid(4242)  # type: ignore[operator]
         for percent in (10.0, 55.0, 100.0):
             await on_progress(percent)  # type: ignore[operator]
         dest.write_bytes(b"fake video bytes")
@@ -160,3 +163,77 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
     finished = asyncio.run(_get_job(job_id))
     assert finished.status == JobStatus.done
     assert asyncio.run(redis_integration.get_export_progress(str(job_id))) is None
+
+
+def test_export_task_marks_cancelled_when_queued_job_was_cancelled_before_starting(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """contract §5: a job cancelled while still `queued` (no ffmpeg pid to
+    kill yet) is caught by _do_export's own early check - burn_in_captions
+    must never even be called."""
+    job_id = asyncio.run(_create_export_job(sample_video))
+    asyncio.run(redis_integration.request_export_cancel(str(job_id)))
+
+    with patch("app.workers.tasks.burn_in_captions") as mock_burn_in:
+        export_task.delay(str(job_id))
+        mock_burn_in.assert_not_called()
+
+    finished = asyncio.run(_get_job(job_id))
+    assert finished.status == JobStatus.cancelled
+    assert finished.error is None
+    assert asyncio.run(redis_integration.is_export_cancel_requested(str(job_id))) is (
+        False
+    )
+
+
+def test_export_task_marks_cancelled_and_deletes_partial_file_when_killed(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """Simulates what a real `POST .../cancel` does concurrently: the
+    process dies (FfmpegError, same shape as any ffmpeg crash) and the
+    cancel flag is set. X7: the partial file burn_in_captions had already
+    started writing must not survive."""
+    job_id = asyncio.run(_create_export_job(sample_video))
+
+    async def _killed_mid_render(
+        video_path: Path, ass_path: Path, dest: Path, **kwargs: object
+    ) -> None:
+        dest.write_bytes(b"partial, truncated video bytes")
+        await redis_integration.request_export_cancel(str(job_id))
+        raise FfmpegError("Conversion failed! (killed by signal 15)")
+
+    project_id = asyncio.run(_get_job(job_id)).project_id
+    video_dest, _ = storage.video_export_paths(project_id, job_id)
+
+    with patch("app.workers.tasks.burn_in_captions", _killed_mid_render):
+        export_task.delay(str(job_id))
+
+    finished = asyncio.run(_get_job(job_id))
+    assert finished.status == JobStatus.cancelled
+    assert finished.error is None
+    assert not video_dest.exists()
+
+
+def test_export_task_deletes_partial_file_on_genuine_failure_too(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """X7's cleanup isn't cancel-specific - a real, uncancelled ffmpeg crash
+    must not leave a partial file behind either."""
+    job_id = asyncio.run(_create_export_job(sample_video))
+
+    async def _crashes_mid_render(
+        video_path: Path, ass_path: Path, dest: Path, **kwargs: object
+    ) -> None:
+        dest.write_bytes(b"partial, truncated video bytes")
+        raise FfmpegError("Error while filtering: Generic error")
+
+    project_id = asyncio.run(_get_job(job_id)).project_id
+    video_dest, _ = storage.video_export_paths(project_id, job_id)
+
+    with patch("app.workers.tasks.burn_in_captions", _crashes_mid_render):
+        export_task.delay(str(job_id))
+
+    finished = asyncio.run(_get_job(job_id))
+    assert finished.status == JobStatus.failed
+    assert "Generic error" in (finished.error or "")
+    assert not video_dest.exists()

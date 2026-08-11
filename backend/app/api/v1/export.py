@@ -47,3 +47,29 @@ async def export_project_srt(
     if job is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return job
+
+
+@router.post(
+    "/{project_id}/jobs/{job_id}/cancel",
+    response_model=Job,
+    status_code=202,
+    responses={
+        404: {"description": "Project or job not found"},
+        409: {"description": ("Job isn't type export, or isn't queued/processing")},
+    },
+)
+async def cancel_export(
+    project_id: uuid.UUID,
+    job_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> Job:
+    try:
+        job = await export_service.cancel_export(session, project_id, job_id)
+    except export_service.ExportNotCancellable as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Job isn't type export, or isn't queued/processing",
+        ) from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="Project or job not found")
+    return job

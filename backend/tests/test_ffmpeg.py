@@ -1,8 +1,13 @@
+import asyncio
+import os
+import signal
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from app.integrations.ffmpeg import (
+    FfmpegError,
     FfprobeError,
     _is_hdr,
     _rotation_degrees,
@@ -163,3 +168,57 @@ async def test_burn_in_captions_without_on_progress_still_works(
     await burn_in_captions(sample_video, ass_path, dest)
 
     assert dest.exists() and dest.stat().st_size > 0
+
+
+async def test_killing_the_process_group_actually_stops_ffmpeg(tmp_path: Path) -> None:
+    """P8, end to end against a real process: `start_new_session=True` puts
+    ffmpeg in its own process group, and `os.killpg` on the reported pid
+    must both (a) make `burn_in_captions` raise (a killed process is a
+    failed one, from this function's point of view) and (b) actually
+    terminate the OS process, not just orphan it to keep rendering
+    unsupervised. Uses a large-enough source that the encode has a real
+    window to be killed mid-render, not a fixture so trivial it finishes
+    before the signal arrives."""
+    slow_source = tmp_path / "slow.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=8:size=1920x1080:rate=30",
+            "-pix_fmt",
+            "yuv420p",
+            str(slow_source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    ass_path = tmp_path / "captions.ass"
+    ass_path.write_text(_TRIVIAL_ASS)
+    dest = tmp_path / "burned.mp4"
+
+    pid_holder: dict[str, int] = {}
+    pid_reported = asyncio.Event()
+
+    async def _capture_pid(pid: int) -> None:
+        pid_holder["pid"] = pid
+        pid_reported.set()
+
+    render_task = asyncio.create_task(
+        burn_in_captions(slow_source, ass_path, dest, on_pid=_capture_pid)
+    )
+
+    await asyncio.wait_for(pid_reported.wait(), timeout=5.0)
+    pid = pid_holder["pid"]
+    os.killpg(pid, signal.SIGTERM)
+
+    with pytest.raises(FfmpegError):
+        await asyncio.wait_for(render_task, timeout=5.0)
+
+    # The process must be genuinely dead, not orphaned and still rendering
+    # unsupervised - give the OS a brief moment to finish reaping it.
+    await asyncio.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)

@@ -101,6 +101,7 @@ async def _run_ffmpeg(
     *args: str,
     on_progress: Callable[[float], Awaitable[None]] | None = None,
     total_duration_seconds: float | None = None,
+    on_pid: Callable[[int], Awaitable[None]] | None = None,
 ) -> None:
     """When `on_progress` is given (alongside the video's known total
     duration), reads ffmpeg's own `-progress pipe:1` machine-readable output
@@ -110,7 +111,15 @@ async def _run_ffmpeg(
     of the thing that hasn't exited yet. `on_progress` has no idea this is
     ffmpeg, Celery, or Redis - it's just "here's a percent" - so this stays
     a pure ffmpeg wrapper with no knowledge of how the percent gets used or
-    persisted (that's `app/workers/tasks.py`'s job)."""
+    persisted (that's `app/workers/tasks.py`'s job). `on_pid`, if given,
+    fires once with the OS pid right after spawn - same "no idea what this
+    is for" boundary, used by the export-cancel path (P8) to know what to
+    signal later.
+
+    `start_new_session=True` always, not just when `on_pid` is given: puts
+    ffmpeg in its own process group regardless of caller, so a future signal
+    sent to that group (`os.killpg`) only ever reaches this one process
+    tree - never the Celery worker process that spawned it."""
     ffmpeg_args = list(args)
     if on_progress is not None:
         # -nostats: without it, ffmpeg's normal human-readable status line
@@ -125,7 +134,11 @@ async def _run_ffmpeg(
         *ffmpeg_args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
+    if on_pid is not None:
+        await on_pid(proc.pid)
+
     assert proc.stdout is not None and proc.stderr is not None  # PIPE above
 
     stderr_task = asyncio.create_task(proc.stderr.read())
@@ -216,6 +229,7 @@ async def burn_in_captions(
     *,
     on_progress: Callable[[float], Awaitable[None]] | None = None,
     total_duration_seconds: float | None = None,
+    on_pid: Callable[[int], Awaitable[None]] | None = None,
 ) -> None:
     """Burns Step 10's `.ass` (the libass intermediate, INVARIANTS X3) into
     the video via ffmpeg's `ass` filter (arch §2.5, contract §12's
@@ -229,7 +243,10 @@ async def burn_in_captions(
 
     `on_progress`/`total_duration_seconds` are optional and only meaningful
     together (contract §5, A5) - the burn-in is the one ffmpeg step in this
-    app long enough to matter (thumbnail/proxy don't take this param)."""
+    app long enough to matter (thumbnail/proxy don't take these params).
+    `on_pid` (P8) is independent of the other two - a cancellable export
+    still needs its pid reported even if progress reporting is unavailable
+    for some reason."""
     escaped = _escape_ffmpeg_filter_path(str(ass_path))
     await _run_ffmpeg(
         "-i",
@@ -245,4 +262,5 @@ async def burn_in_captions(
         str(dest),
         on_progress=on_progress,
         total_duration_seconds=total_duration_seconds,
+        on_pid=on_pid,
     )

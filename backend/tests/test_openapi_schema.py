@@ -6,6 +6,7 @@ EXPECTED: dict[str, set[str]] = {
     "/api/v1/projects/{project_id}/open": {"post"},
     "/api/v1/projects/{project_id}/transcribe": {"post"},
     "/api/v1/jobs/{job_id}": {"get"},
+    "/api/v1/projects/{project_id}/jobs/{job_id}/cancel": {"post"},
     "/api/v1/projects/{project_id}/raw-transcript": {"get"},
     "/api/v1/projects/{project_id}/ecs": {"get", "put"},
     "/api/v1/projects/{project_id}/style": {"get", "put"},
@@ -27,7 +28,7 @@ def test_openapi_has_exactly_the_contract_paths() -> None:
 
 
 def test_openapi_route_count_matches_contract() -> None:
-    """16 routes across the 10 resource groups in api-contract.md §3."""
+    """17 routes across the 10 resource groups in api-contract.md §3."""
     schema = app.openapi()
     route_count = sum(len(methods) for methods in schema["paths"].values())
-    assert route_count == 16
+    assert route_count == 17

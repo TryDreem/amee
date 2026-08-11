@@ -1,8 +1,11 @@
+import os
+import signal
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import DomainValidationError
+from app.integrations import redis as redis_integration
 from app.models.project import ProjectModel
 from app.repositories import ecs as ecs_repo
 from app.repositories import job as job_repo
@@ -11,7 +14,7 @@ from app.repositories import project as project_repo
 from app.repositories import style as style_repo
 from app.schemas.common import ErrorDetail
 from app.schemas.export import ExportRequestBody
-from app.schemas.job import Job, JobType
+from app.schemas.job import Job, JobStatus, JobType
 from app.schemas.preset import PresetBounds
 from app.services import jobs as job_service
 from app.services.ecs_validation import validate_segments
@@ -119,3 +122,41 @@ async def start_export_srt(
     )
     export_srt_task.delay(str(job.id), body.model_dump(mode="json"))
     return await job_service.get_job(session, job.id)
+
+
+class ExportNotCancellable(Exception):
+    """Raised when the job isn't in a state `POST .../cancel` can act on
+    (contract §5) - wrong `type`, or already `done`/`failed`/`cancelled`.
+    A 409, not a `DomainValidationError`: nothing about the *shape* of the
+    request is wrong, the *state* just doesn't allow this action right
+    now."""
+
+
+async def cancel_export(
+    session: AsyncSession, project_id: uuid.UUID, job_id: uuid.UUID
+) -> Job | None:
+    """`None` (→ 404) if the job doesn't exist or belongs to a different
+    project - job ids are globally unique, but the URL is project-scoped
+    (contract §5), so a mismatched pair reads as "not found" rather than a
+    cross-project leak. Requests the cancel (Redis flag, P8/X7) *before*
+    checking for a pid: a job still `queued` has no ffmpeg process yet, and
+    `_do_export`'s own early check (tasks.py) is what catches that case -
+    the flag has to already be set by the time it looks."""
+    job = await job_repo.get(session, job_id)
+    if job is None or job.project_id != project_id:
+        return None
+    if job.type != JobType.export or job.status not in (
+        JobStatus.queued,
+        JobStatus.processing,
+    ):
+        raise ExportNotCancellable()
+
+    await redis_integration.request_export_cancel(str(job_id))
+    pid = await redis_integration.get_export_pid(str(job_id))
+    if pid is not None:
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass  # already exited on its own between the read above and here
+
+    return await job_service.get_job(session, job_id)

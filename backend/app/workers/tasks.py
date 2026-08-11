@@ -258,17 +258,36 @@ async def _run_job(
     try:
         result = await do_work(project_id, job_id)
     except Exception as exc:
-        # Harmless no-op for _do_srt_export (never wrote a progress key to
-        # begin with) - cheap enough not to warrant a type check here, and
-        # guarantees a crashed export never leaves a stale percent behind.
+        # Harmless no-ops for _do_srt_export (never wrote any of these keys
+        # to begin with) - cheap enough not to warrant a type check here,
+        # and guarantees a crashed/cancelled export never leaves a stale
+        # percent or pid behind.
         await redis_integration.clear_export_progress(str(job_id))
+        await redis_integration.clear_export_pid(str(job_id))
+        # P8/X7: a killed-by-cancel ffmpeg process raises the exact same
+        # FfmpegError shape as one that genuinely crashed - the cancel flag
+        # (set by the cancel endpoint before it signals the process, or by
+        # _do_export's own early check if the job was still queued) is the
+        # only thing that tells the two apart. Checked here regardless of
+        # what `exc` actually is, not just for a specific exception type -
+        # if a cancel was requested, that's the more honest status either
+        # way, even in the unlikely race where ffmpeg also failed on its
+        # own at the same moment.
+        cancelled = await redis_integration.is_export_cancel_requested(str(job_id))
+        await redis_integration.clear_export_cancel_requested(str(job_id))
         async with async_session_factory() as session:
             await job_repo.update_status(
-                session, job_id, status=JobStatus.failed, progress=None, error=str(exc)
+                session,
+                job_id,
+                status=JobStatus.cancelled if cancelled else JobStatus.failed,
+                progress=None,
+                error=None if cancelled else str(exc),
             )
         return
 
     await redis_integration.clear_export_progress(str(job_id))
+    await redis_integration.clear_export_pid(str(job_id))
+    await redis_integration.clear_export_cancel_requested(str(job_id))
     async with async_session_factory() as session:
         await job_repo.update_status(
             session, job_id, status=JobStatus.done, progress=None, result=result
@@ -280,6 +299,16 @@ def export_task(job_id: str) -> None:
     asyncio.run(_run_job(uuid.UUID(job_id), _do_export))
 
 
+class ExportCancelled(Exception):
+    """Raised by `_do_export` itself when it notices, before doing any real
+    work, that a cancel was already requested (contract §5) - the job was
+    still `queued` (no ffmpeg pid to signal yet) when `POST .../cancel`
+    fired. A running export instead gets killed directly by pid and
+    surfaces as a plain `FfmpegError` from the now-dead process -
+    `_run_job`'s except block doesn't care which of the two this is, it
+    just checks the same Redis flag either way."""
+
+
 async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]:
     """`app/services/export.py` has already validated and persisted the
     submitted ecs/style by the time this runs (X5) - renders the one output
@@ -287,6 +316,9 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
     generation is a separate job (`_do_srt_export`) that does not persist
     anything (X6); the internal JSON bundle this used to also produce has
     been removed entirely (Step 13)."""
+    if await redis_integration.is_export_cancel_requested(str(job_id)):
+        raise ExportCancelled()
+
     async with async_session_factory() as session:
         project = await project_repo.get(session, project_id)
         if project is None:
@@ -326,16 +358,28 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
             last_reported_percent = percent
             await redis_integration.set_export_progress(str(job_id), percent)
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        ass_path = Path(tmp_dir) / "captions.ass"
-        ass_path.write_text(ass_text)
-        await burn_in_captions(
-            video_path,
-            ass_path,
-            video_dest,
-            on_progress=_report_progress,
-            total_duration_seconds=project.video_duration_seconds,
-        )
+    async def _report_pid(pid: int) -> None:
+        await redis_integration.set_export_pid(str(job_id), pid)
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ass_path = Path(tmp_dir) / "captions.ass"
+            ass_path.write_text(ass_text)
+            await burn_in_captions(
+                video_path,
+                ass_path,
+                video_dest,
+                on_progress=_report_progress,
+                total_duration_seconds=project.video_duration_seconds,
+                on_pid=_report_pid,
+            )
+    except Exception:
+        # X7: a killed (cancelled) or genuinely-failed ffmpeg run can leave
+        # a partial, invalid file at video_dest - never leave that on disk
+        # under either outcome. missing_ok=True: ffmpeg may have failed
+        # before ever opening the output file at all.
+        video_dest.unlink(missing_ok=True)
+        raise
 
     return {"video_url": video_url}
 
