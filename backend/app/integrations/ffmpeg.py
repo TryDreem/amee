@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -96,16 +97,61 @@ class FfmpegError(RuntimeError):
     pass
 
 
-async def _run_ffmpeg(*args: str) -> None:
+async def _run_ffmpeg(
+    *args: str,
+    on_progress: Callable[[float], Awaitable[None]] | None = None,
+    total_duration_seconds: float | None = None,
+) -> None:
+    """When `on_progress` is given (alongside the video's known total
+    duration), reads ffmpeg's own `-progress pipe:1` machine-readable output
+    line by line *while the process runs*, rather than the plain
+    `proc.communicate()` every other caller uses - that call only returns
+    once the process exits, which is exactly wrong for reporting progress
+    of the thing that hasn't exited yet. `on_progress` has no idea this is
+    ffmpeg, Celery, or Redis - it's just "here's a percent" - so this stays
+    a pure ffmpeg wrapper with no knowledge of how the percent gets used or
+    persisted (that's `app/workers/tasks.py`'s job)."""
+    ffmpeg_args = list(args)
+    if on_progress is not None:
+        # -nostats: without it, ffmpeg's normal human-readable status line
+        # still writes to stderr on every update, which would otherwise
+        # spam FfmpegError's error text on failure with hundreds of
+        # near-duplicate progress lines instead of the actual error.
+        ffmpeg_args = ["-progress", "pipe:1", "-nostats", *ffmpeg_args]
+
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg",
         "-y",
-        *args,
+        *ffmpeg_args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
+    assert proc.stdout is not None and proc.stderr is not None  # PIPE above
+
+    stderr_task = asyncio.create_task(proc.stderr.read())
+    if on_progress is not None and total_duration_seconds:
+        async for raw_line in proc.stdout:
+            line = raw_line.decode().strip()
+            # out_time_ms is misleadingly named - ffmpeg has reported it in
+            # *microseconds* since the flag was introduced, a long-standing
+            # naming bug kept for backwards compatibility. out_time_us is
+            # the same value under its honest name; using it sidesteps the
+            # trap entirely rather than "dividing by 1000" on the wrong unit.
+            if line.startswith("out_time_us="):
+                out_time_seconds = int(line.split("=", 1)[1]) / 1_000_000
+                percent = min(100.0, out_time_seconds / total_duration_seconds * 100)
+                await on_progress(percent)
+            elif line == "progress=end":
+                # The last frame's presentation time is often a hair short
+                # of the nominal duration (frame-rate rounding), which would
+                # otherwise leave the UI stuck just under 100%.
+                await on_progress(100.0)
+    else:
+        await proc.stdout.read()  # drain so the process can't block on a full pipe
+
+    stderr = await stderr_task
+    returncode = await proc.wait()
+    if returncode != 0:
         raise FfmpegError(stderr.decode().strip())
 
 
@@ -163,7 +209,14 @@ def _escape_ffmpeg_filter_path(path: str) -> str:
     return path.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
 
 
-async def burn_in_captions(video_path: Path, ass_path: Path, dest: Path) -> None:
+async def burn_in_captions(
+    video_path: Path,
+    ass_path: Path,
+    dest: Path,
+    *,
+    on_progress: Callable[[float], Awaitable[None]] | None = None,
+    total_duration_seconds: float | None = None,
+) -> None:
     """Burns Step 10's `.ass` (the libass intermediate, INVARIANTS X3) into
     the video via ffmpeg's `ass` filter (arch §2.5, contract §12's
     `video_url` output). Always runs against the **original** upload, never
@@ -172,7 +225,11 @@ async def burn_in_captions(video_path: Path, ass_path: Path, dest: Path) -> None
     never the downscaled proxy).
 
     CRF 18, not proxy's CRF 23: this is the deliverable, not an editor
-    convenience copy — a flagged choice, not pinned by any doc."""
+    convenience copy — a flagged choice, not pinned by any doc.
+
+    `on_progress`/`total_duration_seconds` are optional and only meaningful
+    together (contract §5, A5) - the burn-in is the one ffmpeg step in this
+    app long enough to matter (thumbnail/proxy don't take this param)."""
     escaped = _escape_ffmpeg_filter_path(str(ass_path))
     await _run_ffmpeg(
         "-i",
@@ -186,4 +243,6 @@ async def burn_in_captions(video_path: Path, ass_path: Path, dest: Path) -> None
         "-c:a",
         "copy",
         str(dest),
+        on_progress=on_progress,
+        total_duration_seconds=total_duration_seconds,
     )

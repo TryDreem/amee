@@ -1,4 +1,6 @@
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from redis import asyncio as redis
 
@@ -16,23 +18,29 @@ _PROGRESS_KEY = "job:{job_id}:progress_percent"
 # captions).
 _KEY_TTL_SECONDS = 4 * 60 * 60
 
-_client: redis.Redis | None = None
 
+@asynccontextmanager
+async def _client() -> AsyncIterator[redis.Redis]:
+    """A fresh client per call, not a cached module-level singleton - same
+    reasoning as `app/db.py`'s `NullPool` on the Postgres engine: a pooled
+    async connection is bound to the event loop it was opened on, and
+    Celery tasks in this codebase each get a fresh loop via `asyncio.run()`
+    (arch §2.2). A singleton created under task A's loop raises "attached
+    to a different loop" the moment task B's loop tries to reuse it - this
+    bit during manual testing of this exact module. Closing on exit (`async
+    with`) releases the connection instead of leaking one per call.
 
-def _get_client() -> redis.Redis:
-    """Lazy singleton, not a module-level connection at import time: tests
-    and any process that imports this module but never touches Redis (most
-    of the API layer) shouldn't pay for a connection pool they don't use.
     Unlike `app/db.py`'s `AMEE_DB_URL` (which fails loud on a missing env
     var, because Postgres is the source of truth), a missing
     `AMEE_REDIS_URL` is treated as just another way Redis can be
     unavailable (A3) - every caller below already catches this alongside
     `RedisError`, so "never configured" degrades the same as "configured
     but down", never a crash."""
-    global _client
-    if _client is None:
-        _client = redis.from_url(os.environ["AMEE_REDIS_URL"], decode_responses=True)
-    return _client
+    client = redis.from_url(os.environ["AMEE_REDIS_URL"], decode_responses=True)
+    try:
+        yield client
+    finally:
+        await client.aclose()
 
 
 async def set_export_progress(job_id: str, percent: float) -> None:
@@ -40,9 +48,10 @@ async def set_export_progress(job_id: str, percent: float) -> None:
     here fail the export itself - the burn-in continues either way, just
     without a live progress readout."""
     try:
-        await _get_client().set(
-            _PROGRESS_KEY.format(job_id=job_id), percent, ex=_KEY_TTL_SECONDS
-        )
+        async with _client() as client:
+            await client.set(
+                _PROGRESS_KEY.format(job_id=job_id), percent, ex=_KEY_TTL_SECONDS
+            )
     except (KeyError, redis.RedisError):
         pass
 
@@ -55,7 +64,8 @@ async def get_export_progress(job_id: str) -> float | None:
     means a client can never treat "no value" as meaningfully different
     from "Redis is down"."""
     try:
-        raw = await _get_client().get(_PROGRESS_KEY.format(job_id=job_id))
+        async with _client() as client:
+            raw = await client.get(_PROGRESS_KEY.format(job_id=job_id))
     except (KeyError, redis.RedisError):
         return None
     return float(raw) if raw is not None else None
@@ -67,6 +77,7 @@ async def clear_export_progress(job_id: str) -> None:
     fast-finishing export doesn't leave a stale 100%-minus-epsilon value
     sitting around for up to _KEY_TTL_SECONDS."""
     try:
-        await _get_client().delete(_PROGRESS_KEY.format(job_id=job_id))
+        async with _client() as client:
+            await client.delete(_PROGRESS_KEY.format(job_id=job_id))
     except (KeyError, redis.RedisError):
         pass

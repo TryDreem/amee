@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.db import async_session_factory
+from app.integrations import redis as redis_integration
 from app.integrations import storage
 from app.integrations.ffmpeg import (
     VideoProbe,
@@ -37,6 +38,11 @@ logger = logging.getLogger(__name__)
 # Above 1080p, the source is downscaled for the editor's preview player
 # (arch §2.8d) — the standard "proxy editing" pattern.
 _PROXY_HEIGHT_THRESHOLD = 1080
+
+# ffmpeg's -progress fires far more often than a percent-based UI needs, or
+# than Redis should be written to (A5) - only persist on at least this much
+# movement, plus always the final 100 (handled separately in ffmpeg.py).
+_PROGRESS_WRITE_THRESHOLD_PERCENT = 1.0
 
 
 @celery_app.task(queue="transcribe")
@@ -252,12 +258,17 @@ async def _run_job(
     try:
         result = await do_work(project_id, job_id)
     except Exception as exc:
+        # Harmless no-op for _do_srt_export (never wrote a progress key to
+        # begin with) - cheap enough not to warrant a type check here, and
+        # guarantees a crashed export never leaves a stale percent behind.
+        await redis_integration.clear_export_progress(str(job_id))
         async with async_session_factory() as session:
             await job_repo.update_status(
                 session, job_id, status=JobStatus.failed, progress=None, error=str(exc)
             )
         return
 
+    await redis_integration.clear_export_progress(str(job_id))
     async with async_session_factory() as session:
         await job_repo.update_status(
             session, job_id, status=JobStatus.done, progress=None, result=result
@@ -300,10 +311,31 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
         ecs, style, preset, project.video_width, project.video_height
     )
 
+    last_reported_percent = -1.0
+
+    async def _report_progress(percent: float) -> None:
+        # Throttled (see _PROGRESS_WRITE_THRESHOLD_PERCENT) - closes over
+        # last_reported_percent rather than a module-level/class variable
+        # since this is scoped to one export's own progress, not shared
+        # across concurrent exports in the same worker process.
+        nonlocal last_reported_percent
+        if (
+            percent - last_reported_percent >= _PROGRESS_WRITE_THRESHOLD_PERCENT
+            or percent >= 100.0
+        ):
+            last_reported_percent = percent
+            await redis_integration.set_export_progress(str(job_id), percent)
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         ass_path = Path(tmp_dir) / "captions.ass"
         ass_path.write_text(ass_text)
-        await burn_in_captions(video_path, ass_path, video_dest)
+        await burn_in_captions(
+            video_path,
+            ass_path,
+            video_dest,
+            on_progress=_report_progress,
+            total_duration_seconds=project.video_duration_seconds,
+        )
 
     return {"video_url": video_url}
 

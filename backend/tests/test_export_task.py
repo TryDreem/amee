@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from app.db import async_session_factory
+from app.integrations import redis as redis_integration
 from app.integrations import storage
 from app.integrations.ffmpeg import probe_video
 from app.integrations.whisperx import TranscribedWord
@@ -114,3 +115,48 @@ def test_export_task_marks_job_failed_when_setup_fails(
     finished = asyncio.run(_get_job(job_id))
     assert finished.status == JobStatus.failed
     assert finished.error == "bad storage url"
+
+
+def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """contract §5/A5: _do_export wires burn_in_captions's on_progress
+    callback through to Redis (throttled - see
+    _PROGRESS_WRITE_THRESHOLD_PERCENT), and the key is gone once the job
+    reaches done, not left to expire on its TTL."""
+    job_id = asyncio.run(_create_export_job(sample_video))
+
+    async def _fake_burn_in_captions(
+        video_path: Path,
+        ass_path: Path,
+        dest: Path,
+        *,
+        on_progress: object = None,
+        total_duration_seconds: float | None = None,
+    ) -> None:
+        assert on_progress is not None
+        assert total_duration_seconds is not None
+        for percent in (10.0, 55.0, 100.0):
+            await on_progress(percent)  # type: ignore[operator]
+        dest.write_bytes(b"fake video bytes")
+
+    reported: list[float] = []
+    original_set = redis_integration.set_export_progress
+
+    async def _recording_set(job_id_str: str, percent: float) -> None:
+        reported.append(percent)
+        await original_set(job_id_str, percent)
+
+    with (
+        patch("app.workers.tasks.burn_in_captions", _fake_burn_in_captions),
+        patch(
+            "app.workers.tasks.redis_integration.set_export_progress",
+            _recording_set,
+        ),
+    ):
+        export_task.delay(str(job_id))
+
+    assert reported == [10.0, 55.0, 100.0]
+    finished = asyncio.run(_get_job(job_id))
+    assert finished.status == JobStatus.done
+    assert asyncio.run(redis_integration.get_export_progress(str(job_id))) is None

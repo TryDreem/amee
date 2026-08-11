@@ -44,9 +44,7 @@ async def test_degrades_silently_when_redis_is_unavailable(
     """A3/A5: whether Redis was never configured or is simply unreachable,
     every call here must degrade to "no value" - never raise - since none of
     this is a source of truth the app can't function without."""
-    redis_integration._client = None
     with patch.dict(os.environ, env, clear=True):
         await redis_integration.set_export_progress("job-e", 5.0)  # must not raise
         assert await redis_integration.get_export_progress("job-e") is None
         await redis_integration.clear_export_progress("job-e")  # must not raise
-    redis_integration._client = None  # don't leak the broken client to later tests

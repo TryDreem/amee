@@ -118,3 +118,48 @@ async def test_burn_in_captions_produces_a_video_with_matching_duration(
     assert dest.exists()
     probe = await probe_video(dest)
     assert probe.duration_seconds == pytest.approx(1.0, abs=0.2)
+
+
+async def test_burn_in_captions_reports_progress_up_to_100(
+    sample_video: Path, tmp_path: Path
+) -> None:
+    """Real ffmpeg -progress output, not a fake/estimated animation
+    (contract §5) - reads out_time_us against the video's own known
+    duration. The final callback is always exactly 100.0 (ffmpeg.py handles
+    the "last frame is a hair short of nominal duration" rounding case on
+    `progress=end`), not just close to it."""
+    ass_path = tmp_path / "captions.ass"
+    ass_path.write_text(_TRIVIAL_ASS)
+    dest = tmp_path / "burned.mp4"
+    percents: list[float] = []
+
+    async def _record(percent: float) -> None:
+        percents.append(percent)
+
+    await burn_in_captions(
+        sample_video,
+        ass_path,
+        dest,
+        on_progress=_record,
+        total_duration_seconds=1.0,
+    )
+
+    assert percents  # at least one tick was reported
+    assert all(0.0 <= p <= 100.0 for p in percents)
+    assert percents[-1] == 100.0
+    assert percents == sorted(percents)  # monotonically non-decreasing
+
+
+async def test_burn_in_captions_without_on_progress_still_works(
+    sample_video: Path, tmp_path: Path
+) -> None:
+    """The -progress pipe:1/-nostats args are only added when on_progress is
+    given - every other caller (and every export before this step) must be
+    unaffected."""
+    ass_path = tmp_path / "captions.ass"
+    ass_path.write_text(_TRIVIAL_ASS)
+    dest = tmp_path / "burned.mp4"
+
+    await burn_in_captions(sample_video, ass_path, dest)
+
+    assert dest.exists() and dest.stat().st_size > 0
