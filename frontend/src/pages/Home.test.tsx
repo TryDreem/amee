@@ -3,18 +3,21 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
+import { ExportProvider } from "../contexts/ExportContext";
 import { projectFixture, transcribeJobFixture } from "../mocks/fixtures";
 import { server } from "../mocks/server";
 import Home from "./Home";
 
 function renderHome(initialEntries?: { pathname: string; state?: unknown }[]) {
   return render(
-    <MemoryRouter initialEntries={initialEntries}>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/projects/:id" element={<div>Editor placeholder</div>} />
-      </Routes>
-    </MemoryRouter>
+    <ExportProvider>
+      <MemoryRouter initialEntries={initialEntries}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/projects/:id" element={<div>Editor placeholder</div>} />
+        </Routes>
+      </MemoryRouter>
+    </ExportProvider>
   );
 }
 

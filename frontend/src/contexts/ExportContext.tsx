@@ -7,6 +7,7 @@ import {
   exportSrtUrl,
   exportVideoUrl,
   getJob,
+  isTerminalJobStatus,
   type ExportPayload,
   type Job,
 } from "../api/client";
@@ -100,7 +101,7 @@ export function ExportProvider({ children }: { children: ReactNode }): JSX.Eleme
     const timer = setInterval(() => {
       const pending = recordsRef.current.filter((r) => {
         const job = jobsRef.current[r.id];
-        return !job || (job.status !== "done" && job.status !== "failed");
+        return !job || !isTerminalJobStatus(job.status);
       });
       for (const rec of pending) {
         void getJob(rec.id)

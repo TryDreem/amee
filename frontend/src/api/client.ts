@@ -1,6 +1,8 @@
 import type { components } from "./types.gen";
 
 export type Project = components["schemas"]["Project"];
+export type ProjectPage = components["schemas"]["ProjectPage"];
+export type ProjectSort = components["schemas"]["ProjectSort"];
 export type Job = components["schemas"]["Job"];
 export type RawTranscript = components["schemas"]["RawTranscript"];
 export type ECS = components["schemas"]["ECS"];
@@ -44,6 +46,11 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const body: unknown = await response.json().catch(() => undefined);
     throw new ApiError(response.status, body);
   }
+  // 204 (DELETE /projects/{id}, POST /projects/{id}/open) has no body -- .json() would throw
+  // on the empty string.
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return (await response.json()) as T;
 }
 
@@ -58,8 +65,23 @@ export function resolveMediaUrl(path: string): string {
   return `${origin}${path}`;
 }
 
-export async function listProjects(): Promise<Project[]> {
-  return apiFetch<Project[]>("/projects");
+export interface ListProjectsParams {
+  limit?: number;
+  offset?: number;
+  q?: string;
+  sort?: ProjectSort;
+}
+
+// contract §4: limit defaults to 8, clamped server-side to 1..50 -- never rejected, so this
+// never validates the value itself, just omits params the caller didn't set.
+export async function listProjects(params: ListProjectsParams = {}): Promise<ProjectPage> {
+  const query = new URLSearchParams();
+  if (params.limit != null) query.set("limit", String(params.limit));
+  if (params.offset != null) query.set("offset", String(params.offset));
+  if (params.q) query.set("q", params.q);
+  if (params.sort) query.set("sort", params.sort);
+  const qs = query.toString();
+  return apiFetch<ProjectPage>(`/projects${qs ? `?${qs}` : ""}`);
 }
 
 // `language` is the caller's job to omit for "auto-detect" — this function never invents a
@@ -83,6 +105,21 @@ export async function createProject(
 
 export async function getProject(projectId: string): Promise<Project> {
   return apiFetch<Project>(`/projects/${projectId}`);
+}
+
+// Hard delete, no trash/recovery (contract §4, X8). 404 if the project doesn't exist. 409 if a
+// transcribe job is still queued/processing -- unlike export, transcribe has no OS process the
+// backend can signal to cancel (WhisperX runs in-process), so delete refuses outright rather
+// than a partial/soft cancel; the caller surfaces this distinctly, not as a generic failure.
+// A queued/processing export, by contrast, is auto-cancelled server-side before delete proceeds.
+export async function deleteProject(projectId: string): Promise<void> {
+  await apiFetch<undefined>(`/projects/${projectId}`, { method: "DELETE" });
+}
+
+// No body; updates Project.last_opened_at server-side (contract §4). Fire-and-forget from the
+// caller's perspective -- nothing in the response to act on.
+export async function openProject(projectId: string): Promise<void> {
+  await apiFetch<undefined>(`/projects/${projectId}/open`, { method: "POST" });
 }
 
 // A 409 means a transcribe job already exists for this project (queued/processing/done) —
@@ -182,6 +219,17 @@ export function exportVideoUrl(job: Job): string | null {
 
 export function exportSrtUrl(job: Job): string | null {
   return job.result && "srt_url" in job.result ? job.result.srt_url : null;
+}
+
+export type TerminalJobStatus = "done" | "failed" | "cancelled";
+
+// `Job.status` has three terminal values (contract §5): "done"/"failed", and now "cancelled" too.
+// One shared check so every poller/effect that asks "is this job still moving" agrees -- a status
+// this list misses would poll forever. A type predicate, not a plain boolean, so call sites that
+// use this as a guard get `status` narrowed to the three terminal values for free -- e.g. handing
+// it straight to a component whose prop type is exactly `TerminalJobStatus`.
+export function isTerminalJobStatus(status: Job["status"]): status is TerminalJobStatus {
+  return status === "done" || status === "failed" || status === "cancelled";
 }
 
 // preset.base merged with the sparse CaptionStyleSpec.overrides — override wins per-field

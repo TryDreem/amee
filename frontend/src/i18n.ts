@@ -15,6 +15,15 @@ export interface Strings {
   emptyText: string;
   projectWord: (n: number) => string;
   thumbLabel: string;
+  searchPlaceholder: string;
+  sortByLabel: string;
+  sortLabels: Record<"newest" | "oldest" | "updated" | "az" | "za" | "opened", string>;
+  pageOf: (page: number, totalPages: number) => string;
+  shownOf: (shown: number, total: number) => string;
+  deleteTitle: string;
+  confirmDeleteTitle: string;
+  deleteFailedActiveJob: string;
+  exportedBadgeLabel: string;
 
   backToProjects: string;
   openInEditor: string;
@@ -67,9 +76,10 @@ export interface Strings {
   exporting: string;
   exportFailed: string;
   notAvailableYet: string;
-  downloadReady: string;
+  downloadLastExport: string;
   projectSaved: string;
   exportDone: string;
+  exportCancelled: string;
   exportCancel: string;
   exportCancelHint: string;
   returnToMenu: string;
@@ -77,6 +87,7 @@ export interface Strings {
   returnToEditor: string;
   exportOpen: string;
   exportDownload: string;
+  exportsInProgress: (n: number) => string;
 
   captionsStyleLabel: string;
   captionsLabel: string;
@@ -138,6 +149,22 @@ export const STR: Record<Lang, Strings> = {
       "Загрузите видео — мы автоматически сгенерируем субтитры, а вы сможете оформить их по своему вкусу",
     projectWord: (n) => (n === 1 ? "проект" : "проекта"),
     thumbLabel: "кадр видео",
+    searchPlaceholder: "Поиск...",
+    sortByLabel: "Сортировка",
+    sortLabels: {
+      newest: "Новые",
+      oldest: "Старые",
+      updated: "По обновлению",
+      az: "А-Я",
+      za: "Я-А",
+      opened: "Недавно открытые",
+    },
+    pageOf: (p, t) => `Страница ${p} из ${t}`,
+    shownOf: (n, total) => `Показано ${n} из ${total}`,
+    deleteTitle: "Удалить проект",
+    confirmDeleteTitle: "Удалить проект?",
+    deleteFailedActiveJob: "Нельзя удалить — идёт распознавание речи. Дождитесь завершения.",
+    exportedBadgeLabel: "Экспортировано",
 
     backToProjects: "К проектам",
     openInEditor: "Открыть в редакторе",
@@ -190,9 +217,10 @@ export const STR: Record<Lang, Strings> = {
     exporting: "Экспортируем…",
     exportFailed: "Не удалось экспортировать",
     notAvailableYet: "Пока недоступно",
-    downloadReady: "Скачать файл",
+    downloadLastExport: "Скачать последний экспорт",
     projectSaved: "Проект сохранён",
     exportDone: "Экспорт завершён",
+    exportCancelled: "Экспорт отменён",
     exportCancel: "Отмена",
     exportCancelHint: "Видео всё равно дорендерится на сервере — просто перестаём показывать прогресс",
     returnToMenu: "Вернуться в главное меню",
@@ -200,6 +228,7 @@ export const STR: Record<Lang, Strings> = {
     returnToEditor: "Вернуться в редактор",
     exportOpen: "Открыть",
     exportDownload: "Скачать",
+    exportsInProgress: (n) => `${n} ${n === 1 ? "экспорт" : "экспорта"} в процессе`,
 
     captionsStyleLabel: "Стиль субтитров",
     captionsLabel: "Субтитры",
@@ -258,6 +287,22 @@ export const STR: Record<Lang, Strings> = {
     emptyText: "Upload a video — we'll auto-generate subtitles you can then style to your taste",
     projectWord: (n) => (n === 1 ? "project" : "projects"),
     thumbLabel: "video frame",
+    searchPlaceholder: "Search...",
+    sortByLabel: "Sort by",
+    sortLabels: {
+      newest: "Newest",
+      oldest: "Oldest",
+      updated: "Last updated",
+      az: "A-Z",
+      za: "Z-A",
+      opened: "Recently opened",
+    },
+    pageOf: (p, t) => `Page ${p} of ${t}`,
+    shownOf: (n, total) => `Showing ${n} of ${total}`,
+    deleteTitle: "Delete project",
+    confirmDeleteTitle: "Delete project?",
+    deleteFailedActiveJob: "Can't delete — transcription is still running. Wait for it to finish.",
+    exportedBadgeLabel: "Exported",
 
     backToProjects: "Back to projects",
     openInEditor: "Open in editor",
@@ -310,9 +355,10 @@ export const STR: Record<Lang, Strings> = {
     exporting: "Exporting…",
     exportFailed: "Export failed",
     notAvailableYet: "Not available yet",
-    downloadReady: "Download file",
+    downloadLastExport: "Download last export",
     projectSaved: "Project saved",
     exportDone: "Export complete",
+    exportCancelled: "Export cancelled",
     exportCancel: "Cancel",
     exportCancelHint: "The video still finishes rendering on the server — this just stops showing progress",
     returnToMenu: "Return to main menu",
@@ -320,6 +366,7 @@ export const STR: Record<Lang, Strings> = {
     returnToEditor: "Return to editor",
     exportOpen: "Open",
     exportDownload: "Download",
+    exportsInProgress: (n) => `${n} export${n === 1 ? "" : "s"} in progress`,
 
     captionsStyleLabel: "Captions Style",
     captionsLabel: "Captions",

@@ -35,8 +35,14 @@ export const projectFixture: Project = {
   video_height: 1920,
   video_duration_seconds: 12.5,
   created_at: "2026-07-08T10:00:00Z",
+  updated_at: "2026-07-08T10:03:00Z",
+  last_opened_at: "2026-07-08T10:04:00Z",
   latest_transcribe_job_id: TRANSCRIBE_JOB_ID,
   export_job_ids: [EXPORT_JOB_ID],
+  // Mirrors exportJobFixture below (contract §4) -- same job id/url, kept as a literal here
+  // since exportJobFixture is declared after this fixture.
+  latest_export_job_id: EXPORT_JOB_ID,
+  latest_export_url: "/files/projects/9f2b7e10/exports/1e6a1c1e/output.mp4",
 };
 
 export const transcribeJobFixture: Job = {
@@ -47,6 +53,9 @@ export const transcribeJobFixture: Job = {
   status: "done",
   // progress is only meaningful mid-processing (contract §5) — null once done.
   progress: null,
+  // progress_percent is export-only, meaningful only while its ffmpeg step actually runs
+  // (contract §5) — null here regardless (this is a transcribe job, and it's done).
+  progress_percent: null,
   // Mirrors projectFixture.thumbnail_url once the probe/thumbnail branch
   // finishes, which it has here (status: done).
   thumbnail_url: "/files/projects/9f2b7e10/thumbnail.jpg",
@@ -63,6 +72,8 @@ export const exportJobFixture: Job = {
   type: "export",
   status: "done",
   progress: null,
+  // Meaningful only while the ffmpeg step is actually running (contract §5) -- null once done.
+  progress_percent: null,
   // Always null for type: export (contract §5) - thumbnail_url only ever
   // mirrors the transcribe job's probe/thumbnail branch.
   thumbnail_url: null,
@@ -83,6 +94,7 @@ export const exportSrtJobFixture: Job = {
   type: "export_srt",
   status: "done",
   progress: null,
+  progress_percent: null,
   thumbnail_url: null,
   created_at: "2026-07-08T10:00:00Z",
   updated_at: "2026-07-08T10:00:03Z",

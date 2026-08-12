@@ -17,20 +17,93 @@ import { server } from "../mocks/server";
 import {
   ApiError,
   createProject,
+  deleteProject,
   exportProject,
   exportProjectSrt,
   exportSrtUrl,
   exportVideoUrl,
+  isTerminalJobStatus,
   listProjects,
+  openProject,
   putEcs,
   resolveStyleLayers,
   type ExportPayload,
 } from "./client";
 
 describe("api client", () => {
-  it("listProjects parses the fixture project list", async () => {
-    const projects = await listProjects();
-    expect(projects).toEqual([projectFixture]);
+  it("listProjects parses the fixture project page ({items, total}, contract §4)", async () => {
+    const page = await listProjects();
+    expect(page).toEqual({ items: [projectFixture], total: 1 });
+  });
+
+  it("listProjects sends limit/offset/q/sort as query params", async () => {
+    const receivedUrls: URL[] = [];
+    server.use(
+      http.get("*/api/v1/projects", ({ request }) => {
+        receivedUrls.push(new URL(request.url));
+        return HttpResponse.json({ items: [projectFixture], total: 1 });
+      })
+    );
+    await listProjects({ limit: 8, offset: 16, q: "demo", sort: "updated" });
+    const [receivedUrl] = receivedUrls;
+    if (!receivedUrl) {
+      throw new Error("mock handler was never called");
+    }
+    const params = receivedUrl.searchParams;
+    expect(params.get("limit")).toBe("8");
+    expect(params.get("offset")).toBe("16");
+    expect(params.get("q")).toBe("demo");
+    expect(params.get("sort")).toBe("updated");
+  });
+
+  it("listProjects omits every query param when called with no arguments", async () => {
+    const receivedUrls: URL[] = [];
+    server.use(
+      http.get("*/api/v1/projects", ({ request }) => {
+        receivedUrls.push(new URL(request.url));
+        return HttpResponse.json({ items: [projectFixture], total: 1 });
+      })
+    );
+    await listProjects();
+    const [receivedUrl] = receivedUrls;
+    if (!receivedUrl) {
+      throw new Error("mock handler was never called");
+    }
+    expect(receivedUrl.search).toBe("");
+  });
+
+  // contract §4/X8: hard delete, 204 no body. apiFetch must not choke trying to .json() an
+  // empty response.
+  it("deleteProject resolves on 204 with no body", async () => {
+    server.use(
+      http.delete("*/api/v1/projects/:projectId", () => new HttpResponse(null, { status: 204 }))
+    );
+    await expect(deleteProject(projectFixture.id)).resolves.toBeUndefined();
+  });
+
+  it("deleteProject surfaces 409 as an ApiError (a transcribe job is still active)", async () => {
+    server.use(
+      http.delete("*/api/v1/projects/:projectId", () => new HttpResponse(null, { status: 409 }))
+    );
+    const error = await deleteProject(projectFixture.id).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(409);
+  });
+
+  it("deleteProject surfaces 404 as an ApiError (already gone)", async () => {
+    server.use(
+      http.delete("*/api/v1/projects/:projectId", () => new HttpResponse(null, { status: 404 }))
+    );
+    const error = await deleteProject(projectFixture.id).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(404);
+  });
+
+  it("openProject resolves on 204 with no body", async () => {
+    server.use(
+      http.post("*/api/v1/projects/:projectId/open", () => new HttpResponse(null, { status: 204 }))
+    );
+    await expect(openProject(projectFixture.id)).resolves.toBeUndefined();
   });
 
   it("createProject sends multipart form data and parses the created project", async () => {
@@ -222,5 +295,16 @@ describe("export", () => {
     const running = { ...exportJobFixture, status: "processing" as const, result: null };
     expect(exportVideoUrl(running)).toBeNull();
     expect(exportSrtUrl(running)).toBeNull();
+  });
+
+  // contract §5: "cancelled" joined "done"/"failed" as a third terminal status. Every
+  // poller/effect that decides "is this job still moving" goes through this one function --
+  // missing a terminal value here means a cancelled job gets polled forever.
+  it("isTerminalJobStatus treats done/failed/cancelled as terminal, queued/processing as not", () => {
+    expect(isTerminalJobStatus("done")).toBe(true);
+    expect(isTerminalJobStatus("failed")).toBe(true);
+    expect(isTerminalJobStatus("cancelled")).toBe(true);
+    expect(isTerminalJobStatus("queued")).toBe(false);
+    expect(isTerminalJobStatus("processing")).toBe(false);
   });
 });

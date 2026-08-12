@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 
+import type { Job } from "../api/client";
 import type { Strings } from "../i18n";
 import { resolveTheme, UI_MODES, type Prefs } from "../theme";
 
@@ -7,7 +8,7 @@ interface ExportModalProps {
   prefs: Prefs;
   strings: Strings;
   projectName: string;
-  status: "queued" | "processing" | "done" | "failed";
+  status: Job["status"];
   errorMessage?: string | null;
   onCancel: () => void;
   onReturnToMenu: () => void;
@@ -229,6 +230,43 @@ export default function ExportModal({
             )}
             <div onClick={onReturnToEditor} className="amee-cta-btn" style={{ ...primaryBtnStyle, width: "100%" }}>
               {L.returnToEditor}
+            </div>
+          </>
+        )}
+
+        {/* Not in the source design (its own "Cancel" click faked a "failed" phase, since it had
+            no real backend to distinguish the two). Real Job.status: "cancelled" (contract §5) is
+            explicitly not an error -- the human's own call this turn -- so this gets its own
+            neutral-gray treatment, never the red failed styling, and the same two-choice exit as
+            "done" (menu / continue editing) rather than failed's single "go back," since nothing
+            actually went wrong. */}
+        {status === "cancelled" && (
+          <>
+            <div style={nameStyle}>{projectName}</div>
+            <div
+              style={{
+                width: "54px",
+                height: "54px",
+                borderRadius: "50%",
+                background: "#6b7280",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                animation: "savedCheckPop .4s cubic-bezier(.2,.9,.3,1.3) both",
+              }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <rect x="7" y="7" width="10" height="10" rx="2" fill="#fff" />
+              </svg>
+            </div>
+            <div style={titleStyle}>{L.exportCancelled}</div>
+            <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "2px" }}>
+              <div onClick={onReturnToMenu} className="amee-cta-btn" style={secondaryBtnStyle}>
+                {L.returnToMenu}
+              </div>
+              <div onClick={onContinueEditing} className="amee-cta-btn" style={primaryBtnStyle}>
+                {L.continueEditing}
+              </div>
             </div>
           </>
         )}

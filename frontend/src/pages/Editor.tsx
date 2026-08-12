@@ -12,6 +12,7 @@ import {
   getEcs,
   getProject,
   getStyle,
+  isTerminalJobStatus,
   listPresets,
   putEcs,
   putStyle,
@@ -30,6 +31,7 @@ import { useExport } from "../contexts/ExportContext";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
 import { findActiveSegmentIndex } from "../lib/activeSegment";
+import { triggerDownload } from "../lib/download";
 import { fontName } from "../lib/fonts";
 import {
   addWordAt,
@@ -162,9 +164,6 @@ export default function Editor(): JSX.Element {
   const exportKind = myExportRecord?.kind ?? null;
   const [exportStarting, setExportStarting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  // The last finished artifact, kept until the next export replaces it, so a blocked or failed
-  // automatic download never leaves the user with nothing to click.
-  const [exportReady, setExportReady] = useState<{ url: string; filename: string } | null>(null);
   // Which job has already been handed to the user. The completion effect below dismisses the
   // context record once handled, but that dismissal itself re-runs the effect one more time
   // before `myExportRecord` goes away -- this makes handling a finished job idempotent per id.
@@ -394,33 +393,11 @@ export default function Editor(): JSX.Element {
     setActiveTab("style");
   }
 
-  // The finished file arrives from a poll, not from the click, so there's no user activation left
-  // by then: opening it in a new tab is silently swallowed by the popup blocker and the export
-  // appears to do nothing. Fetching it as a blob sidesteps that entirely — a blob: URL is
-  // same-origin, so `download` is honored and no window is opened. Whatever happens here, the
-  // caller also leaves a visible link, so a failure can't lose the artifact.
-  async function triggerDownload(url: string, filename: string) {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`${response.status}`);
-    }
-    const objectUrl = URL.createObjectURL(await response.blob());
-    const a = document.createElement("a");
-    a.href = objectUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // Revoking synchronously can cancel the download that was just started.
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-  }
-
   async function startExport(kind: "video" | "srt") {
     if (!id || !project || !ecs || !styleSpec || exportStarting || myExportRecord) {
       return;
     }
     setExportError(null);
-    setExportReady(null);
     setExportStarting(true);
     const payload: ExportPayload = {
       segments: ecs.segments,
@@ -631,7 +608,7 @@ export default function Editor(): JSX.Element {
   // and a new export can start. `result` is a union keyed on job type, so the url is read through
   // the matching narrowing helper rather than by indexing a field that may not be there.
   useEffect(() => {
-    if (!exportJob || !myExportRecord || (exportJob.status !== "done" && exportJob.status !== "failed")) {
+    if (!exportJob || !myExportRecord || !isTerminalJobStatus(exportJob.status)) {
       return;
     }
     if (handledExportJobRef.current === exportJob.id) {
@@ -642,13 +619,18 @@ export default function Editor(): JSX.Element {
       const url = exportKind === "srt" ? exportCtx.srtUrl(exportJob) : exportCtx.videoUrl(exportJob);
       if (url) {
         const filename = exportKind === "srt" ? "captions.srt" : "video.mp4";
-        const absolute = resolveMediaUrl(url);
-        // Kept in state as well as auto-downloaded: the link is the guarantee. If the automatic
-        // download is blocked or the fetch fails, a finished export must still be reachable
-        // rather than silently lost.
-        setExportReady({ url: absolute, filename });
-        void triggerDownload(absolute, filename).catch(() => {
-          /* the visible link above remains the way to get it */
+        // Project.latest_export_url (contract §4) is the persistent source of truth for "the
+        // last export," video only (never export_srt) -- patched in locally so the header's
+        // download-last-export icon appears immediately, without a re-fetch and without a
+        // separate ad-hoc "just finished" state duplicating the same thing.
+        if (exportKind === "video") {
+          setProject((prev) =>
+            prev ? { ...prev, latest_export_job_id: exportJob.id, latest_export_url: url } : prev
+          );
+        }
+        void triggerDownload(resolveMediaUrl(url), filename).catch(() => {
+          // The download-last-export icon (video) / "Download srt file" in the ⋯ menu (srt)
+          // remain the way to retry manually if the automatic attempt is blocked or fails.
         });
       } else {
         setExportError(L.exportFailed);
@@ -656,6 +638,10 @@ export default function Editor(): JSX.Element {
     } else if (exportJob.status === "failed") {
       setExportError(exportJob.error ?? L.exportFailed);
     }
+    // "cancelled" (contract §5): deliberately not an error (the human's own call this turn) --
+    // no exportError, nothing to download. ExportModal/ExportToast render their own dedicated
+    // cancelled screen straight off exportJob.status; there's nothing for this effect to do
+    // beyond the handledExportJobRef guard above.
     // SRT has no modal (Step 11b's modal only covers the video kind, matching the design -- the
     // ⋯ menu's SRT item was never wired into the design's export-modal system either), so nothing
     // else will ever dismiss its record -- do it here, same as before Step 11b. A video record is
@@ -1050,16 +1036,20 @@ export default function Editor(): JSX.Element {
         exportKind === "video" &&
         exportJob &&
         myExportRecord.minimized &&
-        (exportJob.status === "done" || exportJob.status === "failed") && (
+        isTerminalJobStatus(exportJob.status) && (
           <ExportToast
             prefs={prefs}
             strings={L}
-            isDone={exportJob.status === "done"}
+            status={exportJob.status}
             onOpen={() => exportCtx.reopen(myExportRecord.id)}
             onDownload={
-              exportReady
-                ? () => {
-                    void triggerDownload(exportReady.url, exportReady.filename);
+              project?.latest_export_url
+                ? // Narrowed by the condition above, but that narrowing doesn't survive into a
+                  // closure called later (project is regular state, could in principle change) --
+                  // the cast is safe here since latest_export_url only ever gets set, never
+                  // cleared, once a video export exists.
+                  () => {
+                    void triggerDownload(resolveMediaUrl(project.latest_export_url as string), "video.mp4");
                   }
                 : undefined
             }
@@ -1218,26 +1208,6 @@ export default function Editor(): JSX.Element {
             {justSaved && !dirty && !styleDirty && (
               <span style={{ fontSize: "12px", color: mode.textFaint3 }}>{L.saved}</span>
             )}
-            {exportReady && (
-              <a
-                href={exportReady.url}
-                download={exportReady.filename}
-                target="_blank"
-                rel="noreferrer"
-                className="amee-cta-btn"
-                style={{
-                  fontSize: "12.5px",
-                  fontWeight: 700,
-                  color: theme.text,
-                  background: theme.accent,
-                  padding: "7px 14px",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                }}
-              >
-                {L.downloadReady}
-              </a>
-            )}
             <div
               onClick={handleSave}
               className="amee-cta-btn"
@@ -1254,6 +1224,36 @@ export default function Editor(): JSX.Element {
             >
               {saving ? L.saving : L.save}
             </div>
+            {/* Step 11g: Project.latest_export_url (contract §4) -- lets the user re-download the
+                last export without re-running one, even after a reload, even if it finished in a
+                previous visit. Video only (never export_srt, per the contract's own field docs). */}
+            {project.latest_export_url && (
+              <div
+                onClick={() => {
+                  void triggerDownload(resolveMediaUrl(project.latest_export_url as string), "video.mp4");
+                }}
+                className="amee-icon-btn"
+                title={L.downloadLastExport}
+                style={{
+                  width: "34px",
+                  height: "34px",
+                  borderRadius: "8px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: mode.textFaint2,
+                  background: mode.iconBg,
+                  flex: "none",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </div>
+            )}
             {/* POST /export renders the burned-in video and persists ecs+style as a side
                 effect (X5), so it works with or without a preceding Save. Step 11c: while a
                 video export is tracked (running, minimized or not), the button shows a spinner
