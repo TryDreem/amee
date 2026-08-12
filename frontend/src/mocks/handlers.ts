@@ -93,4 +93,10 @@ export const handlers = [
   http.post("*/api/v1/projects/:projectId/export-srt", () =>
     HttpResponse.json(exportSrtJobFixture, { status: 202 })
   ),
+
+  // Real cancel (contract §5, Step 11h) -- default fixture answers with the job flipped to
+  // "cancelled", 202, as if the ffmpeg kill already resolved by the time this responds.
+  http.post("*/api/v1/projects/:projectId/jobs/:jobId/cancel", () =>
+    HttpResponse.json({ ...exportJobFixture, status: "cancelled" }, { status: 202 })
+  ),
 ];

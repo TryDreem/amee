@@ -108,14 +108,21 @@ export default function Home(): JSX.Element {
     }
   }
 
-  // Same "stop watching, keep it dismissed" honesty as the Editor's own exits (Step 11b) -- real
-  // cancellation is Track 2/backend work, not landed yet. From Home there's nowhere to "return"
-  // to for Cancel/Return-to-menu (already here); Continue-editing/Return-to-editor instead take
-  // the user to that project's editor, since unlike the Editor's own modal, Home isn't already
-  // showing it.
+  // "Stop watching, keep it dismissed" -- from Home there's nowhere to "return" to for
+  // Return-to-menu (already here); Continue-editing/Return-to-editor instead take the user to
+  // that project's editor, since unlike the Editor's own modal, Home isn't already showing it.
   function handleExportDismiss() {
     if (openExportRecord) {
       exportCtx.dismiss(openExportRecord.id);
+    }
+  }
+
+  // Step 11h: really stops the render (contract §5) -- does NOT dismiss, same as the Editor's
+  // own handleExportCancel. Polling continues; the modal shows its own cancelled screen once the
+  // status flip comes back.
+  function handleExportCancel() {
+    if (openExportRecord) {
+      void exportCtx.cancel(openExportRecord.id);
     }
   }
 
@@ -305,8 +312,9 @@ export default function Home(): JSX.Element {
           strings={L}
           projectName={openExportRecord.projectName}
           status={openExportJob.status}
+          progressPercent={openExportJob.progress_percent}
           errorMessage={openExportJob.error ?? exportCtx.pollErrorsById[openExportRecord.id] ?? null}
-          onCancel={handleExportDismiss}
+          onCancel={handleExportCancel}
           onReturnToMenu={handleExportDismiss}
           onContinueEditing={handleExportGoToEditor}
           onReturnToEditor={handleExportGoToEditor}

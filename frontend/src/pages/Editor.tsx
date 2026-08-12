@@ -52,6 +52,9 @@ import {
   type History,
 } from "../lib/history";
 
+// Export button's percent ring (r=15.5, matching the design's e_exportRingProgressStyle exactly).
+const EXPORT_RING_CIRCUMFERENCE = 2 * Math.PI * 15.5;
+
 // Step 7: everything the undo/redo stack tracks as one edit -- content (segments) and the
 // document-level style fields, snapshotted together so a single Undo button steps through
 // whichever kind of edit the user made last (matches the Behavior Matrix's own framing: one
@@ -420,11 +423,9 @@ export default function Editor(): JSX.Element {
     setExportStarting(false);
   }
 
-  // ExportModal's four exits (Step 11b). Cancel and Continue-editing/Return-to-editor are all
+  // ExportModal's exits (Step 11b). Continue-editing/Return-to-editor/Return-to-menu are all
   // "stop watching, keep the record dismissed" -- distinguished only by which phase they're
-  // reachable from and, for Return-to-menu, whether they also navigate away. Real cancellation
-  // (actually stopping the backend render) is Track 2 / backend work, not landed yet -- confirmed
-  // with the human this turn to ship honest for now (stop watching + say so, not pretend).
+  // reachable from and, for Return-to-menu, whether they also navigate away.
   function handleExportDismiss() {
     if (myExportRecord) {
       exportCtx.dismiss(myExportRecord.id);
@@ -434,6 +435,15 @@ export default function Editor(): JSX.Element {
   function handleExportReturnToMenu() {
     handleExportDismiss();
     navigate("/");
+  }
+
+  // Step 11h: really stops the render (contract §5) -- unlike the other three exits, this does
+  // NOT dismiss the record. Polling continues; once the job's status flips to "cancelled" the
+  // modal shows its own dedicated cancelled screen, same as it already does for done/failed.
+  function handleExportCancel() {
+    if (myExportRecord) {
+      void exportCtx.cancel(myExportRecord.id);
+    }
   }
 
   // Shared by the Save button and "go home" (below): both need "persist whatever is dirty, then
@@ -1022,8 +1032,9 @@ export default function Editor(): JSX.Element {
           strings={L}
           projectName={project.name}
           status={exportJob.status}
+          progressPercent={exportJob.progress_percent}
           errorMessage={exportJob.error ?? exportPollError ?? null}
-          onCancel={handleExportDismiss}
+          onCancel={handleExportCancel}
           onReturnToMenu={handleExportReturnToMenu}
           onContinueEditing={handleExportDismiss}
           onReturnToEditor={handleExportDismiss}
@@ -1283,20 +1294,41 @@ export default function Editor(): JSX.Element {
                 opacity: exportStarting ? 0.6 : 1,
               }}
             >
-              {videoExportRunning && (
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  style={{ animation: "exportRingSpin .9s linear infinite", flex: "none" }}
-                >
-                  <path d="M21 12a9 9 0 1 1-3.5-7.13" />
-                </svg>
-              )}
+              {videoExportRunning &&
+                (exportJob?.progress_percent != null ? (
+                  <svg width="13" height="13" viewBox="0 0 36 36" style={{ flex: "none" }}>
+                    <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="4" />
+                    <circle
+                      cx="18"
+                      cy="18"
+                      r="15.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      style={{
+                        strokeDasharray: EXPORT_RING_CIRCUMFERENCE,
+                        strokeDashoffset: EXPORT_RING_CIRCUMFERENCE * (1 - exportJob.progress_percent / 100),
+                        transform: "rotate(-90deg)",
+                        transformOrigin: "18px 18px",
+                        transition: "stroke-dashoffset .6s cubic-bezier(.34,1.56,.64,1)",
+                      }}
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    style={{ animation: "exportRingSpin .9s linear infinite", flex: "none" }}
+                  >
+                    <path d="M21 12a9 9 0 1 1-3.5-7.13" />
+                  </svg>
+                ))}
               {videoExportRunning ? L.exporting : L.export}
             </div>
           </div>

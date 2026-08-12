@@ -81,7 +81,6 @@ export interface Strings {
   exportDone: string;
   exportCancelled: string;
   exportCancel: string;
-  exportCancelHint: string;
   returnToMenu: string;
   continueEditing: string;
   returnToEditor: string;
@@ -222,7 +221,6 @@ export const STR: Record<Lang, Strings> = {
     exportDone: "Экспорт завершён",
     exportCancelled: "Экспорт отменён",
     exportCancel: "Отмена",
-    exportCancelHint: "Видео всё равно дорендерится на сервере — просто перестаём показывать прогресс",
     returnToMenu: "Вернуться в главное меню",
     continueEditing: "Продолжить редактирование",
     returnToEditor: "Вернуться в редактор",
@@ -360,7 +358,6 @@ export const STR: Record<Lang, Strings> = {
     exportDone: "Export complete",
     exportCancelled: "Export cancelled",
     exportCancel: "Cancel",
-    exportCancelHint: "The video still finishes rendering on the server — this just stops showing progress",
     returnToMenu: "Return to main menu",
     continueEditing: "Continue editing",
     returnToEditor: "Return to editor",

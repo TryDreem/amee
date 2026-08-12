@@ -210,6 +210,15 @@ export async function exportProjectSrt(projectId: string, payload: ExportPayload
   return apiFetch<Job>(`/projects/${projectId}/export-srt`, exportRequestInit(payload));
 }
 
+// Video export only, never export_srt (contract §5 -- SRT generation is near-instant, not worth
+// cancelling). Kills the ffmpeg process server-side (tracked PID, P8/X7) -- this actually stops
+// the render, not a "just stop watching" placeholder. 202 with the Job, still `processing` at the
+// instant of this call; the caller keeps polling for the `cancelled` transition like any other
+// async action here. 409 if the job isn't queued/processing, or isn't type export.
+export async function cancelExportJob(projectId: string, jobId: string): Promise<Job> {
+  return apiFetch<Job>(`/projects/${projectId}/jobs/${jobId}/cancel`, { method: "POST" });
+}
+
 // `Job.result` is a union whose shape follows `job.type` (contract §5/§12). Narrow on the field
 // that's actually present rather than trusting `type` — a type/result mismatch then reads as
 // "no url yet" instead of silently handing back `undefined` as a string.

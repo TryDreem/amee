@@ -16,6 +16,7 @@ import {
 import { server } from "../mocks/server";
 import {
   ApiError,
+  cancelExportJob,
   createProject,
   deleteProject,
   exportProject,
@@ -306,5 +307,31 @@ describe("export", () => {
     expect(isTerminalJobStatus("cancelled")).toBe(true);
     expect(isTerminalJobStatus("queued")).toBe(false);
     expect(isTerminalJobStatus("processing")).toBe(false);
+  });
+
+  it("cancelExportJob posts to the real cancel endpoint and returns the job", async () => {
+    let path = "";
+    server.use(
+      http.post("*/api/v1/projects/:projectId/jobs/:jobId/cancel", ({ request }) => {
+        path = new URL(request.url).pathname;
+        return HttpResponse.json({ ...exportJobFixture, status: "cancelled" }, { status: 202 });
+      })
+    );
+
+    const job = await cancelExportJob(projectFixture.id, exportJobFixture.id);
+
+    expect(path).toBe(`/api/v1/projects/${projectFixture.id}/jobs/${exportJobFixture.id}/cancel`);
+    expect(job.status).toBe("cancelled");
+  });
+
+  it("cancelExportJob surfaces 409 as an ApiError (job isn't queued/processing/export)", async () => {
+    server.use(
+      http.post("*/api/v1/projects/:projectId/jobs/:jobId/cancel", () => new HttpResponse(null, { status: 409 }))
+    );
+
+    const error = await cancelExportJob(projectFixture.id, exportJobFixture.id).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(409);
   });
 });

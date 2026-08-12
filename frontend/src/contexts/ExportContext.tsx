@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 
 import {
   ApiError,
+  cancelExportJob,
   exportProject,
   exportProjectSrt,
   exportSrtUrl,
@@ -67,12 +68,18 @@ interface ExportContextValue {
     kind: "video" | "srt",
     payload: ExportPayload
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
-  // Stops tracking/polling a record (minimized-and-finished dismissed, or a "stop watching"
-  // cancel today -- see Step 11b, real cancel is Track 2/backend work not landed yet).
+  // Stops tracking/polling a record (dismissed after being minimized-and-finished, or after the
+  // user closes the done/failed/cancelled screen).
   dismiss: (recordId: string) => void;
   // Hide the modal without stopping the export (Step 11c) / bring it back.
   minimize: (recordId: string) => void;
   reopen: (recordId: string) => void;
+  // Step 11h: really stops the render server-side (contract §5, P8/X7) -- does NOT dismiss the
+  // record. The job keeps polling exactly like any other tracked export; once the status flip to
+  // "cancelled" comes back, the modal/toast render their own dedicated cancelled screen the same
+  // way they already do for done/failed. Video only -- the caller is expected not to offer this
+  // for an srt record (matches the modal's own video-only scope).
+  cancel: (recordId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   // Result URL helpers, kept here so callers don't need to re-import the narrowing functions.
   videoUrl: (job: Job) => string | null;
   srtUrl: (job: Job) => string | null;
@@ -158,6 +165,28 @@ export function ExportProvider({ children }: { children: ReactNode }): JSX.Eleme
     setPollErrorsById((prev) => omitKey(prev, recordId));
   }, []);
 
+  const cancel = useCallback(
+    async (recordId: string): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const record = recordsRef.current.find((r) => r.id === recordId);
+      if (!record) {
+        return { ok: false, error: "Not tracked" };
+      }
+      try {
+        // 202 with the Job, still "processing" at this instant (contract §5) -- fed into state
+        // right away so a slow poll tick doesn't leave the UI looking like nothing happened.
+        const job = await cancelExportJob(record.projectId, record.id);
+        setJobsById((prev) => ({ ...prev, [recordId]: job }));
+        return { ok: true };
+      } catch (err) {
+        // 409: the job already finished (done/failed) or isn't type export -- the next poll
+        // tick (or the one that already fired) will show its real status regardless; nothing
+        // else to reconcile here.
+        return { ok: false, error: err instanceof ApiError ? `${err.status}: ${err.message}` : "Cancel failed" };
+      }
+    },
+    []
+  );
+
   const setMinimized = useCallback((recordId: string, minimized: boolean) => {
     setRecords((prev) => prev.map((r) => (r.id === recordId ? { ...r, minimized } : r)));
   }, []);
@@ -172,6 +201,7 @@ export function ExportProvider({ children }: { children: ReactNode }): JSX.Eleme
     dismiss,
     minimize,
     reopen,
+    cancel,
     videoUrl: exportVideoUrl,
     srtUrl: exportSrtUrl,
   };
