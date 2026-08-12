@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 from uuid import UUID
 
@@ -73,6 +74,18 @@ def srt_export_paths(project_id: UUID, job_id: UUID) -> tuple[Path, str]:
     directory.mkdir(parents=True, exist_ok=True)
     dest = directory / "captions.srt"
     return dest, f"/files/projects/{project_id}/exports/{job_id}/{dest.name}"
+
+
+def delete_project_files(project_id: UUID) -> None:
+    """`DELETE /projects/{id}` (contract §4, X8): one recursive delete of
+    the whole project directory - source video, thumbnail, preview proxy,
+    and every past export all live under this single path (`project_dir`),
+    so there's no need to enumerate and delete each file kind separately.
+    A no-op if the directory doesn't exist (a project whose transcribe job
+    never even started has nothing on disk yet)."""
+    directory = project_dir(project_id)
+    if directory.exists():
+        shutil.rmtree(directory)
 
 
 def resolve_url(url: str) -> Path:

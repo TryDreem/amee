@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import JobModel
@@ -89,3 +89,12 @@ async def list_ids_by_project(
         .order_by(JobModel.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def delete_by_project(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """Used by `DELETE /projects/{id}` (contract §4, X8) - `jobs.project_id`
+    has no `ON DELETE CASCADE` at the DB level, so this has to run before
+    the `Project` row itself or Postgres rejects the delete on the foreign
+    key."""
+    await session.execute(delete(JobModel).where(JobModel.project_id == project_id))
+    await session.commit()

@@ -2,6 +2,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import ColumnElement, func, select, update
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import ProjectModel
@@ -172,3 +173,13 @@ async def update_preview(
     await session.commit()
     await session.refresh(project)
     return project
+
+
+async def delete(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """`DELETE /projects/{id}` (contract §4, X8) - hard delete, no trash. The
+    caller (`services/projects.py::delete_project`) must delete every child
+    row (jobs, ecs segments/words, style, raw transcript) first - none of
+    those foreign keys are `ON DELETE CASCADE`, so this alone would raise a
+    foreign key violation if anything still references this project."""
+    await session.execute(sa_delete(ProjectModel).where(ProjectModel.id == project_id))
+    await session.commit()

@@ -1,5 +1,6 @@
 import uuid
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.style import CaptionStyleSpecModel
@@ -52,3 +53,15 @@ async def update(
     await session.commit()
     await session.refresh(style)
     return style
+
+
+async def delete_by_project(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """Used by `DELETE /projects/{id}` (contract §4, X8) - `project_id` is
+    the primary key here (one-to-one with `Project`), but the FK still has
+    no `ON DELETE CASCADE`, so this has to run before the `Project` row."""
+    await session.execute(
+        delete(CaptionStyleSpecModel).where(
+            CaptionStyleSpecModel.project_id == project_id
+        )
+    )
+    await session.commit()

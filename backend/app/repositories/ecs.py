@@ -95,6 +95,30 @@ async def replace(
     return new_segments
 
 
+async def delete_by_project(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """Same words-then-segments order as `replace` above, for the same
+    reason (FK from words to segments, no ORM cascade under async
+    SQLAlchemy) - used by `DELETE /projects/{id}` (contract §4), not by
+    anything that also writes a replacement afterward."""
+    segment_ids = (
+        (
+            await session.execute(
+                select(SegmentModel.id).where(SegmentModel.project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if segment_ids:
+        await session.execute(
+            delete(WordModel).where(WordModel.segment_id.in_(segment_ids))
+        )
+        await session.execute(
+            delete(SegmentModel).where(SegmentModel.project_id == project_id)
+        )
+    await session.commit()
+
+
 async def get_by_project(
     session: AsyncSession, project_id: uuid.UUID
 ) -> list[SegmentModel] | None:

@@ -7,11 +7,15 @@ from app.constants import PLACEHOLDER_OWNER_ID
 from app.exceptions import DomainValidationError
 from app.integrations import storage
 from app.models.project import ProjectModel
+from app.repositories import ecs as ecs_repo
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
+from app.repositories import raw_transcript as raw_transcript_repo
+from app.repositories import style as style_repo
 from app.schemas.common import ErrorDetail
 from app.schemas.job import JobStatus, JobType
 from app.schemas.project import Project, ProjectPage, ProjectSort
+from app.services import export as export_service
 from app.services import style as style_service
 from app.services.language import SUPPORTED_LANGUAGE_CODES
 
@@ -172,3 +176,62 @@ async def list_projects(
     return ProjectPage(
         items=[await _to_schema(session, m) for m in models], total=total
     )
+
+
+class ProjectHasActiveTranscribeJob(Exception):
+    """Raised when a transcribe job is still `queued`/`processing` (contract
+    §4). Unlike export, transcribe has no OS process this codebase tracks a
+    pid for to signal (WhisperX runs in-process, not as a killable
+    subprocess) - confirmed with the human: `DELETE` simply refuses rather
+    than inventing a new, weaker "soft cancel" concept for this one case.
+    The caller (route) turns this into 409."""
+
+
+async def delete_project(session: AsyncSession, project_id: uuid.UUID) -> bool:
+    """`False` (→ 404) if the project doesn't exist. Hard delete, no trash,
+    no soft-delete flag - by design, and this stays true even once auth
+    exists (X8), not a placeholder pending it.
+
+    Cascades: cancels an active export first (reusing the real `POST
+    .../cancel` mechanism, P8/X7), then deletes every child row before the
+    `Project` row itself (none of the foreign keys are `ON DELETE CASCADE`
+    - see each repository's own `delete_by_project`), then the whole
+    storage directory in one recursive delete.
+
+    Known, accepted race: `cancel_export` only *signals* the still-running
+    export task - it doesn't wait for that task to actually observe the
+    signal and reach its own cleanup. If this function's own deletes win
+    that race, the task's later `job_repo.update_status` call raises
+    `ValueError` (job row gone), which Celery logs as a failed task. Never
+    user-visible (nothing will ever query this project again) - not worth
+    a synchronous wait/poll to close a window this narrow."""
+    project = await project_repo.get(session, project_id)
+    if project is None:
+        return False
+
+    latest_transcribe = await job_repo.get_latest_by_project(
+        session, project_id, JobType.transcribe
+    )
+    if latest_transcribe is not None and latest_transcribe.status in (
+        JobStatus.queued,
+        JobStatus.processing,
+    ):
+        raise ProjectHasActiveTranscribeJob()
+
+    latest_export = await job_repo.get_latest_by_project(
+        session, project_id, JobType.export
+    )
+    if latest_export is not None and latest_export.status in (
+        JobStatus.queued,
+        JobStatus.processing,
+    ):
+        await export_service.cancel_export(session, project_id, latest_export.id)
+
+    await job_repo.delete_by_project(session, project_id)
+    await ecs_repo.delete_by_project(session, project_id)
+    await style_repo.delete_by_project(session, project_id)
+    await raw_transcript_repo.delete_by_project(session, project_id)
+    await project_repo.delete(session, project_id)
+
+    storage.delete_project_files(project_id)
+    return True

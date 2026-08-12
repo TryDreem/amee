@@ -81,3 +81,25 @@ async def open_project(
     found = await project_service.open_project(session, project_id)
     if not found:
         raise HTTPException(status_code=404, detail="Project not found")
+
+
+@router.delete(
+    "/{project_id}",
+    status_code=204,
+    responses={
+        404: {"description": "Project not found"},
+        409: {"description": "A transcribe job is still queued/processing"},
+    },
+)
+async def delete_project(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> None:
+    try:
+        found = await project_service.delete_project(session, project_id)
+    except project_service.ProjectHasActiveTranscribeJob as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="A transcribe job is still queued/processing",
+        ) from exc
+    if not found:
+        raise HTTPException(status_code=404, detail="Project not found")
