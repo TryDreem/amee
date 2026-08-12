@@ -97,6 +97,22 @@ class FfmpegError(RuntimeError):
     pass
 
 
+def _parse_out_time_seconds(line: str) -> float | None:
+    """None means "nothing to report" - either this isn't an out_time_us
+    line, or it's ffmpeg's own "N/A" placeholder, which it emits on the
+    first handful of -progress lines before any frame has actually been
+    encoded yet. out_time_ms is misleadingly named - ffmpeg has reported it
+    in *microseconds* since the flag was introduced, a long-standing naming
+    bug kept for backwards compatibility; out_time_us is the same value
+    under its honest name, sidestepping the "divide by 1000" trap."""
+    if not line.startswith("out_time_us="):
+        return None
+    raw_value = line.split("=", 1)[1]
+    if raw_value == "N/A":
+        return None
+    return int(raw_value) / 1_000_000
+
+
 async def _run_ffmpeg(
     *args: str,
     on_progress: Callable[[float], Awaitable[None]] | None = None,
@@ -145,13 +161,8 @@ async def _run_ffmpeg(
     if on_progress is not None and total_duration_seconds:
         async for raw_line in proc.stdout:
             line = raw_line.decode().strip()
-            # out_time_ms is misleadingly named - ffmpeg has reported it in
-            # *microseconds* since the flag was introduced, a long-standing
-            # naming bug kept for backwards compatibility. out_time_us is
-            # the same value under its honest name; using it sidesteps the
-            # trap entirely rather than "dividing by 1000" on the wrong unit.
-            if line.startswith("out_time_us="):
-                out_time_seconds = int(line.split("=", 1)[1]) / 1_000_000
+            out_time_seconds = _parse_out_time_seconds(line)
+            if out_time_seconds is not None:
                 percent = min(100.0, out_time_seconds / total_duration_seconds * 100)
                 await on_progress(percent)
             elif line == "progress=end":

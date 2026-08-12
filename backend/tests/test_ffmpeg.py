@@ -10,6 +10,7 @@ from app.integrations.ffmpeg import (
     FfmpegError,
     FfprobeError,
     _is_hdr,
+    _parse_out_time_seconds,
     _rotation_degrees,
     burn_in_captions,
     extract_thumbnail,
@@ -85,6 +86,24 @@ async def test_extract_thumbnail_with_tonemap_produces_a_valid_image(
 )
 def test_rotation_degrees(stream: dict[str, object], expected: int) -> None:
     assert _rotation_degrees(stream) == expected
+
+
+@pytest.mark.parametrize(
+    "line,expected",
+    [
+        # Real ffmpeg behavior: "N/A" on the first handful of -progress
+        # lines, before any frame has actually been encoded yet - confirmed
+        # against a real export failure (IMG_8139.MOV) where this crashed
+        # int() instead of being treated as "nothing to report yet".
+        ("out_time_us=N/A", None),
+        ("out_time_us=1500000", 1.5),
+        ("out_time_us=0", 0.0),
+        ("fps=0.00", None),
+        ("progress=continue", None),
+    ],
+)
+def test_parse_out_time_seconds(line: str, expected: float | None) -> None:
+    assert _parse_out_time_seconds(line) == expected
 
 
 async def test_probe_video_raises_on_non_video_file(tmp_path: Path) -> None:
