@@ -14,6 +14,7 @@ import {
   getStyle,
   isTerminalJobStatus,
   listPresets,
+  openProject,
   putEcs,
   putStyle,
   resolveMediaUrl,
@@ -533,6 +534,12 @@ export default function Editor(): JSX.Element {
           );
         }
       });
+    // "Recently opened" is written only by this explicit call, never as a side effect of the
+    // GET above (D13) -- that's what keeps GET /projects/{id} safe to cache later. Without it
+    // last_opened_at stays null forever and the `opened` sort degrades to its id tie-break,
+    // which reads as random order. Fire-and-forget: a failure here must not surface as a load
+    // error, since the editor works fine either way.
+    void openProject(id).catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -696,17 +703,48 @@ export default function Editor(): JSX.Element {
       return;
     }
 
-    const onTimeUpdate = () => setCurrentTime(video.currentTime);
-    const onLoadedMetadata = () => setDuration(video.duration);
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
+    // rAF while playing, not `timeupdate`: CaptionOverlay now derives each word's entrance
+    // animation position from `currentTime` alone (deterministic, seekable — the same code path
+    // the headless export render drives frame by frame, INVARIANTS R1/P9). `timeupdate` only
+    // fires ~4x/sec, which was fine while CSS animated itself off the wall clock, but would make
+    // a currentTime-derived animation visibly step. Paused/seeked frames still get a single
+    // update from `onSeeked`/`onPause`, so nothing depends on the loop running to stay correct.
+    let raf = 0;
+    const tick = () => {
+      setCurrentTime(video.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    const startLoop = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(tick);
+    };
+    const stopLoop = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
 
-    video.addEventListener("timeupdate", onTimeUpdate);
+    const onSyncTime = () => setCurrentTime(video.currentTime);
+    const onLoadedMetadata = () => setDuration(video.duration);
+    const onPlay = () => {
+      setIsPlaying(true);
+      startLoop();
+    };
+    const onPause = () => {
+      setIsPlaying(false);
+      stopLoop();
+      onSyncTime();
+    };
+
+    if (!video.paused) {
+      startLoop();
+    }
+    video.addEventListener("seeked", onSyncTime);
     video.addEventListener("loadedmetadata", onLoadedMetadata);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
     return () => {
-      video.removeEventListener("timeupdate", onTimeUpdate);
+      stopLoop();
+      video.removeEventListener("seeked", onSyncTime);
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
@@ -1502,7 +1540,6 @@ export default function Editor(): JSX.Element {
                   style={resolvedStyle}
                   containerWidth={videoBoxSize.width}
                   containerHeight={videoBoxSize.height}
-                  isPlaying={isPlaying}
                 />
               )}
             </div>

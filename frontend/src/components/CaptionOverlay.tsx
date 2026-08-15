@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, type CSSProperties } from "react";
 
 import type { PresetBase, Segment } from "../api/client";
 import { activeWordIndexInSegment, findActiveSegmentIndex, highlightColorFor } from "../lib/activeSegment";
@@ -13,10 +13,6 @@ interface CaptionOverlayProps {
   style: PresetBase;
   containerWidth: number;
   containerHeight: number;
-  // Entrance animations only play during playback — on a paused/seeked frame words are shown
-  // static, matching the design (which gates its per-word animation on `isPlaying`). Optional so
-  // the read-only/test render path can omit it.
-  isPlaying?: boolean;
 }
 
 // Not part of any documented wire shape — architecture.md §8.1's own worked example uses an
@@ -65,7 +61,6 @@ export default function CaptionOverlay({
   style,
   containerWidth,
   containerHeight,
-  isPlaying = false,
 }: CaptionOverlayProps): JSX.Element | null {
   const activeIndex = findActiveSegmentIndex(segments, currentTime);
   const activeSegment = activeIndex >= 0 ? segments[activeIndex] : undefined;
@@ -131,30 +126,36 @@ export default function CaptionOverlay({
       ? `0 0 ${shadowBlur}px ${hexToRgba(style.shadow.color, style.shadow.alpha)}`
       : undefined;
 
-  // Entrance animation (design ANIMATIONS_D). Multi-word: each word plays the keyframe staggered
-  // by its own start time, so the phrase builds up word by word during playback. Single-word: the
-  // one rendered word plays its capWord* keyframe. Both gate on isPlaying — a paused/seeked frame
-  // shows the words static (no re-triggering the build on every scrub).
+  // Entrance animation (design ANIMATIONS_D). Each word's entrance begins at its own `start`, so
+  // a multi-word phrase builds up word by word; single-word mode animates the one shown word.
+  //
+  // Position is derived from `currentTime`, never from wall clock: the animation is emitted
+  // `paused` with a negative `animation-delay` equal to how far into it this instant is. That
+  // makes a frame fully determined by (segments, style, currentTime) with no dependency on when
+  // the element mounted — which is what lets the headless export render seek to an arbitrary
+  // frame and get exactly what preview shows at that time (INVARIANTS R1/P9). `both` fill covers
+  // both ends: before the word's start it holds the from-state, after the end the to-state.
   const anim = findAnimationOption(style.revealMode, style.captionAnimation);
-  const segmentStart = activeSegment.words[0]?.start ?? 0;
-  const wordAnimationCss = (wordStart: number, textLength: number): string | undefined => {
-    if (!isPlaying || !anim || !anim.keyframe) {
-      return undefined;
+  const wordAnimationStyle = (wordStart: number, textLength: number): CSSProperties => {
+    if (!anim?.keyframe) {
+      return {};
     }
-    if (isSingleWord) {
-      return `${anim.keyframe} ${SINGLE_WORD_ANIMATION_DURATION_MS}ms ${anim.ease} both`;
-    }
-    const durationMs = Math.max(220, textLength * 60);
-    const delayMs = Math.max(0, (wordStart - segmentStart) * 1000);
-    return `${anim.keyframe} ${durationMs}ms ${anim.ease} ${delayMs}ms both`;
+    const durationMs = isSingleWord
+      ? SINGLE_WORD_ANIMATION_DURATION_MS
+      : Math.max(220, textLength * 60);
+    const elapsedMs = (currentTime - wordStart) * 1000;
+    return {
+      animationName: anim.keyframe,
+      animationDuration: `${durationMs}ms`,
+      animationTimingFunction: anim.ease,
+      animationFillMode: "both",
+      animationPlayState: "paused",
+      animationDelay: `${-elapsedMs}ms`,
+    };
   };
 
   return (
     <div
-      // Single-word mode remounts per active word (so the entrance replays for each new word);
-      // multi-word remounts per segment (so the staggered per-word build replays on entry). A
-      // re-render alone won't restart an already-applied CSS keyframe — only a fresh mount does.
-      key={isSingleWord ? `${activeSegment.id}:${activeWordIdx}` : activeSegment.id}
       style={{
         position: "absolute",
         left: "50%",
@@ -193,7 +194,7 @@ export default function CaptionOverlay({
             // displayed word) — always highlighted.
             const isHighlighted =
               style.revealMode === "progressive" ? wordCursor === activeWordIdx : true;
-            const animation = word ? wordAnimationCss(word.start, text.length) : undefined;
+            const animation = word ? wordAnimationStyle(word.start, text.length) : {};
             wordCursor += 1;
             const color = isHighlighted ? highlightColor : style.color;
             const glowCss = style.glow ? `0 0 20px ${color}` : undefined;
@@ -206,7 +207,9 @@ export default function CaptionOverlay({
             return (
               <Fragment key={wordCursor}>
                 {wordInLine > 0 ? " " : null}
-                <span style={{ color, textShadow, display: "inline-block", animation }}>{text}</span>
+                <span style={{ color, textShadow, display: "inline-block", ...animation }}>
+                  {text}
+                </span>
               </Fragment>
             );
           })}

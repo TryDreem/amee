@@ -133,9 +133,8 @@ describe("CaptionOverlay", () => {
     expect(container.textContent).toContain("Hello, world");
   });
 
-  // Multi-word entrance animation is per-word (staggered), applied to each word span, and only
-  // while playing — matching the design's own isPlaying gate.
-  it("applies the resolved captionAnimation per word while playing", () => {
+  // Multi-word entrance animation is per-word (staggered), applied to each word span.
+  it("applies the resolved captionAnimation per word", () => {
     render(
       <CaptionOverlay
         segments={segments}
@@ -143,28 +142,40 @@ describe("CaptionOverlay", () => {
         style={{ ...baseStyle, captionAnimation: "pop" }}
         containerWidth={300}
         containerHeight={500}
-        isPlaying
       />
     );
     const word = screen.getByText("Hello,");
-    expect(word.style.animation).toContain("capPop");
+    expect(word.style.animationName).toBe("capPop");
   });
 
-  it("plays no entrance animation when paused, even with captionAnimation set", () => {
-    render(
-      <CaptionOverlay
-        segments={segments}
-        currentTime={0.1}
-        style={{ ...baseStyle, captionAnimation: "pop" }}
-        containerWidth={300}
-        containerHeight={500}
-        isPlaying={false}
-      />
-    );
-    expect(screen.getByText("Hello,").style.animation).toBe("");
+  // P9/R1: a frame is fully determined by (segments, style, currentTime) — the animation is
+  // emitted paused, seeked via a negative delay to exactly how far into it this instant is, with
+  // no dependency on when the element mounted. That is what lets the headless export render jump
+  // to an arbitrary frame and get what preview shows at the same time.
+  it("seeks the entrance animation deterministically from currentTime", () => {
+    const at = (t: number): { delay: string; playState: string } => {
+      const { unmount } = render(
+        <CaptionOverlay
+          segments={segments}
+          currentTime={t}
+          style={{ ...baseStyle, captionAnimation: "pop" }}
+          containerWidth={300}
+          containerHeight={500}
+        />
+      );
+      const { animationDelay, animationPlayState } = screen.getByText("Hello,").style;
+      unmount();
+      return { delay: animationDelay, playState: animationPlayState };
+    };
+
+    // The first word starts at 0, so 0.1s in the animation is 100ms deep and always paused.
+    expect(at(0.1).delay).toBe("-100ms");
+    expect(at(0.1).playState).toBe("paused");
+    // Same component, later instant → a different, later point of the same animation.
+    expect(at(0.25).delay).toBe("-250ms");
   });
 
-  it("applies no CSS animation when captionAnimation is none, even while playing", () => {
+  it("applies no CSS animation when captionAnimation is none", () => {
     render(
       <CaptionOverlay
         segments={segments}
@@ -172,15 +183,14 @@ describe("CaptionOverlay", () => {
         style={{ ...baseStyle, captionAnimation: "none" }}
         containerWidth={300}
         containerHeight={500}
-        isPlaying
       />
     );
-    expect(screen.getByText("Hello,").style.animation).toBe("");
+    expect(screen.getByText("Hello,").style.animationName).toBe("");
   });
 
   // Single-word cards reuse pop/bounce/snap captionAnimation values but render distinct capWord*
   // keyframes in single-word mode.
-  it("uses the single-word keyframe in single-word mode while playing", () => {
+  it("uses the single-word keyframe in single-word mode", () => {
     render(
       <CaptionOverlay
         segments={segments}
@@ -188,10 +198,9 @@ describe("CaptionOverlay", () => {
         style={{ ...baseStyle, revealMode: "single-word", captionAnimation: "pop" }}
         containerWidth={300}
         containerHeight={500}
-        isPlaying
       />
     );
-    expect(screen.getByText("Hello,").style.animation).toContain("capWordPop");
+    expect(screen.getByText("Hello,").style.animationName).toBe("capWordPop");
   });
 
   // "progressive" is a MOVING highlight (arch §7 Behavior Matrix): only the single
