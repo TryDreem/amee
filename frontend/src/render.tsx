@@ -8,15 +8,20 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 
 import CaptionOverlay from "./components/CaptionOverlay";
-import type { PresetBase, Segment } from "./api/client";
+import { resolveStyleLayers, type Preset, type Segment, type StyleOverrides } from "./api/client";
+import { findActiveSegmentIndex } from "./lib/activeSegment";
 import "./index.css";
 
 export interface RenderPayload {
   segments: Segment[];
-  // Already fully resolved (preset base + document overrides + segment overrides) by the caller.
-  // This page does no cascade resolution of its own - one resolver, in client.ts, shared with the
-  // editor, so export can't drift from preview by resolving style differently (R2).
-  style: PresetBase;
+  // Unresolved, exactly as stored: the cascade runs *here*, per frame, through the same
+  // `resolveStyleLayers` the editor calls (R2 - one resolver, not two that can drift). Handing this
+  // page a pre-resolved style would be wrong as well as duplicative: with per-phrase style on, the
+  // effective style depends on which segment is on screen, so it is a function of time, not a
+  // constant for the whole export (D11).
+  preset: Preset;
+  overrides: StyleOverrides;
+  perPhraseStyle: boolean;
   width: number;
   height: number;
 }
@@ -44,6 +49,18 @@ function afterPaint(): Promise<void> {
 
 function RenderSurface({ payload }: { payload: RenderPayload }): JSX.Element {
   const [time, setTime] = useState(0);
+
+  // Mirrors Editor.tsx's RENDERING resolution exactly (arch §4.2): the segment active at this
+  // instant supplies the override layer, and only when the document-level per-phrase toggle is on.
+  // CaptionOverlay re-derives the active segment from the same (segments, time) pair, so the two
+  // always agree on which segment this style belongs to.
+  const renderIndex = findActiveSegmentIndex(payload.segments, time);
+  const renderSegment = renderIndex >= 0 ? payload.segments[renderIndex] : undefined;
+  const style = resolveStyleLayers(
+    payload.preset,
+    payload.overrides,
+    payload.perPhraseStyle ? renderSegment?.overrides : null
+  );
 
   useEffect(() => {
     window.__ameeSeek = async (next: number) => {
@@ -82,7 +99,7 @@ function RenderSurface({ payload }: { payload: RenderPayload }): JSX.Element {
       <CaptionOverlay
         segments={payload.segments}
         currentTime={time}
-        style={payload.style}
+        style={style}
         containerWidth={payload.width}
         containerHeight={payload.height}
       />

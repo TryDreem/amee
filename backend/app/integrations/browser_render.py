@@ -86,15 +86,20 @@ async def _serve_from_dist(route: Route) -> None:
 async def caption_page(
     *,
     segments: list[dict[str, Any]],
-    style: dict[str, Any],
+    preset: dict[str, Any],
+    overrides: dict[str, Any],
+    per_phrase_style: bool,
     width: int,
     height: int,
 ) -> AsyncIterator[Page]:
     """Opens the render surface with one document loaded, ready to be seeked.
 
-    `segments`/`style` are plain JSON-safe dicts, already fully resolved by the caller — this layer
-    performs no style cascade of its own, so export cannot resolve a style differently than the
-    editor did (R2). Yields a `Page`; use `screenshot_at` to capture instants from it.
+    Everything is passed **unresolved**, as plain JSON-safe dicts: the preset+overrides cascade runs
+    inside the page, through the same resolver the editor uses (R2). Resolving it here instead would
+    both duplicate that logic and be wrong — with per-phrase style on, the effective style depends on
+    which segment is on screen, so it varies over the export rather than being one value (D11).
+
+    Yields a `Page`; use `screenshot_at` to capture instants from it.
     """
     if not (_DIST_DIR / "render.html").is_file():
         raise BrowserRenderError(
@@ -102,7 +107,14 @@ async def caption_page(
             "run `pnpm -C frontend build` (or set AMEE_FRONTEND_DIST)"
         )
 
-    payload = {"segments": segments, "style": style, "width": width, "height": height}
+    payload = {
+        "segments": segments,
+        "preset": preset,
+        "overrides": overrides,
+        "perPhraseStyle": per_phrase_style,
+        "width": width,
+        "height": height,
+    }
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch()
         try:
