@@ -14,8 +14,9 @@ parallel worktrees/workers collide on (`scripts/wt-env.sh` exists because of tha
 """
 
 import json
+import math
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -155,3 +156,62 @@ async def screenshot_at(page: Page, time_seconds: float) -> bytes:
     """
     await page.evaluate("(t) => window.__ameeSeek(t)", time_seconds)
     return await page.screenshot(omit_background=True, type="png")
+
+
+class FrameRenderCancelled(Exception):
+    """`should_cancel` returned True partway through the loop. Distinct from `BrowserRenderError`:
+    nothing went wrong, the caller asked to stop. `_run_job` maps it to `cancelled`, not `failed`
+    (contract §5)."""
+
+
+def frame_count(duration_seconds: float, fps: float) -> int:
+    """Frames the overlay needs to cover `duration_seconds`. At least one even for a
+    zero/negative duration, so a degenerate probe still produces a valid image sequence for
+    ffmpeg rather than an empty directory."""
+    return max(1, math.ceil(duration_seconds * fps))
+
+
+async def render_frames(
+    dest_dir: Path,
+    *,
+    segments: list[dict[str, Any]],
+    preset: dict[str, Any],
+    overrides: dict[str, Any],
+    per_phrase_style: bool,
+    width: int,
+    height: int,
+    duration_seconds: float,
+    fps: float,
+    on_progress: Callable[[float], Awaitable[None]] | None = None,
+    should_cancel: Callable[[], Awaitable[bool]] | None = None,
+) -> int:
+    """Writes one transparent PNG per video frame into `dest_dir`, named `frame_000001.png` and up
+    (1-based, matching ffmpeg's `-start_number` default for `%06d` patterns). Returns how many were
+    written.
+
+    Frame *i* is captured at `i / fps` — the presentation time ffmpeg will give that same frame when
+    it reads the sequence back at the same rate, so the overlay lines up with the source video
+    without any offset arithmetic at composite time.
+
+    `on_progress` receives 0-100 across this phase alone; blending it with the mux phase into one
+    user-facing number is the caller's job (contract §5). `should_cancel` is polled between frames
+    rather than mid-frame: a single screenshot is short enough that finishing it costs nothing, and
+    it keeps every written file complete — a half-written PNG would break the ffmpeg read.
+    """
+    total = frame_count(duration_seconds, fps)
+    async with caption_page(
+        segments=segments,
+        preset=preset,
+        overrides=overrides,
+        per_phrase_style=per_phrase_style,
+        width=width,
+        height=height,
+    ) as page:
+        for index in range(total):
+            if should_cancel is not None and await should_cancel():
+                raise FrameRenderCancelled()
+            frame = await screenshot_at(page, index / fps)
+            (dest_dir / f"frame_{index + 1:06d}.png").write_bytes(frame)
+            if on_progress is not None:
+                await on_progress((index + 1) / total * 100)
+    return total

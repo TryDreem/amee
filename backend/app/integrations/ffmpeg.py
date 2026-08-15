@@ -12,6 +12,7 @@ class VideoProbe:
     height: int
     duration_seconds: float
     is_hdr: bool
+    fps: float
 
 
 class FfprobeError(RuntimeError):
@@ -31,6 +32,27 @@ def _is_hdr(stream: dict[str, Any]) -> bool:
     (libx264 doesn't reliably tag color_transfer via plain ffmpeg CLI flags
     on test-generated lavfi sources)."""
     return stream.get("color_transfer") in _HDR_TRANSFER_CHARACTERISTICS
+
+
+# Falls back to 30 rather than raising: a missing/zero/malformed rate would
+# otherwise fail an export outright, and every caller only needs *a* sane
+# frame rate to render caption frames at (P9) - a 30fps overlay composited
+# onto a 29.97fps source is a sub-frame timing difference nobody can see,
+# whereas a failed export is very visible.
+_FALLBACK_FPS = 30.0
+
+
+def _fps(stream: dict[str, Any]) -> float:
+    """`avg_frame_rate` is an "N/D" string ("30000/1001"), not a number - and
+    it is legitimately "0/0" for streams ffprobe can't rate (some phone
+    recordings, single-frame inputs)."""
+    raw = stream.get("avg_frame_rate") or ""
+    numerator, _, denominator = str(raw).partition("/")
+    try:
+        rate = float(numerator) / float(denominator or 1)
+    except (ValueError, ZeroDivisionError):
+        return _FALLBACK_FPS
+    return rate if rate > 0 else _FALLBACK_FPS
 
 
 def _rotation_degrees(stream: dict[str, Any]) -> int:
@@ -64,7 +86,8 @@ async def probe_video(path: Path) -> VideoProbe:
         "-select_streams",
         "v:0",
         "-show_entries",
-        "stream=width,height,color_transfer:stream_side_data=rotation:format=duration",
+        "stream=width,height,color_transfer,avg_frame_rate"
+        ":stream_side_data=rotation:format=duration",
         "-of",
         "json",
         str(path),
@@ -89,7 +112,11 @@ async def probe_video(path: Path) -> VideoProbe:
     is_hdr = _is_hdr(stream)
 
     return VideoProbe(
-        width=width, height=height, duration_seconds=duration, is_hdr=is_hdr
+        width=width,
+        height=height,
+        duration_seconds=duration,
+        is_hdr=is_hdr,
+        fps=_fps(stream),
     )
 
 

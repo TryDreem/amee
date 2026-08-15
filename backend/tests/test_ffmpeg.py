@@ -9,6 +9,7 @@ import pytest
 from app.integrations.ffmpeg import (
     FfmpegError,
     FfprobeError,
+    _fps,
     _is_hdr,
     _parse_out_time_seconds,
     _rotation_degrees,
@@ -25,6 +26,26 @@ async def test_probe_video_reads_dimensions_and_duration(sample_video: Path) -> 
     assert probe.height == 240
     assert probe.duration_seconds == pytest.approx(1.0, abs=0.2)
     assert probe.is_hdr is False
+    assert probe.fps > 0
+
+
+@pytest.mark.parametrize(
+    "stream,expected",
+    [
+        # ffprobe reports avg_frame_rate as an "N/D" string, never a number.
+        ({"avg_frame_rate": "30/1"}, 30.0),
+        # NTSC rates are the reason this can't just be int() — 29.97, not 30.
+        ({"avg_frame_rate": "30000/1001"}, pytest.approx(29.97, abs=0.01)),
+        # "0/0" is what ffprobe legitimately reports for streams it can't rate; falling back
+        # beats dividing by zero or exporting at 0fps.
+        ({"avg_frame_rate": "0/0"}, 30.0),
+        ({"avg_frame_rate": ""}, 30.0),
+        ({}, 30.0),
+        ({"avg_frame_rate": "garbage"}, 30.0),
+    ],
+)
+def test_fps(stream: dict[str, object], expected: float) -> None:
+    assert _fps(stream) == expected
 
 
 @pytest.mark.parametrize(

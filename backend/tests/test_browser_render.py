@@ -7,6 +7,7 @@ green. CI builds the frontend before the backend suite for exactly this reason.
 """
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,7 +15,10 @@ import pytest
 from app.integrations import browser_render
 from app.integrations.browser_render import (
     BrowserRenderError,
+    FrameRenderCancelled,
     caption_page,
+    frame_count,
+    render_frames,
     screenshot_at,
 )
 
@@ -144,6 +148,88 @@ async def test_per_segment_override_applies_only_when_per_phrase_is_on() -> None
 
     assert dormant == no_override
     assert applied != no_override
+
+
+@pytest.mark.parametrize(
+    "duration,fps,expected",
+    [
+        (1.0, 30.0, 30),
+        # Partial trailing frame still gets rendered — ceil, not floor, or the overlay would end
+        # early and the last fraction of a second would show no caption at all.
+        (1.01, 30.0, 31),
+        (0.0, 30.0, 1),
+        (-5.0, 30.0, 1),
+    ],
+)
+def test_frame_count(duration: float, fps: float, expected: int) -> None:
+    assert frame_count(duration, fps) == expected
+
+
+async def _render(tmp_path: Path, **kwargs: Any) -> int:
+    return await render_frames(
+        tmp_path,
+        segments=kwargs.pop("segments", _segments()),
+        preset=_PRESET,
+        overrides={},
+        per_phrase_style=False,
+        width=180,
+        height=320,
+        duration_seconds=kwargs.pop("duration_seconds", 0.2),
+        fps=kwargs.pop("fps", 10.0),
+        **kwargs,
+    )
+
+
+async def test_render_frames_writes_one_png_per_frame(tmp_path: Path) -> None:
+    written = await _render(tmp_path)
+
+    frames = sorted(tmp_path.glob("*.png"))
+    assert written == len(frames) == 2
+    # 1-based, zero-padded to 6 — the naming ffmpeg's `%06d` pattern reads back.
+    assert [f.name for f in frames] == ["frame_000001.png", "frame_000002.png"]
+    assert all(f.read_bytes().startswith(b"\x89PNG\r\n\x1a\n") for f in frames)
+
+
+async def test_render_frames_captures_each_frame_at_its_own_time(
+    tmp_path: Path,
+) -> None:
+    """Frame i must be the picture at i/fps, not the same instant repeated. Uses `progressive`,
+    where the highlight moves between the two words, so frames spanning that boundary differ."""
+    await _render(tmp_path, duration_seconds=1.0, fps=2.0)
+
+    frames = sorted(tmp_path.glob("*.png"))
+    assert len({f.read_bytes() for f in frames}) > 1
+
+
+async def test_render_frames_reports_progress_ending_at_100(tmp_path: Path) -> None:
+    percents: list[float] = []
+
+    async def _record(percent: float) -> None:
+        percents.append(percent)
+
+    await _render(tmp_path, on_progress=_record)
+
+    assert percents == [50.0, 100.0]
+
+
+async def test_render_frames_stops_when_cancelled(tmp_path: Path) -> None:
+    """Cancellation is checked between frames, so the loop must abort partway rather than run to
+    completion and discard the result (P8/X7)."""
+    calls = 0
+
+    async def _cancel_after_first() -> bool:
+        nonlocal calls
+        calls += 1
+        return calls > 1
+
+    with pytest.raises(FrameRenderCancelled):
+        await _render(
+            tmp_path, duration_seconds=1.0, fps=10.0, should_cancel=_cancel_after_first
+        )
+
+    # One frame got written before the second check fired — proof it stopped early rather than
+    # never starting or running all ten.
+    assert len(list(tmp_path.glob("*.png"))) == 1
 
 
 async def test_missing_build_raises_a_clear_error(
