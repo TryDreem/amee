@@ -12,6 +12,10 @@ dependencies = [
   "asyncpg>=0.29",
   "alembic>=1.13",
   "redis>=5.0",
+  # Export burn-in renders the frontend's own CaptionOverlay headless (INVARIANTS P9), so this is
+  # a runtime dependency of the export worker, not a dev/test tool. The Chromium binary itself is
+  # not on PyPI — `playwright install chromium` fetches it separately (see README).
+  "playwright>=1.47",
 ]
 
 [project.optional-dependencies]

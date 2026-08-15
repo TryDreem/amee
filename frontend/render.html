@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Amee caption render surface</title>
+    <!-- Same font sources the editor's index.html loads: the export render must resolve every
+         family to the identical face the user saw while styling (INVARIANTS R1/R3). Kept as a
+         copy rather than a shared partial because Vite treats each HTML entry as its own root
+         document; if a family is added to one file it must be added to the other. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Oswald:wght@500;600;700;800&family=Montserrat:wght@600;700;800;900&family=Caveat:wght@600;700&family=Playfair+Display:ital,wght@0,600;1,600;1,700&family=Roboto:wght@400;500;700;900&family=Golos+Text:wght@500;700;900&family=Manrope:wght@600;700;800;900&family=Rubik+Spray+Paint&family=Rubik+Wet+Paint&family=Rubik+Marker+Hatch&family=Rubik+Moonrocks&family=Alex+Brush&family=Great+Vibes&family=Young+Serif&family=Luckiest+Guy&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      @font-face {
+        font-family: "Overdoze Sans";
+        src: url("https://raw.githubusercontent.com/isamirivers/overdoze-sans/main/overdozesans.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Pricedown";
+        src: url("https://raw.githubusercontent.com/alextwothousand/pricedown-font-web/master/pricedown.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Uni Sans Heavy";
+        src: url("https://raw.githubusercontent.com/Kyles-World/Uni-Sans-Font/main/UniSans-Heavy.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Aileron";
+        src: url("https://raw.githubusercontent.com/suXinjke/RBRCZAnalysis/master/assets/fonts/Aileron-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      /* font-display: block above, not swap as in index.html: swap paints a fallback face while
+         the real one downloads, which is right for an interactive page but would bake the wrong
+         typeface into an exported frame. Blocking is safe here because nothing is watching this
+         page render - the driver waits on document.fonts.ready regardless. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/render.tsx"></script>
+  </body>
+</html>
