@@ -103,12 +103,24 @@ Because service-layer functions are written to take only serializable input (ids
 
 Two outputs are produced, from two independent calls:
 
-1. **Burned-in video** (`POST /export`) — captions rendered directly into the video file via ffmpeg. Persists the submitted `ecs`/`style` as a side effect before rendering.
-2. **SRT file** (`POST /export-srt`) — a widely compatible subtitle file, for import into third-party tools. Generated on demand from the submitted `ecs`/`style` without touching the persisted documents.
+1. **Burned-in video** (`POST /export`) — captions rendered by the same frontend renderer
+   used for live preview (§12), run headless on the server and composited onto the video via
+   ffmpeg. Persists the submitted `ecs`/`style` as a side effect before rendering.
+2. **SRT file** (`POST /export-srt`) — a widely compatible subtitle file, for import into
+   third-party tools. Generated on demand from the submitted `ecs`/`style` without touching the
+   persisted documents.
 
-A known limitation was explicitly acknowledged and accepted: standard SRT has no concept of word-level timing — it only supports phrase-level start/end. A richer subtitle format (ASS, which supports karaoke-style word timing and is the same format likely used internally as an intermediate step before the ffmpeg/libass burn-in render) was discussed and **deliberately deferred** — it can be added later as an additional export option without affecting anything else in the architecture.
+A known limitation was explicitly acknowledged and accepted: standard SRT has no concept of
+word-level timing — it only supports phrase-level start/end. A richer subtitle format (ASS, which
+supports karaoke-style word timing) was discussed and **deliberately deferred** as an export
+*format* — it can be added later as an additional export option without affecting anything else in
+the architecture. Unlike an earlier revision of this document, ASS/libass now has **no internal
+role either** — burn-in no longer goes through libass at all (§12, INVARIANTS P9).
 
-An earlier revision of this MVP also produced a third output, an internal project JSON bundle (ECS + CaptionStyleSpec together, for re-import/programmatic use). It has been **removed from scope**, not deferred like ASS — no endpoint currently produces it. Worth reconsidering as its own endpoint later if a concrete re-import need arises.
+An earlier revision of this MVP also produced a third output, an internal project JSON bundle (ECS
++ CaptionStyleSpec together, for re-import/programmatic use). It has been **removed from scope**,
+not deferred like ASS — no endpoint currently produces it. Worth reconsidering as its own endpoint
+later if a concrete re-import need arises.
 
 
 ### 2.6 Logging
@@ -585,22 +597,34 @@ This means the top 10% and bottom 15% of the frame are off-limits for caption pl
 ---
  
 ## 12. Preview vs. Final Render Consistency
- 
-There are two independent rendering paths in this system:
- 
-1. **Browser preview** — a lightweight overlay rendered with CSS/Canvas directly over the `<video>` element, updated instantly and entirely client-side, with no backend involvement while the user is adjusting style or content.
-2. **Backend export render** — the real, final render, performed via ffmpeg/libass, producing the burned-in output video.
- 
-**This is called out as the single largest correctness risk in the whole architecture.** These are two fundamentally different font-rendering and text-layout engines, built by different teams for different purposes — the fact that they *should* produce the same visual result is a design goal that must be actively engineered and validated, not an assumption that holds automatically just because both consume the same `CaptionStyleSpec`.
- 
-**What must be identical (or at least tightly matched) between the two:**
- 
-- interpretation of `CaptionStyleSpec` — the same units (relative font size, relative safe area, relative vertical position) must resolve to the same pixel values in both engines;
-- the layout rules themselves — wrap-only-between-words, the 2-line maximum, safe-area math, center-only horizontal alignment, and the `verticalPosition`-to-pixel mapping;
-- ideally, the actual line-wrapping *decision* logic — not just "the same rules described in prose for both," but code-level parity (the same algorithm, or a deliberately-matched port of it) wherever that's feasible, since subtle text-measurement differences between a browser and libass are a realistic source of divergence even when both sides are "following the same rule."
- 
-This has **not yet been validated in practice** — it is flagged as a known risk requiring a dedicated verification step (visually comparing preview output against actual rendered export output, across a range of styles, fonts, and resolutions) before the export path can be trusted, not something assumed solved by this document.
- 
+
+There is **one** rendering path, used twice:
+
+1. **Live preview** — the frontend's `CaptionOverlay` component, rendered by the user's own
+   browser directly over the `<video>` element, entirely client-side, no backend involvement
+   while the user is adjusting style or content.
+2. **Export** — the identical `CaptionOverlay` component, rendered headless by a server-side
+   Chromium instance, one frame at a time, and composited onto the source video via ffmpeg
+   (`overlay`, not `-vf ass=`). See INVARIANTS P9.
+
+**This supersedes an earlier design** where export rendered through ffmpeg/libass as a second,
+independent text-layout engine — that design made preview/export agreement a design goal that had
+to be actively engineered and separately validated, and it was flagged as the single largest
+correctness risk in the architecture. Routing export through the same component that draws the
+live preview removes the risk by construction instead: there is no second interpretation of
+`CaptionStyleSpec` to keep in sync, because there is no second renderer.
+
+**What this does not remove:** the risk reappears in a narrower form if export's rendering path is
+ever allowed to fork from `CaptionOverlay` — e.g. a "fast path" that reimplements wrap/safe-area/
+positioning logic for performance instead of reusing the component. Any such fork is a regression
+to the old two-renderer risk, not a neutral optimization, and must be reviewed as one (P9).
+
+**Still not free of verification work:** parity between what a user saw in their browser and what
+the headless render produced still needs a real end-to-end check (do the two actually agree on
+fonts, timing, and frame content in practice — headless Chromium is the same engine but not
+automatically the same *environment*, e.g. installed fonts). A claim of parity without that check
+is unverified, same discipline as before.
+
 ---
  
 ## 13. Edge Cases

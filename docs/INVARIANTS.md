@@ -18,7 +18,8 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | P5 | Exactly two Celery queues: `transcribe`, `export`. The LLM smart re-splitter (§5.3) has no queue of its own — it runs as a plain awaited function call inside the transcribe job, not a dispatched task, since it blocks that job's `done` transition either way and a separate queue would buy no real concurrency. | arch §2.3 |
 | P6 | Job status lives in the **app database**, not Celery's result backend. `Project` has no `transcription_status` field. | arch §2.3, contract §4 |
 | P7 | Smart-split failure — LLM error or exhausted validation retries — **never fails the overall transcribe Job**. The dumb-split ECS is kept as the accepted fallback. | arch §5.3 |
-| P8 | Killing an export job's `ffmpeg` process is done by tracked PID (Redis), not by relying on Celery `revoke()` alone — under the `prefork` pool, a revoked task's signal does not reliably reach its grandchild subprocess, which would otherwise orphan and keep writing an untracked file. | contract §5 |
+| P8 | Killing export's currently-active subprocess (frame-render phase or ffmpeg mux phase, P9) is done by tracked PID (Redis), not by relying on Celery `revoke()` alone — under the `prefork` pool, a revoked task's signal does not reliably reach its grandchild subprocess, which would otherwise orphan and keep writing an untracked file/frames. | contract §5 |
+| P9 | Export burn-in renders the **same frontend `CaptionOverlay` component** used for live preview — headless, frame by frame, via a server-side Chromium instance — then composites those frames onto the source video with ffmpeg (`overlay`). Not `-vf ass=`, not a second layout implementation. This is what makes R1's parity structural rather than something separately validated. ASS/libass has no role anywhere in this pipeline anymore (supersedes X3's "may still be used internally"). | arch §2.5, §12 |
 
 ## Data model
 
@@ -96,9 +97,9 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 
 | # | Invariant | Ref |
 |---|---|---|
-| R1 | Two independent renderers exist: browser preview (CSS/Canvas) and export (ffmpeg/libass). Their agreement is a **design goal that must be engineered and validated**, not an assumption. This is the largest correctness risk in the project. | arch §12 |
-| R2 | Both must resolve relative units to the same pixels, apply the same wrap rules, the same 2-line max, the same safe-area math, and the same `verticalPosition` mapping. Code-level parity of the wrap decision where feasible. | arch §12 |
-| R3 | Not yet validated. Any PR claiming "preview matches export" without a frame-diff artifact is claiming something unverified. | arch §12 |
+| R1 | There is **one** renderer, used twice: `CaptionOverlay` draws live preview in the user's own browser, and the identical component draws export, headless, on the server (P9). Parity is **structural by construction**, not a separately-engineered design goal — supersedes the earlier two-independent-renderers model. | arch §12 |
+| R2 | The risk reappears in narrow form only if export's rendering path **forks** from `CaptionOverlay` — e.g. a "fast path" that reimplements wrap/safe-area/positioning instead of reusing the component. Any such fork is a P9 regression, not a neutral optimization, and must be reviewed as one. | arch §12 |
+| R3 | Structural parity is not the same as verified parity — headless Chromium is the same engine but not automatically the same *environment* (fonts, GPU, timing). A PR claiming "preview matches export" without an actual end-to-end check is still claiming something unverified. | arch §12 |
 
 ## Export
 
@@ -106,7 +107,7 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 |---|---|---|
 | X1 | `POST /export` produces burned-in video alone (`{video_url}`). `POST /export-srt` produces SRT alone, as a separate async job that does not persist — see X6. | arch §2.5, contract §12 |
 | X2 | SRT loses word-level timing. Known and accepted. Do not "fix" it by inventing an SRT extension. | arch §2.5 |
-| X3 | ASS export is **deferred**. No endpoint, no flag. (ASS may still be used internally as the libass intermediate.) | arch §2.5, §14.5 |
+| X3 | ASS export is **deferred**. No endpoint, no flag. ASS/libass has **no internal role either** anymore — burn-in no longer goes through libass at all (P9). | arch §2.5, §14.5, INVARIANTS P9 |
 | X5 | `POST /export` persists both documents as a side effect, then enqueues. One validation path shared with `PUT /ecs` / `PUT /style`. | contract §12 |
 | X6 | `POST /export-srt` shares `POST /export`'s ECS+style validation but does not persist ecs/style — X5's persist-then-enqueue rule does not apply to it. The submitted body is used once, handed to the Celery task as plain data, and discarded. | contract §12 |
 | X7 | A cancelled export deletes its partial output file — same cleanup path as a genuinely failed export, both handled in the task's own except-block, not a separate cleanup job. | contract §5 |
@@ -123,7 +124,7 @@ described — nothing produces it anymore.)
 | A2 | File access goes through `storage.py`. No direct disk paths in services or routes. | arch §2.1 |
 | A3 | Redis, if introduced, is **never a source of truth** for anything. Unavailable Redis ⇒ slower, never wrong, never stuck. | contract §14 |
 | A4 | Quota/payment checks, when they land, sit at the service-layer boundary before expensive operations (export). Not in routes. | arch §2.4, contract §13.12 |
-| A5 | `progress_percent` and an export job's tracked ffmpeg PID live in Redis only, never Postgres (A3 applies to both) — losing either mid-run degrades to "no progress shown" / "can't be cancelled anymore", never a stuck or wrong `Job` row. | contract §5 |
+| A5 | `progress_percent` and the tracked PID of export's currently-active subprocess (P8/P9) live in Redis only, never Postgres (A3 applies to both) — losing either mid-run degrades to "no progress shown" / "can't be cancelled anymore", never a stuck or wrong `Job` row. | contract §5 |
 
 ---
 

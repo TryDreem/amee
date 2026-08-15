@@ -232,11 +232,11 @@ best-effort basis, not a strict per-step state machine; clients poll `GET /jobs/
 the same way they already poll for status (contract §14 — the app database stays the source of
 truth either way).
 
-`progress_percent` is only meaningful for `type: "export"` while its ffmpeg burn-in step is actually
-running — computed from ffmpeg's own `-progress` output against `Project.video_duration_seconds`, not
-estimated. Lives in Redis, not Postgres (INVARIANTS A3 — never the source of truth for anything; an
-unavailable/evicted value just means this field reads `null`, nothing is stuck or wrong). `null` for
-every other `type`/status combination.
+`progress_percent` is only meaningful for `type: "export"` while the job is `processing` — a single
+blended 0-100 value computed across both of export's internal phases (headless-browser frame
+rendering, then ffmpeg compositing/mux), not estimated. Lives in Redis, not Postgres (INVARIANTS A3
+— never the source of truth for anything; an unavailable/evicted value just means this field reads
+`null`, nothing is stuck or wrong). `null` for every other `type`/status combination.
 
 `status: "cancelled"` is distinct from `"failed"` — set only when `POST .../cancel` below actually
 stopped the job, never used for a job that genuinely errored on its own.
@@ -580,7 +580,7 @@ None of this changes an endpoint or a JSON shape beyond the rate-limit conventio
 
 | Use | Sits behind | Notes |
 |---|---|---|
-| Export progress + cancellation (`progress_percent`, tracked ffmpeg PID) | Job service (§5) | **Confirmed, not speculative — the only currently-implemented use in this table.** `Job.progress_percent` and a running export's ffmpeg PID live only in Redis, never Postgres. Losing either mid-export just means "no progress shown" / "can't be cancelled anymore" — never a stuck or wrong `Job` row. |
+| Export progress + cancellation (`progress_percent`, tracked pid of the active phase) | Job service (§5) | **Confirmed, not speculative — the only currently-implemented use in this table.** `Job.progress_percent` and the PID of export's currently-active subprocess (frame-render phase or ffmpeg mux phase) live only in Redis, never Postgres. Losing either mid-export just means "no progress shown" / "can't be cancelled anymore" — never a stuck or wrong `Job` row. |
 | Cache (presets, job-status reads) | Data access layer (architecture doc §2.2) | Repository interface is unchanged; cache-aside lives inside the repository implementation. The app database stays authoritative — a cache miss just means "slower," never "wrong." |
 | Rate limiting counters | API-layer middleware (§1) | Standard token-bucket backing store. Keyed by `owner_id` (§1), same as the `429` convention above. |
 | Ephemeral job-status push | New — a poll→push channel for `GET /jobs/{id}` (raised earlier in this conversation as a genuine scaling win at high poll volume, distinct from the queue-count question) | Redis pub/sub carries "status changed" *notifications* only, to trigger a WebSocket/SSE push. It does not carry the status itself as something a client can trust on its own — the persisted row in the app database (architecture doc §2.3) is still what a client re-checks on reconnect. A dropped pub/sub message costs a UX delay until the next poll, never a wrong status. |
