@@ -4,7 +4,7 @@ import type { Segment, Word } from "../api/client";
 // the Initial Splitter's own private constants (backend/app/services/splitter.py), but a
 // logically separate pair that this file owns independently.
 export const EDIT_MAX_WORDS_PER_SEGMENT = 8;
-export const EDIT_MAX_CHARS_PER_SEGMENT = 42;
+export const EDIT_MAX_CHARS_PER_SEGMENT = 30;
 
 // Frontend-only timestamp-estimation heuristic (INVARIANTS V6, E2) -- never sent to the
 // backend as a validation rule.

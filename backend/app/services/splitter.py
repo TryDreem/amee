@@ -5,7 +5,7 @@ from typing import Protocol, TypeVar
 # groups short enough to be plausible captions until the Layout Engine (§8) does
 # the real, pixel-accurate fit check later.
 _MAX_WORDS_PER_SEGMENT = 8
-_MAX_CHARS_PER_SEGMENT = 42
+_MAX_CHARS_PER_SEGMENT = 30
 
 
 class _HasText(Protocol):
