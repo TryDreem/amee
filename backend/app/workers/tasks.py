@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.db import async_session_factory
+from app.integrations import browser_render
 from app.integrations import redis as redis_integration
 from app.integrations import storage
 from app.integrations.ffmpeg import (
@@ -16,7 +17,7 @@ from app.integrations.ffmpeg import (
     probe_video,
     transcode_proxy,
 )
-from app.integrations.subtitles import generate_ass, generate_srt
+from app.integrations.subtitles import generate_srt
 from app.integrations.whisperx import TranscribedWord
 from app.repositories import ecs as ecs_repo
 from app.repositories import job as job_repo
@@ -43,6 +44,12 @@ _PROXY_HEIGHT_THRESHOLD = 1080
 # than Redis should be written to (A5) - only persist on at least this much
 # movement, plus always the final 100 (handled separately in ffmpeg.py).
 _PROGRESS_WRITE_THRESHOLD_PERCENT = 1.0
+
+# Share of an export's single progress bar given to the frame-render phase,
+# the rest going to the ffmpeg composite (see _do_export). A guess about
+# relative wall time, not a measurement — its only hard requirement is that
+# the two phases occupy disjoint bands so the bar never moves backwards.
+_RENDER_PHASE_SHARE = 0.7
 
 
 @celery_app.task(queue="transcribe")
@@ -338,10 +345,7 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
 
     video_path = storage.resolve_url(project.video_url)
     video_dest, video_url = storage.video_export_paths(project_id, job_id)
-
-    ass_text = generate_ass(
-        ecs, style, preset, project.video_width, project.video_height
-    )
+    probe = await probe_video(video_path)
 
     last_reported_percent = -1.0
 
@@ -358,26 +362,63 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
             last_reported_percent = percent
             await redis_integration.set_export_progress(str(job_id), percent)
 
+    # One 0-100 bar over two phases of very different character (contract §5).
+    # The split is a fixed guess, not a measurement: frame rendering dominates
+    # wall time on every clip tried so far, but the real ratio moves with clip
+    # length, resolution, and how much of the video actually has captions on
+    # screen. A bar that advances unevenly is fine; one that goes backwards is
+    # not, which is why each phase is mapped into its own disjoint band.
+    async def _report_render_progress(percent: float) -> None:
+        await _report_progress(percent * _RENDER_PHASE_SHARE)
+
+    async def _report_mux_progress(percent: float) -> None:
+        await _report_progress(
+            _RENDER_PHASE_SHARE * 100 + percent * (1 - _RENDER_PHASE_SHARE)
+        )
+
     async def _report_pid(pid: int) -> None:
         await redis_integration.set_export_pid(str(job_id), pid)
 
+    async def _cancel_requested() -> bool:
+        return await redis_integration.is_export_cancel_requested(str(job_id))
+
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            ass_path = Path(tmp_dir) / "captions.ass"
-            ass_path.write_text(ass_text)
+            frames_dir = Path(tmp_dir)
+            # Phase 1: draw the captions with the frontend's own renderer (P9).
+            # Unresolved preset/overrides go over as-is - the cascade runs in
+            # the page, per active segment, exactly as the editor does it (R2).
+            await browser_render.render_frames(
+                frames_dir,
+                segments=[s.model_dump(mode="json") for s in ecs.segments],
+                preset=preset.model_dump(mode="json"),
+                overrides=style.overrides.model_dump(mode="json"),
+                per_phrase_style=style.perPhraseStyle,
+                width=project.video_width,
+                height=project.video_height,
+                duration_seconds=probe.duration_seconds,
+                fps=probe.fps,
+                on_progress=_report_render_progress,
+                should_cancel=_cancel_requested,
+            )
+            # Phase 2: composite those frames onto the source video. ffmpeg
+            # renders no text here, it only overlays finished pixels.
             await burn_in_captions(
                 video_path,
-                ass_path,
+                frames_dir,
                 video_dest,
-                on_progress=_report_progress,
-                total_duration_seconds=project.video_duration_seconds,
+                fps=probe.fps,
+                on_progress=_report_mux_progress,
+                total_duration_seconds=probe.duration_seconds,
                 on_pid=_report_pid,
             )
     except Exception:
-        # X7: a killed (cancelled) or genuinely-failed ffmpeg run can leave
-        # a partial, invalid file at video_dest - never leave that on disk
-        # under either outcome. missing_ok=True: ffmpeg may have failed
-        # before ever opening the output file at all.
+        # X7: a killed (cancelled) or genuinely-failed run can leave a
+        # partial, invalid file at video_dest - never leave that on disk under
+        # either outcome. missing_ok=True: it may have failed before the
+        # output file was ever opened (including during phase 1, which never
+        # touches it at all). The frame directory needs no such handling -
+        # TemporaryDirectory removes it on every path out of the `with`.
         video_dest.unlink(missing_ok=True)
         raise
 

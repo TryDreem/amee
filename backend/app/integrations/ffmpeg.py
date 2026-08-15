@@ -253,44 +253,57 @@ async def transcode_proxy(path: Path, dest: Path) -> None:
     )
 
 
-def _escape_ffmpeg_filter_path(path: str) -> str:
-    """libavfilter's own escaping for a filter option value (not the shell —
-    `_run_ffmpeg` execs argv directly, no shell is ever involved): backslash,
-    single quote, and colon are significant inside a filtergraph string."""
-    return path.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
-
-
 async def burn_in_captions(
     video_path: Path,
-    ass_path: Path,
+    frames_dir: Path,
     dest: Path,
     *,
+    fps: float,
     on_progress: Callable[[float], Awaitable[None]] | None = None,
     total_duration_seconds: float | None = None,
     on_pid: Callable[[int], Awaitable[None]] | None = None,
 ) -> None:
-    """Burns Step 10's `.ass` (the libass intermediate, INVARIANTS X3) into
-    the video via ffmpeg's `ass` filter (arch §2.5, contract §12's
-    `video_url` output). Always runs against the **original** upload, never
-    the preview proxy — same "full quality at final output" rule §2.8a
-    already applies to WhisperX (audio extraction always uses the original,
-    never the downscaled proxy).
+    """Composites a pre-rendered transparent caption frame sequence onto the
+    video (arch §2.5, contract §12's `video_url` output). The frames come from
+    `browser_render.render_frames`, which draws them with the frontend's own
+    `CaptionOverlay` — ffmpeg does no text rendering here at all (INVARIANTS
+    P9; this replaced an earlier `-vf ass=` libass pass, X3).
+
+    Always runs against the **original** upload, never the preview proxy —
+    same "full quality at final output" rule §2.8a already applies to
+    WhisperX (audio extraction always uses the original, never the
+    downscaled proxy).
 
     CRF 18, not proxy's CRF 23: this is the deliverable, not an editor
     convenience copy — a flagged choice, not pinned by any doc.
 
     `on_progress`/`total_duration_seconds` are optional and only meaningful
-    together (contract §5, A5) - the burn-in is the one ffmpeg step in this
+    together (contract §5, A5) - the composite is the one ffmpeg step in this
     app long enough to matter (thumbnail/proxy don't take these params).
     `on_pid` (P8) is independent of the other two - a cancellable export
     still needs its pid reported even if progress reporting is unavailable
     for some reason."""
-    escaped = _escape_ffmpeg_filter_path(str(ass_path))
     await _run_ffmpeg(
         "-i",
         str(video_path),
-        "-vf",
-        f"ass='{escaped}'",
+        # -framerate belongs to the *input*, before -i: it declares the rate the
+        # numbered PNGs are read at. Passed after -i it would be an output
+        # option and the sequence would be reinterpreted at ffmpeg's 25fps
+        # default, drifting the captions out of sync with speech.
+        "-framerate",
+        str(fps),
+        "-i",
+        str(frames_dir / "frame_%06d.png"),
+        # shortest=1 so a rounding-up extra overlay frame (frame_count uses
+        # ceil) can't extend the output past the source video's own end.
+        "-filter_complex",
+        "[0:v][1:v]overlay=0:0:format=auto:shortest=1[v]",
+        "-map",
+        "[v]",
+        # `?` makes the audio stream optional - test fixtures and some uploads
+        # are video-only, and a hard -map 0:a would fail those outright.
+        "-map",
+        "0:a?",
         "-c:v",
         "libx264",
         "-crf",

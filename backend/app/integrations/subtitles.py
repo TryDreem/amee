@@ -1,47 +1,26 @@
-r"""SRT and ASS generation for export (arch §2.5, contract §12).
+r"""SRT generation and the style cascade (arch §2.5, contract §12).
 
 Pure functions — no ffmpeg, disk, or DB access here (same testability shape
-as `app/services/splitter.py`/`ecs_validation.py`). ASS is the libass
-intermediate only (INVARIANTS X3): it is never itself an export output,
-just the input `ffmpeg.burn_in_captions` (Step 11) feeds to `-vf ass=...`.
+as `app/services/splitter.py`/`ecs_validation.py`).
 
-**Parity caveat (arch §12, INVARIANTS R3):** preview/export pixel parity is
-explicitly *not yet validated* anywhere in this project — no frame-diff
-suite exists. This module implements the documented rules (2-line max,
-word-only wrap, safe area, center-only horizontal, relative-unit sizing) as
-best-effort against libass's own automatic line-breaking (`WrapStyle`), not
-as a from-scratch text-measurement engine matching whatever the frontend's
-CSS/Canvas preview does pixel-for-pixel. Flagged, not hidden.
+**This module used to also generate ASS** for a libass burn-in pass. That is
+gone (INVARIANTS P9/X3): burn-in now renders the frontend's own
+`CaptionOverlay` headless and composites the resulting frames, so nothing in
+the backend describes how a caption *looks* anymore. Every visual assumption
+this module used to carry — the vertical anchor, the alpha convention, the
+outline/shadow size-to-pixel mapping, glow-as-edge-blur, a made-up
+horizontal margin, and the fact that `captionAnimation` had no ASS
+equivalent at all — went with it. Those were exactly the places preview and
+export could disagree.
 
-A few rendering choices aren't pinned by any doc and are stated here as this
-module's own assumptions, not something confirmed elsewhere:
-- `verticalPosition` anchors the vertical *center* of the caption block
-  (`\an5` + `\pos`), not its top or baseline.
-- `alpha` on `outline`/`shadow` follows the common "0 = fully transparent,
-  100 = fully opaque" convention (CSS `opacity`-like), inverted internally
-  to ASS's `00`-opaque/`FF`-transparent alpha byte.
-- `outline`/`shadow` `size` (`none`/`small`/`medium`/`large`) maps to a
-  fixed small set of pixel widths — there's no numeric field for this in
-  the wire schema to derive from.
-- `glow` is approximated via edge blur (`\be1`) — ASS has no native glow.
-- No horizontal safe-area *width* field exists in the wire schema (only
-  vertical `safeArea.top`/`bottom`, §9.2) — a small fixed side margin is
-  used for wrap width instead of a documented value.
+What remains is text-level only, and stays here because SRT genuinely needs
+it: SRT is a text format, unaffected by how captions are drawn.
 
-`showPunctuation` (INVARIANTS S7) is applied *before* `textTransform` in
-both `generate_srt` and `generate_ass` - order is arbitrary (case doesn't
-interact with punctuation chars) but must be fixed to one order, stated
-here rather than left to whichever function happens to call them first.
-`Word.text` itself is never mutated (S1) - stripping happens only in the
-strings this module builds for SRT/ASS output.
-
-`captionAnimation` (INVARIANTS S8) is resolved through the style cascade
-like every other field, but **deliberately not applied to the burned-in
-export** - it's a cosmetic entrance transition with no real ASS/libass
-equivalent for most of its values (`pop`/`bounce`/`blur`/`snap`), and
-approximating only `fade` via `\fad()` would be inconsistent special-casing
-one of six values. A burned-in video not replicating a live editor's
-entrance transition is a stated scope boundary, not a silent gap.
+`showPunctuation` (INVARIANTS S7) is applied *before* `textTransform` -
+order is arbitrary (case doesn't interact with punctuation chars) but must
+be fixed to one order, stated here rather than left to whichever function
+happens to call them first. `Word.text` itself is never mutated (S1) -
+stripping happens only in the strings this module builds for SRT output.
 """
 
 import re
@@ -53,30 +32,9 @@ from app.schemas.style import (
     CaptionAnimation,
     CaptionStyleSpec,
     OutlineOrShadow,
-    OutlineShadowSize,
     RevealMode,
     StyleOverrides,
     TextTransform,
-)
-
-_HORIZONTAL_MARGIN_FRACTION = (
-    0.05  # see module docstring - no wire-schema field for this
-)
-_OUTLINE_SIZE_PX = {
-    OutlineShadowSize.none: 0,
-    OutlineShadowSize.small: 1,
-    OutlineShadowSize.medium: 2,
-    OutlineShadowSize.large: 4,
-}
-_BOLD_WEIGHT_THRESHOLD = 700
-_ASS_STYLES_FORMAT = (
-    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
-    "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
-    "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
-    "Alignment, MarginL, MarginR, MarginV, Encoding"
-)
-_ASS_EVENTS_FORMAT = (
-    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
 )
 
 # ---------------------------------------------------------------------------
@@ -222,45 +180,6 @@ def resolve_effective_style(
     return effective
 
 
-# ---------------------------------------------------------------------------
-# ASS generation
-# ---------------------------------------------------------------------------
-
-
-def _ass_timestamp(seconds: float) -> str:
-    total_cs = round(seconds * 100)
-    hours, rem_cs = divmod(total_cs, 360_000)
-    minutes, rem_cs = divmod(rem_cs, 6_000)
-    secs, cs = divmod(rem_cs, 100)
-    return f"{hours:01d}:{minutes:02d}:{secs:02d}.{cs:02d}"
-
-
-def _hex_to_ass_bgr(hex_color: str) -> str:
-    h = hex_color.lstrip("#")
-    r, g, b = h[0:2], h[2:4], h[4:6]
-    return f"{b}{g}{r}".upper()
-
-
-def _alpha_to_ass_hex(alpha_percent: float) -> str:
-    # 0 = fully transparent, 100 = fully opaque (module docstring) - ASS's
-    # alpha byte is inverted: 00 = opaque, FF = transparent.
-    clamped = max(0.0, min(100.0, alpha_percent))
-    byte = round((100.0 - clamped) / 100.0 * 255)
-    return f"{byte:02X}"
-
-
-def _ass_color(hex_color: str, alpha_percent: float = 100.0) -> str:
-    """`&HAABBGGRR&` - the full tag, usable both in a Style line's color
-    columns and inside a `\\c`/`\\1c` override tag."""
-    return f"&H{_alpha_to_ass_hex(alpha_percent)}{_hex_to_ass_bgr(hex_color)}&"
-
-
-def _escape_ass_text(text: str) -> str:
-    # `{`/`}` delimit override tags - not expected in real captions, but a
-    # word literally containing one must not corrupt the event line.
-    return text.replace("{", "｛").replace("}", "｝")
-
-
 def _apply_text_transform(text: str, transform: TextTransform) -> str:
     return text.upper() if transform is TextTransform.uppercase else text
 
@@ -287,144 +206,3 @@ def _display_text(text: str, effective: EffectiveStyle) -> str:
     if not effective.showPunctuation:
         text = _strip_punctuation(text)
     return _apply_text_transform(text, effective.textTransform)
-
-
-def _is_bold(font_weight: int | str) -> bool:
-    if isinstance(font_weight, int):
-        return font_weight >= _BOLD_WEIGHT_THRESHOLD
-    return font_weight.lower() in ("bold", "700", "800", "900")
-
-
-def _style_line(
-    name: str, video_width: int, video_height: int, effective: EffectiveStyle
-) -> str:
-    font_size_px = round(effective.fontSize * video_height)
-    outline_px = _OUTLINE_SIZE_PX[effective.outline.size] if effective.outline else 0
-    shadow_px = _OUTLINE_SIZE_PX[effective.shadow.size] if effective.shadow else 0
-    outline_color = (
-        _ass_color(effective.outline.color, effective.outline.alpha)
-        if effective.outline
-        else _ass_color("#000000", 100.0)
-    )
-    shadow_color = (
-        _ass_color(effective.shadow.color, effective.shadow.alpha)
-        if effective.shadow
-        else _ass_color("#000000", 100.0)
-    )
-    margin_h = round(video_width * _HORIZONTAL_MARGIN_FRACTION)
-    primary = _ass_color(effective.color)
-
-    return (
-        f"Style: {name},"
-        f"{effective.fontFamily},{font_size_px},"
-        f"{primary},{primary},{outline_color},{shadow_color},"
-        f"{1 if _is_bold(effective.fontWeight) else 0},"
-        f"{1 if effective.italic else 0},0,0,"
-        "100,100,0,0,"
-        f"1,{outline_px},{shadow_px},5,"
-        f"{margin_h},{margin_h},0,1"
-    )
-
-
-def _dialogue_line(
-    *,
-    style_name: str,
-    start: float,
-    end: float,
-    text: str,
-    video_width: int,
-    video_height: int,
-    effective: EffectiveStyle,
-) -> str:
-    pos_x = video_width // 2
-    pos_y = round(effective.verticalPosition * video_height)
-    tags = f"\\an5\\pos({pos_x},{pos_y})"
-    if effective.glow:
-        tags += "\\be1"
-    return (
-        f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},"
-        f"{style_name},,0,0,0,,{{{tags}}}{text}"
-    )
-
-
-def generate_ass(
-    ecs: ECS,
-    style: CaptionStyleSpec,
-    preset: Preset,
-    video_width: int,
-    video_height: int,
-) -> str:
-    """Reveal modes (arch §7, contract §8, INVARIANTS S8): all three highlight
-    one word at a time via per-word `Dialogue` events timed to that word's
-    own window (extended to the next word's start, so the highlight holds
-    through the pause rather than flickering back to base color) - `phrase`
-    always shows every word in the segment, `progressive` shows words up to
-    the currently active one, `single-word` shows *only* the currently
-    active word (every other word absent from that event's text entirely,
-    not dimmed). `highlightColors` cycles by **segment index** (S5), not
-    word or id. Each segment gets its own `[V4+ Styles]` entry since
-    `perPhraseStyle` (D11) can give it a different effective style than its
-    neighbors."""
-    header = [
-        "[Script Info]",
-        "ScriptType: v4.00+",
-        f"PlayResX: {video_width}",
-        f"PlayResY: {video_height}",
-        "WrapStyle: 0",
-        "",
-        "[V4+ Styles]",
-        _ASS_STYLES_FORMAT,
-    ]
-    style_lines: list[str] = []
-    events = ["", "[Events]", _ASS_EVENTS_FORMAT]
-
-    for seg_idx, segment in enumerate(ecs.segments):
-        if not segment.words:
-            continue
-        effective = resolve_effective_style(preset, style, segment)
-        style_name = f"Segment{seg_idx}"
-        style_lines.append(
-            _style_line(style_name, video_width, video_height, effective)
-        )
-
-        colors = effective.highlightColors or ["#FFFFFF"]
-        highlight_tag = _ass_color(colors[seg_idx % len(colors)])
-        base_tag = _ass_color(effective.color)
-
-        words = segment.words
-        for word_idx, word in enumerate(words):
-            active_end = (
-                words[word_idx + 1].start if word_idx + 1 < len(words) else word.end
-            )
-            if effective.revealMode is RevealMode.single_word:
-                visible = [word]
-            elif effective.revealMode is RevealMode.progressive:
-                visible = words[: word_idx + 1]
-            else:
-                visible = words
-            rendered = []
-            for w in visible:
-                text = _escape_ass_text(_display_text(w.text, effective))
-                if not text:
-                    continue  # word stripped to nothing (S7) - keeps its
-                    # timeline slot (this loop iteration), contributes no text
-                # Identity, not index: `visible` isn't always a prefix of
-                # `words` starting at 0 (single-word mode's `visible` is a
-                # one-element list at relative index 0), so the only
-                # reliable way to spot the active word is that it's the
-                # same object as the outer loop's `word`.
-                color = highlight_tag if w is word else base_tag
-                rendered.append(f"{{\\c{color}}}{text}")
-            events.append(
-                _dialogue_line(
-                    style_name=style_name,
-                    start=word.start,
-                    end=active_end,
-                    text=" ".join(rendered),
-                    video_width=video_width,
-                    video_height=video_height,
-                    effective=effective,
-                )
-            )
-
-    return "\n".join(header + style_lines + events) + "\n"

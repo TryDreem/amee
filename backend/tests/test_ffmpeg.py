@@ -135,34 +135,62 @@ async def test_probe_video_raises_on_non_video_file(tmp_path: Path) -> None:
         await probe_video(not_a_video)
 
 
-_TRIVIAL_ASS = """[Script Info]
-ScriptType: v4.00+
-PlayResX: 320
-PlayResY: 240
-WrapStyle: 0
+_FRAMES_FPS = 10.0
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Segment0,Inter,24,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,0,0,5,16,16,0,1
 
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.00,0:00:01.00,Segment0,,0,0,0,,{\\an5\\pos(160,180)}hi
-"""
+async def _write_caption_frames(
+    dest_dir: Path, *, count: int, width: int = 320, height: int = 240
+) -> Path:
+    """A stand-in for `browser_render.render_frames`' output: the numbered,
+    transparent PNG sequence `burn_in_captions` composites. Generated with
+    ffmpeg itself rather than the real browser so these tests stay about the
+    compositing step alone - the browser side has its own suite."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=c=red@0.5:s={width}x{height}:r={_FRAMES_FPS}:d={count / _FRAMES_FPS}",
+        "-vframes",
+        str(count),
+        "-pix_fmt",
+        "rgba",
+        str(dest_dir / "frame_%06d.png"),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    assert proc.returncode == 0, stderr.decode()
+    return dest_dir
 
 
 async def test_burn_in_captions_produces_a_video_with_matching_duration(
     sample_video: Path, tmp_path: Path
 ) -> None:
-    ass_path = tmp_path / "captions.ass"
-    ass_path.write_text(_TRIVIAL_ASS)
+    frames = await _write_caption_frames(tmp_path / "frames", count=10)
     dest = tmp_path / "burned.mp4"
 
-    await burn_in_captions(sample_video, ass_path, dest)
+    await burn_in_captions(sample_video, frames, dest, fps=_FRAMES_FPS)
 
     assert dest.exists()
     probe = await probe_video(dest)
     assert probe.duration_seconds == pytest.approx(1.0, abs=0.2)
+
+
+async def test_burn_in_captions_keeps_source_dimensions(
+    sample_video: Path, tmp_path: Path
+) -> None:
+    """The overlay is composited at 0:0 over the source, never scaling or
+    cropping it - a mismatch here would silently letterbox every export."""
+    frames = await _write_caption_frames(tmp_path / "frames", count=10)
+    dest = tmp_path / "burned.mp4"
+
+    await burn_in_captions(sample_video, frames, dest, fps=_FRAMES_FPS)
+
+    probe = await probe_video(dest)
+    assert (probe.width, probe.height) == (320, 240)
 
 
 async def test_burn_in_captions_reports_progress_up_to_100(
@@ -173,8 +201,7 @@ async def test_burn_in_captions_reports_progress_up_to_100(
     duration. The final callback is always exactly 100.0 (ffmpeg.py handles
     the "last frame is a hair short of nominal duration" rounding case on
     `progress=end`), not just close to it."""
-    ass_path = tmp_path / "captions.ass"
-    ass_path.write_text(_TRIVIAL_ASS)
+    frames = await _write_caption_frames(tmp_path / "frames", count=10)
     dest = tmp_path / "burned.mp4"
     percents: list[float] = []
 
@@ -183,8 +210,9 @@ async def test_burn_in_captions_reports_progress_up_to_100(
 
     await burn_in_captions(
         sample_video,
-        ass_path,
+        frames,
         dest,
+        fps=_FRAMES_FPS,
         on_progress=_record,
         total_duration_seconds=1.0,
     )
@@ -201,11 +229,10 @@ async def test_burn_in_captions_without_on_progress_still_works(
     """The -progress pipe:1/-nostats args are only added when on_progress is
     given - every other caller (and every export before this step) must be
     unaffected."""
-    ass_path = tmp_path / "captions.ass"
-    ass_path.write_text(_TRIVIAL_ASS)
+    frames = await _write_caption_frames(tmp_path / "frames", count=10)
     dest = tmp_path / "burned.mp4"
 
-    await burn_in_captions(sample_video, ass_path, dest)
+    await burn_in_captions(sample_video, frames, dest, fps=_FRAMES_FPS)
 
     assert dest.exists() and dest.stat().st_size > 0
 
@@ -235,8 +262,9 @@ async def test_killing_the_process_group_actually_stops_ffmpeg(tmp_path: Path) -
         check=True,
         capture_output=True,
     )
-    ass_path = tmp_path / "captions.ass"
-    ass_path.write_text(_TRIVIAL_ASS)
+    frames = await _write_caption_frames(
+        tmp_path / "frames", count=10, width=1920, height=1080
+    )
     dest = tmp_path / "burned.mp4"
 
     pid_holder: dict[str, int] = {}
@@ -247,7 +275,9 @@ async def test_killing_the_process_group_actually_stops_ffmpeg(tmp_path: Path) -
         pid_reported.set()
 
     render_task = asyncio.create_task(
-        burn_in_captions(slow_source, ass_path, dest, on_pid=_capture_pid)
+        burn_in_captions(
+            slow_source, frames, dest, fps=_FRAMES_FPS, on_pid=_capture_pid
+        )
     )
 
     await asyncio.wait_for(pid_reported.wait(), timeout=5.0)

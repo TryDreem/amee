@@ -120,17 +120,33 @@ def test_export_task_marks_job_failed_when_setup_fails(
 def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
     eager_celery: None, sample_video: Path
 ) -> None:
-    """contract §5/A5: _do_export wires burn_in_captions's on_progress
-    callback through to Redis (throttled - see
+    """contract §5/A5: _do_export blends both phases' progress into one
+    0-100 bar and pushes it to Redis (throttled - see
     _PROGRESS_WRITE_THRESHOLD_PERCENT), and the key is gone once the job
-    reaches done, not left to expire on its TTL."""
+    reaches done, not left to expire on its TTL.
+
+    The two phases occupy disjoint bands (_RENDER_PHASE_SHARE), so a full
+    frame-render phase reaching 100% must report 70, not 100 - otherwise the
+    bar would hit 100 while the composite hadn't even started, then appear
+    frozen."""
     job_id = asyncio.run(_create_export_job(sample_video))
+
+    async def _fake_render_frames(
+        dest_dir: Path,
+        **kwargs: object,
+    ) -> int:
+        on_progress = kwargs["on_progress"]
+        assert kwargs["should_cancel"] is not None
+        for percent in (50.0, 100.0):
+            await on_progress(percent)  # type: ignore[operator]
+        return 2
 
     async def _fake_burn_in_captions(
         video_path: Path,
-        ass_path: Path,
+        frames_dir: Path,
         dest: Path,
         *,
+        fps: float,
         on_progress: object = None,
         total_duration_seconds: float | None = None,
         on_pid: object = None,
@@ -138,8 +154,9 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
         assert on_progress is not None
         assert total_duration_seconds is not None
         assert on_pid is not None
+        assert fps > 0
         await on_pid(4242)  # type: ignore[operator]
-        for percent in (10.0, 55.0, 100.0):
+        for percent in (50.0, 100.0):
             await on_progress(percent)  # type: ignore[operator]
         dest.write_bytes(b"fake video bytes")
 
@@ -151,6 +168,7 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
         await original_set(job_id_str, percent)
 
     with (
+        patch("app.workers.tasks.browser_render.render_frames", _fake_render_frames),
         patch("app.workers.tasks.burn_in_captions", _fake_burn_in_captions),
         patch(
             "app.workers.tasks.redis_integration.set_export_progress",
@@ -159,7 +177,8 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
     ):
         export_task.delay(str(job_id))
 
-    assert reported == [10.0, 55.0, 100.0]
+    # Render phase 50/100 -> 35/70; composite phase 50/100 -> 85/100.
+    assert reported == [35.0, 70.0, 85.0, 100.0]
     finished = asyncio.run(_get_job(job_id))
     assert finished.status == JobStatus.done
     assert asyncio.run(redis_integration.get_export_progress(str(job_id))) is None

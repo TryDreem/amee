@@ -2,7 +2,6 @@ import uuid
 
 from app.integrations.subtitles import (
     _strip_punctuation,
-    generate_ass,
     generate_srt,
     resolve_effective_style,
 )
@@ -168,84 +167,6 @@ def test_resolve_effective_style_outline_replaces_as_whole_object() -> None:
 
 
 # ---------------------------------------------------------------------------
-# generate_ass
-# ---------------------------------------------------------------------------
-
-
-def test_generate_ass_has_required_sections() -> None:
-    ecs = _ecs([_segment([_word("hi", 0.0, 0.3), _word("there", 0.3, 0.6)])])
-    ass = generate_ass(ecs, _style(), _preset(), video_width=1080, video_height=1920)
-    assert "[Script Info]" in ass
-    assert "[V4+ Styles]" in ass
-    assert "[Events]" in ass
-    assert "PlayResX: 1080" in ass
-    assert "PlayResY: 1920" in ass
-    assert "Dialogue:" in ass
-    assert "Style: Segment0," in ass
-
-
-def test_generate_ass_progressive_reveal_grows_visible_words() -> None:
-    ecs = _ecs([_segment([_word("hi", 0.0, 0.3), _word("there", 0.3, 0.6)])])
-    ass = generate_ass(ecs, _style(), _preset(), video_width=1080, video_height=1920)
-    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
-    assert len(dialogue_lines) == 2
-    # first word's event only shows "hi", the second shows both words
-    assert "there" not in dialogue_lines[0]
-    assert "hi" in dialogue_lines[1] and "there" in dialogue_lines[1]
-
-
-def test_generate_ass_phrase_reveal_always_shows_full_segment() -> None:
-    preset = _preset()
-    style = _style(overrides=StyleOverrides(revealMode=RevealMode.phrase))
-    ecs = _ecs([_segment([_word("hi", 0.0, 0.3), _word("there", 0.3, 0.6)])])
-    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
-    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
-    assert len(dialogue_lines) == 2
-    assert "hi" in dialogue_lines[0] and "there" in dialogue_lines[0]
-    assert "hi" in dialogue_lines[1] and "there" in dialogue_lines[1]
-
-
-def test_generate_ass_per_phrase_style_off_ignores_segment_overrides() -> None:
-    preset = _preset()
-    style = _style(per_phrase_style=False)
-    segment = _segment([_word("hi", 0.0, 0.3)], overrides=StyleOverrides(fontSize=0.5))
-    ecs = _ecs([segment])
-    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
-    # 0.5 * 1920 = 960 - must not appear; the preset's own 0.08 * 1920 must
-    style_line = [line for line in ass.splitlines() if line.startswith("Style:")][0]
-    assert ",960," not in style_line
-    assert f",{round(0.08 * 1920)}," in style_line
-
-
-def test_generate_ass_per_phrase_style_on_applies_segment_overrides() -> None:
-    preset = _preset()
-    style = _style(per_phrase_style=True)
-    segment = _segment([_word("hi", 0.0, 0.3)], overrides=StyleOverrides(fontSize=0.5))
-    ecs = _ecs([segment])
-    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
-    style_line = [line for line in ass.splitlines() if line.startswith("Style:")][0]
-    assert f",{round(0.5 * 1920)}," in style_line
-
-
-def test_generate_ass_highlight_colors_cycle_by_segment_index() -> None:
-    preset = _preset()
-    style = _style(overrides=StyleOverrides(highlightColors=["#111111", "#222222"]))
-    ecs = _ecs(
-        [
-            _segment([_word("a", 0.0, 0.3)]),
-            _segment([_word("b", 0.4, 0.7)]),
-            _segment([_word("c", 0.8, 1.1)]),
-        ]
-    )
-    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
-    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
-    # segment 0 -> color[0], segment 1 -> color[1], segment 2 -> color[0] again
-    assert "&H00111111&" in dialogue_lines[0]
-    assert "&H00222222&" in dialogue_lines[1]
-    assert "&H00111111&" in dialogue_lines[2]
-
-
-# ---------------------------------------------------------------------------
 # showPunctuation (INVARIANTS S7)
 # ---------------------------------------------------------------------------
 
@@ -284,92 +205,9 @@ def test_generate_srt_shows_punctuation_when_enabled() -> None:
     assert "hello, world!" in srt
 
 
-def test_generate_ass_default_hides_punctuation() -> None:
-    ecs = _ecs([_segment([_word("hi,", 0.0, 0.3)])])
-    ass = generate_ass(ecs, _style(), _preset(), video_width=1080, video_height=1920)
-    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
-    assert "hi," not in dialogue_lines[0]
-    assert "hi" in dialogue_lines[0]
-
-
-def test_generate_ass_shows_punctuation_when_enabled() -> None:
-    preset = _preset()
-    style = _style(overrides=StyleOverrides(showPunctuation=True))
-    ecs = _ecs([_segment([_word("hi,", 0.0, 0.3)])])
-    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
-    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
-    assert "hi," in dialogue_lines[0]
-
-
-def test_generate_ass_word_stripped_to_empty_is_dropped_but_keeps_timeline_slot() -> (
-    None
-):
-    # A word that's pure punctuation still gets its own Dialogue event
-    # (S7: keeps its timeline slot) even though it contributes no text.
-    preset = _preset()
-    style = _style(overrides=StyleOverrides(revealMode=RevealMode.phrase))
-    ecs = _ecs(
-        [
-            _segment(
-                [_word("hi", 0.0, 0.3), _word("--", 0.3, 0.5), _word("bye", 0.5, 0.8)]
-            )
-        ]
-    )
-    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
-    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
-    assert len(dialogue_lines) == 3  # one event per word, including the empty one
-    assert "hi" in dialogue_lines[1] and "bye" in dialogue_lines[1]
-
-
-# ---------------------------------------------------------------------------
-# revealMode "single-word" + captionAnimation (INVARIANTS S8)
-# ---------------------------------------------------------------------------
-
-
 def test_resolve_effective_style_carries_caption_animation() -> None:
     preset = _preset()
     style = _style(overrides=StyleOverrides(captionAnimation=CaptionAnimation.fade))
     segment = _segment([_word("hi", 0.0, 0.3)])
     effective = resolve_effective_style(preset, style, segment)
     assert effective.captionAnimation == CaptionAnimation.fade
-
-
-def test_generate_ass_single_word_shows_only_the_active_word() -> None:
-    preset = _preset()
-    style = _style(overrides=StyleOverrides(revealMode=RevealMode.single_word))
-    ecs = _ecs(
-        [
-            _segment(
-                [
-                    _word("hi", 0.0, 0.3),
-                    _word("there", 0.3, 0.6),
-                    _word("you", 0.6, 0.9),
-                ]
-            )
-        ]
-    )
-    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
-    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
-    assert len(dialogue_lines) == 3
-    assert "hi" in dialogue_lines[0]
-    assert "there" not in dialogue_lines[0] and "you" not in dialogue_lines[0]
-    assert "there" in dialogue_lines[1]
-    assert "hi" not in dialogue_lines[1] and "you" not in dialogue_lines[1]
-    assert "you" in dialogue_lines[2]
-    assert "hi" not in dialogue_lines[2] and "there" not in dialogue_lines[2]
-
-
-def test_generate_ass_single_word_highlights_the_shown_word() -> None:
-    preset = _preset()
-    style = _style(
-        overrides=StyleOverrides(
-            revealMode=RevealMode.single_word,
-            highlightColors=["#123456"],
-        )
-    )
-    ecs = _ecs([_segment([_word("hi", 0.0, 0.3), _word("there", 0.3, 0.6)])])
-    ass = generate_ass(ecs, style, preset, video_width=1080, video_height=1920)
-    dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
-    # the single visible word in each event is always the active (highlighted) one
-    assert "&H00563412&" in dialogue_lines[0]
-    assert "&H00563412&" in dialogue_lines[1]
