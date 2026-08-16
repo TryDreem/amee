@@ -6,11 +6,13 @@ Skipped (not failed) when `frontend/dist` hasn't been built, so a backend-only c
 green. CI builds the frontend before the backend suite for exactly this reason.
 """
 
+import io
 import uuid
 from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from app.integrations import browser_render
 from app.integrations.browser_render import (
@@ -107,6 +109,41 @@ async def test_screenshot_at_returns_png_bytes() -> None:
 
     assert frame.startswith(b"\x89PNG\r\n\x1a\n")
     assert len(frame) > 0
+
+
+def _alpha_at(frame: bytes, x: int, y: int) -> int:
+    with Image.open(io.BytesIO(frame)) as image:
+        return image.convert("RGBA").getpixel((x, y))[3]  # type: ignore[index]
+
+
+async def test_rendered_frame_is_transparent_where_there_is_no_caption() -> None:
+    """The frame is composited *over* the video, so anything not caption must have alpha 0.
+
+    This is the one property no structural assertion catches: a frame can be a valid PNG of the
+    right size showing the right text and still be an opaque rectangle that hides the entire
+    video. That exact regression shipped once - `render.tsx` imported `index.css`, whose
+    `body { background: #0b0b0d }` Vite injected after the document's own transparent-background
+    rule - and every existing test passed while export produced a black screen with subtitles."""
+    async with _open() as page:
+        with_caption = await screenshot_at(page, 0.25)
+        without_caption = await screenshot_at(page, 5.0)
+
+    # Corners, far from the centered caption block, on a frame that *does* have a caption.
+    assert _alpha_at(with_caption, 0, 0) == 0
+    assert _alpha_at(with_caption, 359, 639) == 0
+    # And an instant with no active segment must be empty everywhere, including mid-frame.
+    assert _alpha_at(without_caption, 180, 320) == 0
+
+
+async def test_rendered_frame_is_opaque_where_the_caption_is() -> None:
+    """The other half of the check above: proving transparency alone would be satisfied by a
+    completely blank frame, which would export video with no captions at all."""
+    async with _open() as page:
+        frame = await screenshot_at(page, 0.25)
+
+    with Image.open(io.BytesIO(frame)) as image:
+        alpha_extremes = image.convert("RGBA").getchannel("A").getextrema()
+    assert alpha_extremes[1] > 0  # at least one pixel actually painted
 
 
 async def test_seeking_the_same_page_twice_yields_different_frames() -> None:

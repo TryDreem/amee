@@ -10,7 +10,11 @@ import { flushSync } from "react-dom";
 import CaptionOverlay from "./components/CaptionOverlay";
 import { resolveStyleLayers, type Preset, type Segment, type StyleOverrides } from "./api/client";
 import { findActiveSegmentIndex } from "./lib/activeSegment";
-import "./index.css";
+// Deliberately NOT "./index.css": that file paints the app chrome, including an opaque
+// `body { background: #0b0b0d }`. Vite injects it after this document's own inline <style>, so it
+// won on source order and every captured frame came out an opaque near-black rectangle that
+// covered the whole video once composited. Only the caption keyframes are needed here.
+import "./captionAnimations.css";
 
 export interface RenderPayload {
   segments: Segment[];
