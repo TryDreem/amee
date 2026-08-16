@@ -17,6 +17,7 @@ from PIL import Image
 from app.integrations import browser_render
 from app.integrations.browser_render import (
     BrowserRenderError,
+    CaptionBand,
     FrameRenderCancelled,
     caption_page,
     frame_count,
@@ -202,15 +203,19 @@ def test_frame_count(duration: float, fps: float, expected: int) -> None:
     assert frame_count(duration, fps) == expected
 
 
-async def _render(tmp_path: Path, **kwargs: Any) -> int:
+_RENDER_WIDTH = 180
+_RENDER_HEIGHT = 320
+
+
+async def _render(tmp_path: Path, **kwargs: Any) -> CaptionBand | None:
     return await render_frames(
         tmp_path,
         segments=kwargs.pop("segments", _segments()),
         preset=_PRESET,
         overrides={},
         per_phrase_style=False,
-        width=180,
-        height=320,
+        width=_RENDER_WIDTH,
+        height=_RENDER_HEIGHT,
         duration_seconds=kwargs.pop("duration_seconds", 0.2),
         fps=kwargs.pop("fps", 10.0),
         **kwargs,
@@ -218,13 +223,54 @@ async def _render(tmp_path: Path, **kwargs: Any) -> int:
 
 
 async def test_render_frames_writes_one_png_per_frame(tmp_path: Path) -> None:
-    written = await _render(tmp_path)
+    band = await _render(tmp_path)
 
     frames = sorted(tmp_path.glob("*.png"))
-    assert written == len(frames) == 2
+    assert band is not None
+    assert len(frames) == 2
     # 1-based, zero-padded to 6 — the naming ffmpeg's `%06d` pattern reads back.
     assert [f.name for f in frames] == ["frame_000001.png", "frame_000002.png"]
     assert all(f.read_bytes().startswith(b"\x89PNG\r\n\x1a\n") for f in frames)
+
+
+async def test_render_frames_captures_only_the_caption_band(tmp_path: Path) -> None:
+    """Frames are a strip, not the whole frame — this is where most of an export's time is saved,
+    since PNG cost scales with pixel count. A caption at 75% height cannot need the full frame."""
+    band = await _render(tmp_path)
+
+    assert band is not None
+    assert 0 < band.height < _RENDER_HEIGHT
+    assert band.y + band.height <= _RENDER_HEIGHT
+
+    with Image.open(tmp_path / "frame_000001.png") as image:
+        assert image.size == (_RENDER_WIDTH, band.height)
+
+
+async def test_render_frames_band_does_not_clip_the_caption(tmp_path: Path) -> None:
+    """A band sized too tightly would silently cut off a glow edge or a descender. Nothing may be
+    painted on the strip's very first or last row — if it is, the window was too small."""
+    band = await _render(tmp_path)
+    assert band is not None
+
+    with Image.open(tmp_path / "frame_000001.png") as image:
+        alpha = image.convert("RGBA").getchannel("A")
+        top_row = [alpha.getpixel((x, 0)) for x in range(alpha.width)]
+        bottom_row = [alpha.getpixel((x, alpha.height - 1)) for x in range(alpha.width)]
+
+    assert max(top_row) == 0
+    assert max(bottom_row) == 0
+
+
+async def test_render_frames_returns_none_when_no_caption_ever_shows(
+    tmp_path: Path,
+) -> None:
+    """An ECS with no words has nothing to draw. Returning None rather than a directory of empty
+    frames is what lets the export task stream-copy the source instead of running a pointless
+    overlay pass."""
+    band = await _render(tmp_path, segments=[])
+
+    assert band is None
+    assert list(tmp_path.glob("*.png")) == []
 
 
 async def test_render_frames_loses_no_frame_when_split_across_browsers(

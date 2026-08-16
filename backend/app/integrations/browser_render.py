@@ -19,6 +19,7 @@ import math
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -147,11 +148,18 @@ async def _open_render_page(
     per_phrase_style: bool,
     width: int,
     height: int,
+    band: "CaptionBand | None" = None,
 ) -> Page:
     """One loaded, ready-to-seek page in an already-running browser. Split out from
     `caption_page` because the parallel renderer needs several of these across several browsers,
-    each with its own lifetime."""
-    payload = {
+    each with its own lifetime.
+
+    With `band`, the browser window is only as tall as the caption strip and the page shifts its
+    (still full-size) surface up to match. Screenshot cost is dominated by PNG encoding and scales
+    with pixel count, so this is the single biggest lever on export time: measured at 1080x1920 a
+    frame costs ~68ms, and the same caption in a 1080x600 window ~19ms.
+    """
+    payload: dict[str, Any] = {
         "segments": segments,
         "preset": preset,
         "overrides": overrides,
@@ -159,10 +167,15 @@ async def _open_render_page(
         "width": width,
         "height": height,
     }
+    if band is not None:
+        payload["bandY"] = band.y
     # device_scale_factor stays 1: the page is laid out in the video's own pixel dimensions, so a
     # scale factor would silently render at the wrong resolution.
     context = await browser.new_context(
-        viewport={"width": width, "height": height},
+        viewport={
+            "width": width,
+            "height": band.height if band is not None else height,
+        },
         device_scale_factor=1,
     )
     page = await context.new_page()
@@ -194,6 +207,61 @@ async def screenshot_at(page: Page, time_seconds: float) -> bytes:
     return await page.screenshot(omit_background=True, type="png")
 
 
+@dataclass(frozen=True)
+class CaptionBand:
+    """The strip of the frame a caption can occupy, in whole video pixels. `y` is its offset from
+    the top — ffmpeg needs it to composite the strip back at the right height (`overlay=0:y`)."""
+
+    y: int
+    height: int
+
+
+# Multiple of the font size added above and below the measured caption box. Blur (glow, shadow)
+# paints outside an element's layout box and is invisible to getBoundingClientRect, so a band
+# measured from geometry alone would clip the glow's outer edge. Glow is 0.8x the font size and
+# shadow up to 0.96x (CaptionOverlay); 2x covers both with headroom for a wider preset later.
+_BAND_MARGIN_FONT_SIZES = 2.0
+
+
+def _band_sample_times(segments: list[dict[str, Any]]) -> list[float]:
+    """Instants worth measuring: each segment's first moment (entrance animations are at maximum
+    displacement here, sitting furthest outside the settled box), a little after it, and its
+    midpoint (the settled position). Sampling only midpoints would clip a slide-up entrance."""
+    times: list[float] = []
+    for segment in segments:
+        words = segment.get("words") or []
+        if not words:
+            continue
+        start = float(words[0]["start"])
+        end = float(words[-1]["end"])
+        times += [start, start + 0.1, (start + end) / 2]
+    return times
+
+
+async def measure_caption_band(
+    page: Page, *, segments: list[dict[str, Any]], height: int
+) -> CaptionBand | None:
+    """`None` when no caption is ever visible — nothing to size a window to, and nothing to render.
+
+    Deliberately asks the page rather than computing from `verticalPosition`/`fontSize` here: those
+    are only the *document* values, and a per-segment override can move or resize any one caption
+    (D11). The page already resolves that cascade per segment, so it is the only place that knows
+    where captions actually land.
+    """
+    measured = await page.evaluate(
+        "(times) => window.__ameeCaptionBand(times)", _band_sample_times(segments)
+    )
+    if measured is None:
+        return None
+
+    margin = _BAND_MARGIN_FONT_SIZES * float(measured["fontSize"])
+    top = max(0, math.floor(float(measured["top"]) - margin))
+    bottom = min(height, math.ceil(float(measured["bottom"]) + margin))
+    if bottom <= top:
+        return None
+    return CaptionBand(y=top, height=bottom - top)
+
+
 class FrameRenderCancelled(Exception):
     """`should_cancel` returned True partway through the loop. Distinct from `BrowserRenderError`:
     nothing went wrong, the caller asked to stop. `_run_job` maps it to `cancelled`, not `failed`
@@ -220,10 +288,14 @@ async def render_frames(
     fps: float,
     on_progress: Callable[[float], Awaitable[None]] | None = None,
     should_cancel: Callable[[], Awaitable[bool]] | None = None,
-) -> int:
+) -> CaptionBand | None:
     """Writes one transparent PNG per video frame into `dest_dir`, named `frame_000001.png` and up
-    (1-based, matching ffmpeg's `-start_number` default for `%06d` patterns). Returns how many were
-    written.
+    (1-based, matching ffmpeg's `-start_number` default for `%06d` patterns).
+
+    Returns the `CaptionBand` the frames cover, which the caller must hand to ffmpeg so the strip is
+    composited back at the right height. `None` means no caption is visible anywhere in the
+    document — nothing was written, and the caller should skip compositing rather than overlay a
+    sequence of empty frames.
 
     Frame *i* is captured at `i / fps` — the presentation time ffmpeg will give that same frame when
     it reads the sequence back at the same rate, so the overlay lines up with the source video
@@ -234,11 +306,11 @@ async def render_frames(
     rather than mid-frame: a single screenshot is short enough that finishing it costs nothing, and
     it keeps every written file complete — a half-written PNG would break the ffmpeg read.
 
-    **Renders across several browsers at once** (`AMEE_RENDER_CONCURRENCY`). Measured on a 17s
-    1080x1920 clip: a screenshot costs ~58ms almost regardless of how many pixels it covers, so
-    this phase is bound by round-trip latency, not by CPU. Separate browsers, not extra tabs in
-    one: tabs share a browser process that serialises capture, and only reached ~1.5x, while four
-    browsers reach ~3.5x. Each browser costs roughly 250MB while the export runs.
+    **Renders across several browsers at once** (`AMEE_RENDER_CONCURRENCY`), each capturing only
+    the caption band. Both matter, for different reasons: PNG encoding dominates a frame's cost and
+    scales with pixel count (~68ms at 1080x1920 vs ~19ms in a 1080x600 window), and separate
+    browsers are needed because tabs share a browser process that serialises capture — tabs reached
+    only ~1.5x where four browsers reach ~3.5x. Each browser costs roughly 250MB while it runs.
     """
     total = frame_count(duration_seconds, fps)
     workers = min(_render_concurrency(), total)
@@ -246,7 +318,9 @@ async def render_frames(
     done = 0
     progress_lock = asyncio.Lock()
 
-    async def _render_slice(browser: Browser, indices: list[int]) -> None:
+    async def _render_slice(
+        browser: Browser, indices: list[int], band: CaptionBand
+    ) -> None:
         nonlocal done
         page = await _open_render_page(
             browser,
@@ -256,6 +330,7 @@ async def render_frames(
             per_phrase_style=per_phrase_style,
             width=width,
             height=height,
+            band=band,
         )
         for index in indices:
             if should_cancel is not None and await should_cancel():
@@ -270,15 +345,38 @@ async def render_frames(
                     done += 1
                     await on_progress(done / total * 100)
 
-    async def _run_worker(playwright: Playwright, indices: list[int]) -> None:
+    async def _run_worker(
+        playwright: Playwright, indices: list[int], band: CaptionBand
+    ) -> None:
         browser = await playwright.chromium.launch()
         try:
-            await _render_slice(browser, indices)
+            await _render_slice(browser, indices, band)
         finally:
             await browser.close()
 
     _require_render_surface()
     async with async_playwright() as playwright:
+        # One full-height page first, purely to find the band — the workers' windows are sized to
+        # it, so it has to exist before any of them opens. Chicken-and-egg, paid once (~1s).
+        measure_browser = await playwright.chromium.launch()
+        try:
+            measure_page = await _open_render_page(
+                measure_browser,
+                segments=segments,
+                preset=preset,
+                overrides=overrides,
+                per_phrase_style=per_phrase_style,
+                width=width,
+                height=height,
+            )
+            band = await measure_caption_band(
+                measure_page, segments=segments, height=height
+            )
+        finally:
+            await measure_browser.close()
+        if band is None:
+            return None
+
         # Interleaved (0,4,8… / 1,5,9…), not contiguous blocks: every worker then walks the whole
         # timeline, so they hit the same mix of cheap and expensive frames and finish together
         # instead of one drawing every caption-heavy second while another renders empty gaps.
@@ -290,9 +388,9 @@ async def render_frames(
             # TaskGroup cancels the others and waits for them before letting the error out.
             async with asyncio.TaskGroup() as group:
                 for indices in slices:
-                    group.create_task(_run_worker(playwright, indices))
+                    group.create_task(_run_worker(playwright, indices, band))
         except* FrameRenderCancelled:
             # Unwrapped from the ExceptionGroup TaskGroup raises: callers (and P8's cancel path)
             # match on the plain exception type, not on group membership.
             raise FrameRenderCancelled() from None
-    return total
+    return band

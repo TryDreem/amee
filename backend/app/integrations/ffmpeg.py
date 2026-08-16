@@ -259,6 +259,7 @@ async def burn_in_captions(
     dest: Path,
     *,
     fps: float,
+    overlay_y: int = 0,
     on_progress: Callable[[float], Awaitable[None]] | None = None,
     total_duration_seconds: float | None = None,
     on_pid: Callable[[int], Awaitable[None]] | None = None,
@@ -294,10 +295,14 @@ async def burn_in_captions(
         str(fps),
         "-i",
         str(frames_dir / "frame_%06d.png"),
+        # `overlay_y` is where the caption strip belongs in the full frame:
+        # the rendered frames are only as tall as the caption band
+        # (browser_render's CaptionBand), so compositing at 0:0 would paste
+        # the captions at the very top of the video.
         # shortest=1 so a rounding-up extra overlay frame (frame_count uses
         # ceil) can't extend the output past the source video's own end.
         "-filter_complex",
-        "[0:v][1:v]overlay=0:0:format=auto:shortest=1[v]",
+        f"[0:v][1:v]overlay=0:{overlay_y}:format=auto:shortest=1[v]",
         "-map",
         "[v]",
         # `?` makes the audio stream optional - test fixtures and some uploads
@@ -309,6 +314,33 @@ async def burn_in_captions(
         "-crf",
         "18",
         "-c:a",
+        "copy",
+        str(dest),
+        on_progress=on_progress,
+        total_duration_seconds=total_duration_seconds,
+        on_pid=on_pid,
+    )
+
+
+async def copy_video(
+    video_path: Path,
+    dest: Path,
+    *,
+    on_progress: Callable[[float], Awaitable[None]] | None = None,
+    total_duration_seconds: float | None = None,
+    on_pid: Callable[[int], Awaitable[None]] | None = None,
+) -> None:
+    """The no-captions export path: a document with nothing visible still has
+    to produce a real, playable file at `dest`.
+
+    Stream copy, not a re-encode — there is nothing to draw, so decoding and
+    re-encoding would only cost time and a generation of quality. Takes the
+    same progress/pid callbacks as `burn_in_captions` so the export task's
+    two-phase reporting and cancellation work identically on both paths."""
+    await _run_ffmpeg(
+        "-i",
+        str(video_path),
+        "-c",
         "copy",
         str(dest),
         on_progress=on_progress,

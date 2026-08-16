@@ -3,7 +3,7 @@
 // drives this page - it injects the document to draw, then seeks it frame by frame and screenshots
 // the result. Everything drawn here comes from the same `CaptionOverlay` the live editor uses, which
 // is the whole point: parity is structural, not re-implemented (R1/R2).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 
@@ -26,8 +26,18 @@ export interface RenderPayload {
   preset: Preset;
   overrides: StyleOverrides;
   perPhraseStyle: boolean;
+  // The video's own pixel dimensions. Layout is always computed against these — fontSize and
+  // verticalPosition are fractions of them (L7) — regardless of how much of the frame is actually
+  // captured.
   width: number;
   height: number;
+  // Optional: capture only the horizontal strip starting at `bandY`. The surface still lays out at
+  // full `height` and is then shifted up, so nothing about the caption's size or position changes;
+  // only the browser window is smaller. That matters because screenshot cost is dominated by PNG
+  // encoding, which scales with pixel count: at 1080x1920 a frame costs ~68ms, and the same
+  // caption in a 1080x600 window costs ~19ms. Cropping the captured image instead does NOT help —
+  // Chromium still rasterises and encodes the full frame before cutting it.
+  bandY?: number;
 }
 
 declare global {
@@ -38,6 +48,13 @@ declare global {
     __ameeReady?: true;
     // Seeks to `time` (seconds) and resolves once that frame is actually painted.
     __ameeSeek?: (time: number) => Promise<void>;
+    // Vertical extent the caption occupies across the sampled instants, in page pixels, plus the
+    // largest font size seen. Lets the driver size its capture window to just that strip. Measured
+    // here, never derived in Python: the band depends on the resolved style (verticalPosition,
+    // fontSize, per-segment overrides), and the cascade lives on this side only (R2).
+    __ameeCaptionBand?: (
+      times: number[]
+    ) => { top: number; bottom: number; fontSize: number } | null;
   }
 }
 
@@ -53,6 +70,7 @@ function afterPaint(): Promise<void> {
 
 function RenderSurface({ payload }: { payload: RenderPayload }): JSX.Element {
   const [time, setTime] = useState(0);
+  const surfaceRef = useRef<HTMLDivElement>(null);
 
   // Mirrors Editor.tsx's RENDERING resolution exactly (arch §4.2): the segment active at this
   // instant supplies the override layer, and only when the document-level per-phrase toggle is on.
@@ -75,6 +93,29 @@ function RenderSurface({ payload }: { payload: RenderPayload }): JSX.Element {
       await afterPaint();
     };
 
+    window.__ameeCaptionBand = (times: number[]) => {
+      let top = Number.POSITIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+      let fontSize = 0;
+      for (const t of times) {
+        flushSync(() => setTime(t));
+        // CaptionOverlay renders exactly one root element (or null when no segment is active), so
+        // the surface's first child *is* the caption block.
+        const block = surfaceRef.current?.firstElementChild;
+        if (!(block instanceof HTMLElement)) {
+          continue;
+        }
+        // getBoundingClientRect includes the entrance animation's transform, which is why the
+        // caller samples mid-animation instants too — a slide-up entrance sits outside its settled
+        // box, and a window sized to the settled box alone would clip it.
+        const rect = block.getBoundingClientRect();
+        top = Math.min(top, rect.top);
+        bottom = Math.max(bottom, rect.bottom);
+        fontSize = Math.max(fontSize, parseFloat(getComputedStyle(block).fontSize) || 0);
+      }
+      return bottom > top ? { top, bottom, fontSize } : null;
+    };
+
     // document.fonts.ready is why the driver can't just screenshot immediately: web fonts load
     // asynchronously, and a frame taken before they settle renders in a fallback face - the exact
     // class of preview/export mismatch this whole change exists to remove (R3: same engine is not
@@ -85,16 +126,23 @@ function RenderSurface({ payload }: { payload: RenderPayload }): JSX.Element {
 
     return () => {
       delete window.__ameeSeek;
+      delete window.__ameeCaptionBand;
     };
   }, []);
 
   return (
     <div
+      ref={surfaceRef}
       style={{
         position: "relative",
         width: `${payload.width}px`,
         height: `${payload.height}px`,
         overflow: "hidden",
+        // Shifted up so the caption strip lands inside a window only as tall as the strip. Layout
+        // above is untouched — the surface is still the full video size, so fontSize,
+        // verticalPosition and wrapping resolve exactly as they do at full height; only which part
+        // of it the browser has to rasterise changes.
+        marginTop: payload.bandY ? `${-payload.bandY}px` : undefined,
         // Transparent, never a color: these frames are composited over the source video by ffmpeg,
         // so any background here would paint over the footage.
         background: "transparent",

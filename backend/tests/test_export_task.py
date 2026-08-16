@@ -9,6 +9,7 @@ import pytest
 from app.db import async_session_factory
 from app.integrations import redis as redis_integration
 from app.integrations import storage
+from app.integrations.browser_render import CaptionBand
 from app.integrations.ffmpeg import FfmpegError, probe_video
 from app.integrations.whisperx import TranscribedWord
 from app.models.job import JobModel
@@ -134,12 +135,12 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
     async def _fake_render_frames(
         dest_dir: Path,
         **kwargs: object,
-    ) -> int:
+    ) -> CaptionBand:
         on_progress = kwargs["on_progress"]
         assert kwargs["should_cancel"] is not None
         for percent in (50.0, 100.0):
             await on_progress(percent)  # type: ignore[operator]
-        return 2
+        return CaptionBand(y=100, height=50)
 
     async def _fake_burn_in_captions(
         video_path: Path,
@@ -147,6 +148,7 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
         dest: Path,
         *,
         fps: float,
+        overlay_y: int = 0,
         on_progress: object = None,
         total_duration_seconds: float | None = None,
         on_pid: object = None,
@@ -155,6 +157,9 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
         assert total_duration_seconds is not None
         assert on_pid is not None
         assert fps > 0
+        # The band's offset must reach ffmpeg, or the strip would be composited
+        # at the top of the frame instead of where the caption sits.
+        assert overlay_y == 100
         await on_pid(4242)  # type: ignore[operator]
         for percent in (50.0, 100.0):
             await on_progress(percent)  # type: ignore[operator]

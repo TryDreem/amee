@@ -13,6 +13,7 @@ from app.integrations import storage
 from app.integrations.ffmpeg import (
     VideoProbe,
     burn_in_captions,
+    copy_video,
     extract_thumbnail,
     probe_video,
     transcode_proxy,
@@ -388,7 +389,7 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
             # Phase 1: draw the captions with the frontend's own renderer (P9).
             # Unresolved preset/overrides go over as-is - the cascade runs in
             # the page, per active segment, exactly as the editor does it (R2).
-            await browser_render.render_frames(
+            band = await browser_render.render_frames(
                 frames_dir,
                 segments=[s.model_dump(mode="json") for s in ecs.segments],
                 preset=preset.model_dump(mode="json"),
@@ -403,15 +404,31 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
             )
             # Phase 2: composite those frames onto the source video. ffmpeg
             # renders no text here, it only overlays finished pixels.
-            await burn_in_captions(
-                video_path,
-                frames_dir,
-                video_dest,
-                fps=probe.fps,
-                on_progress=_report_mux_progress,
-                total_duration_seconds=probe.duration_seconds,
-                on_pid=_report_pid,
-            )
+            #
+            # No band means no caption is visible anywhere (an ECS with no
+            # words). Copying the source through is still the right answer -
+            # the user asked for an export and gets a valid video - but there
+            # is nothing to overlay, and pointing ffmpeg at an empty frame
+            # directory would just fail.
+            if band is None:
+                await copy_video(
+                    video_path,
+                    video_dest,
+                    on_progress=_report_mux_progress,
+                    total_duration_seconds=probe.duration_seconds,
+                    on_pid=_report_pid,
+                )
+            else:
+                await burn_in_captions(
+                    video_path,
+                    frames_dir,
+                    video_dest,
+                    fps=probe.fps,
+                    overlay_y=band.y,
+                    on_progress=_report_mux_progress,
+                    total_duration_seconds=probe.duration_seconds,
+                    on_pid=_report_pid,
+                )
     except Exception:
         # X7: a killed (cancelled) or genuinely-failed run can leave a
         # partial, invalid file at video_dest - never leave that on disk under
