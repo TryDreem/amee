@@ -351,7 +351,18 @@ Available immediately from project creation (§4) — never `404`s the way ECS d
     "color": "string", "alpha": "number" } | null,
     "showPunctuation": "boolean",
     "revealMode": "phrase" | "progressive" | "single-word",
-    "captionAnimation": "none" | "fade" | "pop" | "bounce" | "blur" | "snap",
+    "captionAnimation": "none" | "fade" | "pop" | "bounce" | "blur" | "snap"
+    | "fadeSimple" | "fadeScale" | "fadeBlur"
+    | "slideUp" | "slideDown" | "slideLeft" | "slideRight"
+    | "zoomOut" | "rotateIn" | "tiltIn" | "swingPendulum"
+    | "springElastic" | "jellySquash"
+    | "flipX" | "flipY" | "perspectiveDrop"
+    | "wipeReveal" | "circleReveal" | "curtainReveal"
+    | "punchIn" | "shakeSettle" | "neonGlow"
+    | "typewriter" | "letterCascade"
+    | "karaokeFill" | "karaokeBox" | "glitchSlice" | "rgbSplit",
+
+
 
     "verticalPosition": "number",
     "safeArea": { "top": "number", "bottom": "number" }
@@ -374,6 +385,19 @@ invisible (§12 parity risk, same class of bug as the `showPunctuation` strip ru
 
 `captionAnimation` is unrelated to `revealMode` and has no validation beyond its enum — any value
 from the type is valid, no bounds check, same treatment as `textTransform`/`italic`/`glow`.
+
+
+The original six values are the whole-block entrance transitions (design ANIMATIONS_D). The rest,
+added later, group into: finer fade/slide/zoom variants (`fadeSimple`/`fadeScale`/`fadeBlur`,
+`slideUp`/`slideDown`/`slideLeft`/`slideRight`, `zoomOut`), rotation/3D (`rotateIn`/`tiltIn`/
+`swingPendulum`/`flipX`/`flipY`/`perspectiveDrop`), spring/impact (`springElastic`/`jellySquash`/
+`punchIn`/`shakeSettle`), clip-path reveals (`wipeReveal`/`circleReveal`/`curtainReveal`),
+`neonGlow` (an animated glow-intensity entrance, distinct from the static `glow` boolean),
+character/word-level reveals (`typewriter`, `letterCascade`), and word-highlight karaoke modes
+(`karaokeFill`, `karaokeBox`) — the last two are the only values that change *how a word's
+highlight is drawn* rather than only how the caption block enters, see architecture doc's
+Layout Engine notes if this needs its own rendering path.
+
 
 
 No `horizontalAlign` field — horizontal centering is fixed renderer behavior in the MVP, not a configurable style property (architecture doc §9.1), so there's nothing to represent here yet.
@@ -410,7 +434,17 @@ Not project-scoped, no `owner_id` — global and shared, not user content (§1).
       "color": "string", "alpha": "number" } | null,
       "showPunctuation": "boolean", 
       "revealMode": "phrase" | "progressive" | "single-word",
-      "captionAnimation": "none" | "fade" | "pop" | "bounce" | "blur" | "snap",
+            "captionAnimation": "none" | "fade" | "pop" | "bounce" | "blur" | "snap"
+      | "fadeSimple" | "fadeScale" | "fadeBlur"
+      | "slideUp" | "slideDown" | "slideLeft" | "slideRight"
+      | "zoomOut" | "rotateIn" | "tiltIn" | "swingPendulum"
+      | "springElastic" | "jellySquash"
+      | "flipX" | "flipY" | "perspectiveDrop"
+      | "wipeReveal" | "circleReveal" | "curtainReveal"
+      | "punchIn" | "shakeSettle" | "neonGlow"
+      | "typewriter" | "letterCascade"
+      | "karaokeFill" | "karaokeBox" | "glitchSlice" | "rgbSplit",
+      
       "verticalPosition": "number",
 
       "safeArea": { "top": "number", "bottom": "number" }

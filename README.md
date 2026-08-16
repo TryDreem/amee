@@ -42,8 +42,10 @@ a number of things are built the way they are. The full, binding technical speci
    word-by-word vs. single active word), entrance animation, vertical position, and punctuation
    display. Everything updates in a live preview instantly, with no server round-trip per keystroke
    or slider drag.
-4. **Export** — burn the captions into the video via ffmpeg/libass, or generate a standalone SRT
-   file, independently of each other.
+4. **Export** — burn the captions into the video, or generate a standalone SRT file, independently
+   of each other. The burn-in is rendered by the same component that draws the live preview (see
+   [Key decisions](#preview-and-export-are-the-same-renderer-so-parity-is-structural-not-engineered)
+   below), so what you see while editing is what ends up in the file.
 
 The whole thing is designed to feel instant to edit and only ever touch the network for the
 expensive steps: transcription and the final render.
@@ -107,7 +109,7 @@ decision of the whole project.
 api/            FastAPI routes — request/response validation only, zero business logic
 services/       Orchestration — plain serializable data in and out, callable from HTTP or Celery alike
 repositories/   Storage-technology-hiding — async SQLAlchemy / PostgreSQL today
-integrations/   External tools — ffmpeg, WhisperX, Celery, Redis, disk storage
+integrations/   External tools — ffmpeg, WhisperX, headless Chromium (Playwright), Celery, Redis, disk storage
 ```
 
 A route that reaches into a repository directly, or a service that imports FastAPI, is a bug by
@@ -179,7 +181,7 @@ A few things about this shape are worth calling out because they're not the obvi
 | Task queue | Celery + RabbitMQ | Two queues, split by load profile (ML inference vs. video encoding) |
 | Cache/ephemeral state | Redis | Never a source of truth — see [tradeoffs](#redis-is-never-a-source-of-truth) below |
 | ASR | WhisperX | Word-level timestamps, not just sentence-level |
-| Rendering | ffmpeg + libass | Captions burned in as an ASS subtitle track |
+| Rendering | Headless Chromium (Playwright) + ffmpeg | Burn-in renders the frontend's own caption component, headless — see [tradeoffs](#preview-and-export-are-the-same-renderer-so-parity-is-structural-not-engineered) below |
 | Frontend | React 18, TypeScript (strict), Vite | Live client-side preview, no per-keystroke backend calls |
 | Frontend testing | Vitest, Testing Library, MSW | Mocked backend for component/integration tests |
 
@@ -193,7 +195,7 @@ backend/
     api/            FastAPI routes (v1)
     services/       Business logic / orchestration
     repositories/   Data access (Postgres via SQLAlchemy)
-    integrations/   ffmpeg, WhisperX, Celery, Redis, disk storage
+    integrations/   ffmpeg, WhisperX, browser_render.py (headless Chromium driver), Celery, Redis, disk storage
     models/         SQLAlchemy ORM models
     schemas/        Pydantic wire models
     workers/        Celery app + task definitions
@@ -201,9 +203,12 @@ backend/
   tests/
 
 frontend/
+  render.html        Second Vite entry point: the headless render surface export drives (below)
   src/
+    render.tsx        Renders CaptionOverlay standalone for browser_render.py to screenshot — no
+                       router, no API calls, nothing else the editor page needs
     api/            Backend client + generated types (types.gen.ts is generated, never hand-edited)
-    components/     UI components
+    components/     UI components (CaptionOverlay is the shared preview/export renderer, see below)
     pages/          Route-level views
     contexts/       Cross-page state (e.g. export progress)
     hooks/          Shared React hooks
@@ -325,15 +330,28 @@ style and therefore can't preserve or reconstruct overrides it never knew existe
 automatic regrouping would silently discard manual split/merge decisions the user made on purpose,
 with no warning, as a side effect of typing. Predictability was chosen over cleverness here.
 
-### Preview and export are two independent renderers, and their agreement is not automatic
+### Preview and export are the same renderer, so parity is structural, not engineered
 
-The live browser preview (CSS/Canvas) and the final export (ffmpeg/libass) are built on completely
-different text-layout engines, by different teams, for different purposes. They *should* produce
-pixel-equivalent output — same wrap decisions, same safe-area math, same reveal-mode timing — but
-that agreement has to be actively engineered and verified; it does not fall out for free just because
-both consume the same style document. This is called out explicitly, in the architecture doc itself,
-as **the single largest correctness risk in the project** — any claim that "preview matches export"
-without an actual frame-diff to back it up is treated as unverified, not as done.
+This is a decision the project revisited, not the original one. The MVP shipped with two independent
+text-layout engines — a browser preview and an ffmpeg/libass burn-in — and treated their agreement as
+the single largest correctness risk in the project: two engines, by different teams, for different
+purposes, that merely *should* produce the same pixels for the same style document, with nothing
+actually enforcing it.
+
+That risk is gone by construction now, not by validation. Export no longer asks libass to interpret
+the style document a second time — it drives a headless Chromium instance to render the *same*
+frontend caption component the live preview uses, seeks it to each video frame, screenshots the
+transparent result, and composites that sequence onto the source video with ffmpeg. There is only one
+implementation of wrap rules, safe-area math, glow, per-word highlight timing, and every entrance
+animation, because there is only one renderer. A style bug shows up identically in both places,
+because both places are the same code path.
+
+What this doesn't remove: headless Chromium is the same rendering *engine* as the user's browser, but
+not automatically the same *environment* — font availability and load timing are a real seam (the
+render surface waits on `document.fonts.ready`, but a slow network can still stretch that wait). And
+the risk reappears in a narrower form if export's rendering path is ever allowed to fork from the
+shared component for a performance shortcut — that would be a regression to the old two-renderer
+problem, not a neutral optimization.
 
 ### Everything is relative, nothing is absolute pixels
 
@@ -344,6 +362,14 @@ keep preview and export from disagreeing across different source resolutions, wh
 kind of drift the previous point warns about. Font-size, safe-area, and position *bounds* are also not
 one global constant — each preset defines its own valid range, so a "bold statement" preset and a
 "dense subtitle" preset don't have to share limits that don't make sense for either of them.
+
+The same lesson got relearned the hard way once, on glow/shadow/outline specifically: they were
+originally implemented as fixed pixel radii (`20px` glow, `6–24px` shadow blur). That looks fine at
+the editor's small preview box and wrong at export resolution, for the exact reason `fontSize` itself
+is a fraction and not a pixel count — a `20px` glow is 80% of the glyph height in a 500px-tall preview
+and roughly a fifth of that at 4K. Fixed to the same rule as everything else: every decoration radius
+is now a fraction of the resolved font size, so it scales with the text instead of silently drifting
+away from it as resolution changes.
 
 ### Whole-document writes only — no PATCH, anywhere
 
@@ -415,6 +441,23 @@ regroup. This mirrors the Recalculate Groups philosophy above — the system is 
 something is wrong, but it does not take an irreversible corrective action on their document without
 being asked to.
 
+### Export speed is bound by round trips to the browser, not by pixel count
+
+Once burn-in moved to headless-Chromium rendering, the obvious first optimization — screenshot only
+the cropped region containing the caption instead of the full frame — measured out to a 3% speedup,
+not the expected 4×. The actual cost is dominated by round-trip overhead to the browser (screenshot
+encoding time barely changes with crop size), so the lever that actually matters is *how many browser
+instances render frames at once*, not how many pixels each one covers. Separate OS processes, not
+extra tabs in one browser: tabs funnel their screenshot calls through one browser process that
+serializes them, which measured out to roughly 1.5× from four tabs versus roughly 3.5× from four
+separate browser processes. Shrinking the capture window to just the caption's own bounding box
+*did* end up mattering, just for a different reason than pixel count — a smaller browser viewport is
+cheaper to composite per frame regardless of crop.
+
+The number of parallel renderers is a tunable (`AMEE_RENDER_CONCURRENCY`, default 4), not a hardcoded
+constant, because the right number depends on the host's cores and spare memory — each browser
+instance costs roughly 250MB while an export runs.
+
 ### A real bug this surfaced: ffmpeg's progress output lies about its own units, and lies twice
 
 Two ffmpeg quirks worth remembering if you touch the export pipeline. First, ffmpeg's own
@@ -428,6 +471,16 @@ actually been encoded — which is not an error, just "nothing to report yet," b
 up against a real video with a real encode delay, not a short synthetic test fixture — worth a comment
 at the call site for exactly that reason.
 
+### A "new" style option has to change pixels, not just carry a new label
+
+The caption entrance-animation catalog grew from 9 to 33 named options, sourced from a design
+reference cataloguing dozens of motion styles. A number of them were rejected on the way in for the
+same reason: a gallery card that writes an existing animation value under a new `revealMode` (or vice
+versa) is not a new option, it's the same picture with a second name pointing at it — worse than not
+offering it, because the two labels can't be told apart once the choice is saved and the editor is
+reopened. The bar applied throughout: a card earns a place in the gallery only if it resolves to
+pixels no other card already produces.
+
 ---
 
 ## Known limitations & open questions
@@ -435,9 +488,16 @@ at the call site for exactly that reason.
 Some things are deliberately unfinished, not overlooked — flagged in the architecture doc itself
 rather than left to be discovered:
 
-- **Preview/export pixel parity has not been validated.** It's the largest flagged correctness risk
-  in the project (see above) and needs a dedicated frame-diff verification pass before it can be
-  trusted.
+- **Preview/export pixel parity is structural, not yet end-to-end validated.** Export now renders the
+  same component preview does (see [Key decisions](#preview-and-export-are-the-same-renderer-so-parity-is-structural-not-engineered)
+  above), which removes the old two-renderer risk by construction — but headless Chromium being the
+  same *engine* as the user's browser doesn't guarantee the same *environment* (font availability,
+  load timing), and that hasn't had a dedicated verification pass yet.
+- **Four caption animations exist on the wire but don't render yet.** `karaokeFill`, `karaokeBox`,
+  `typewriter`, and `letterCascade` are valid `captionAnimation` values (contract §8) with no
+  gallery card and no `CaptionOverlay` implementation — each needs real per-word/per-letter render
+  logic, not just a CSS `@keyframes` entry like the other 29 values have (`none` is the 30th valid
+  value and deliberately has no keyframe at all).
 - **No document versioning / optimistic concurrency.** Last-write-wins on every save. Fine for one
   editor per project; a real problem the moment two people can edit the same project at once.
 - **No authentication, no payments, no quota model.** The seams exist (`owner_id` on every entity, a
