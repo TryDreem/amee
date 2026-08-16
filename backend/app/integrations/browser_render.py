@@ -262,6 +262,15 @@ async def measure_caption_band(
     return CaptionBand(y=top, height=bottom - top)
 
 
+def _first_leaf(error: BaseException) -> BaseException:
+    """The first real exception inside a (possibly nested) ExceptionGroup. Workers all fail the
+    same way when they fail at all — a missing browser, a dead page — so reporting the first one
+    loses nothing and gives a message a human can act on."""
+    while isinstance(error, BaseExceptionGroup) and error.exceptions:
+        error = error.exceptions[0]
+    return error
+
+
 class FrameRenderCancelled(Exception):
     """`should_cancel` returned True partway through the loop. Distinct from `BrowserRenderError`:
     nothing went wrong, the caller asked to stop. `_run_job` maps it to `cancelled`, not `failed`
@@ -393,4 +402,10 @@ async def render_frames(
             # Unwrapped from the ExceptionGroup TaskGroup raises: callers (and P8's cancel path)
             # match on the plain exception type, not on group membership.
             raise FrameRenderCancelled() from None
+        except* Exception as group:
+            # Also unwrapped, for a different reason: `_run_job` stores `str(exc)` as the job's
+            # error and the UI shows it verbatim, so leaving the group intact surfaced
+            # "unhandled errors in a TaskGroup (1 sub-exception)" to the user and threw away the
+            # only sentence that said what actually went wrong.
+            raise _first_leaf(group) from None
     return band
