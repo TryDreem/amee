@@ -1,53 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import type { CaptionAnimation, RevealMode } from "../api/client";
 import { CAPTION_ANIMATIONS, findAnimationOption } from "./animations";
 
-// Every value the wire format allows. Kept written out rather than derived, so that widening
-// either enum in api-contract §8 fails here until the gallery is widened to match.
-const REVEAL_MODES: RevealMode[] = ["phrase", "progressive", "single-word"];
-const ANIMATIONS: CaptionAnimation[] = [
-  "none",
-  "fade",
-  "pop",
-  "bounce",
-  "blur",
-  "snap",
-];
-
 describe("CAPTION_ANIMATIONS", () => {
-  it("offers a card for every revealMode x captionAnimation pair the wire format allows", () => {
-    // The gallery used to cover only two of the three reveal modes, which left "phrase" — a mode
-    // the contract has always had — unreachable from the UI.
-    expect(CAPTION_ANIMATIONS).toHaveLength(REVEAL_MODES.length * ANIMATIONS.length);
-    for (const revealMode of REVEAL_MODES) {
-      for (const captionAnimation of ANIMATIONS) {
-        expect(findAnimationOption(revealMode, captionAnimation)).toBeDefined();
-      }
-    }
+  it("has 6 multi-word cards and 6 single-word cards, no duplicates of either", () => {
+    // No "phrase" cards: revealMode "phrase" paired with any captionAnimation plays the exact
+    // same entrance "progressive" already offers under that captionAnimation value — relabeling
+    // it "Phrase · X" is not a distinct option, so it doesn't get a gallery entry.
+    expect(CAPTION_ANIMATIONS).toHaveLength(12);
+    expect(CAPTION_ANIMATIONS.filter((a) => a.single)).toHaveLength(6);
+    expect(CAPTION_ANIMATIONS.filter((a) => !a.single)).toHaveLength(6);
   });
 
-  it("keeps every (revealMode, captionAnimation) pair unique so a resolved style maps to one card", () => {
-    const keys = CAPTION_ANIMATIONS.map((a) => `${a.revealMode}:${a.captionAnimation}`);
+  it("keeps every (single, captionAnimation) pair unique so a resolved style maps to one card", () => {
+    const keys = CAPTION_ANIMATIONS.map((a) => `${a.single}:${a.captionAnimation}`);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("writes only values the wire format already has — no card invents an enum member", () => {
+  it("single-word cards write revealMode single-word; multi-word cards write progressive", () => {
     for (const a of CAPTION_ANIMATIONS) {
-      expect(REVEAL_MODES).toContain(a.revealMode);
-      expect(ANIMATIONS).toContain(a.captionAnimation);
-    }
-  });
-
-  it("flags exactly the single-word cards as `single`", () => {
-    for (const a of CAPTION_ANIMATIONS) {
-      expect(a.revealMode === "single-word").toBe(a.single);
+      expect(a.revealMode).toBe(a.single ? "single-word" : "progressive");
     }
   });
 });
 
 describe("findAnimationOption", () => {
-  it("maps a progressive pair to its own card", () => {
+  it("maps a multi-word pair to its multi-word card", () => {
     const a = findAnimationOption("progressive", "pop");
     expect(a?.id).toBe("pop");
     expect(a?.keyframe).toBe("capPop");
@@ -60,11 +38,19 @@ describe("findAnimationOption", () => {
     expect(findAnimationOption("single-word", "snap")?.id).toBe("single-slide");
   });
 
-  it("distinguishes phrase from progressive rather than collapsing them", () => {
-    // These two reveal modes paint differently — `phrase` keeps every word visible and moves only
-    // the highlight — so they must not share a card, or picking one would silently apply the
-    // other's reveal mode.
-    expect(findAnimationOption("phrase", "fade")?.id).toBe("phrase-fade");
+  it("falls back to the progressive card for revealMode 'phrase' (no gallery card of its own)", () => {
+    // "phrase" isn't a gallery selection, but a document can still carry it (e.g. a preset), and
+    // its captionAnimation must still resolve to a playable entrance rather than nothing.
+    expect(findAnimationOption("phrase", "fade")?.id).toBe("fade");
     expect(findAnimationOption("progressive", "fade")?.id).toBe("fade");
+  });
+
+  it("returns undefined for a pair no card produces (single-word + snap is taken; unknown stays unmatched only if the value itself is invalid)", () => {
+    // Every real CaptionAnimation value now has both a single and multi card, so there is no
+    // longer a reachable "undefined" case from valid wire values alone.
+    for (const value of ["none", "fade", "pop", "bounce", "blur", "snap"] as const) {
+      expect(findAnimationOption("single-word", value)).toBeDefined();
+      expect(findAnimationOption("progressive", value)).toBeDefined();
+    }
   });
 });
