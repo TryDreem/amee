@@ -273,19 +273,12 @@ export default function StylePanel({
     );
   }
 
-  // Multi-word cards set only `captionAnimation` (keeping a non-single revealMode, downgrading
-  // single-word -> progressive when switching out of it). Single-word cards set both. This is the
-  // single reveal+animation control, exactly as the design's one animation gallery.
+  // Every card writes both of its own values. It used to write `revealMode` only for the
+  // single-word cards and otherwise leave whatever was there, which worked while the gallery had
+  // just two reveal modes in it — but with "phrase" cards a card must be able to move the mode in
+  // any direction, and "the card's own pair" is the rule that does that without special cases.
   function handlePickAnimation(a: AnimationOption) {
-    if (a.single) {
-      onChangeOverrides({ revealMode: "single-word", captionAnimation: a.captionAnimation });
-      return;
-    }
-    const patch: StyleOverrides = { captionAnimation: a.captionAnimation };
-    if (resolvedStyle.revealMode === "single-word") {
-      patch.revealMode = "progressive";
-    }
-    onChangeOverrides(patch);
+    onChangeOverrides({ revealMode: a.revealMode, captionAnimation: a.captionAnimation });
   }
 
   const selectedAnimId = findAnimationOption(resolvedStyle.revealMode, resolvedStyle.captionAnimation)?.id;

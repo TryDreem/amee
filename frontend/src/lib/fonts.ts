@@ -52,6 +52,30 @@ export const FONT_OPTIONS: FontOption[] = [
   { name: "Uni Sans Heavy", cat: "bold", lang: "lat", family: "Uni Sans Heavy", fallback: "sans-serif", weight: 400, transform: "uppercase", previewColor: "#2F6FED" },
   { name: "Luckiest Guy", cat: "bold", lang: "lat", family: "Luckiest Guy", fallback: "cursive", weight: 400, previewColor: "#0F172A" },
   { name: "Aileron", cat: "minimal", lang: "lat", family: "Aileron", fallback: "sans-serif", weight: 400, previewColor: "#334155" },
+
+  // --- The short-form caption canon -------------------------------------------------------
+  // The look this genre is built on is a heavy display face in caps with a thick dark stroke.
+  // MrBeast's own subtitle face is Komika Axis, which is not on Google Fonts; Bangers and Anton
+  // are the two free stand-ins usually named in its place, so both are here.
+  //
+  // Cyrillic is the constraint that decides most of this list: Anton, Bebas Neue, Bangers and
+  // Titan One are Latin-only, so for Russian captions they are a dead end no matter how popular
+  // they are. `lang: "both"` entries below are the ones that actually work on Cyrillic text.
+  { name: "Anton", cat: "bold", lang: "lat", family: "Anton", fallback: "sans-serif", weight: 400, transform: "uppercase", previewColor: "#0F172A" },
+  { name: "Bebas Neue", cat: "bold", lang: "lat", family: "Bebas Neue", fallback: "sans-serif", weight: 400, transform: "uppercase", previewColor: "#2F6FED" },
+  { name: "Bangers", cat: "bold", lang: "lat", family: "Bangers", fallback: "cursive", weight: 400, transform: "uppercase", previewColor: "#EF4444" },
+  { name: "Titan One", cat: "bold", lang: "lat", family: "Titan One", fallback: "cursive", weight: 400, previewColor: "#F59E0B" },
+  { name: "Archivo Black", cat: "bold", lang: "lat", family: "Archivo Black", fallback: "sans-serif", weight: 400, transform: "uppercase", previewColor: "#334155" },
+
+  // Cyrillic-capable heavies — the closest equivalents of the look above for Russian captions.
+  { name: "Russo One", cat: "bold", lang: "both", family: "Russo One", fallback: "sans-serif", weight: 400, transform: "uppercase", previewColor: "#0F172A" },
+  { name: "Rubik Mono", cat: "bold", lang: "both", family: "Rubik Mono One", fallback: "sans-serif", weight: 400, transform: "uppercase", previewColor: "#7C5CBF" },
+  { name: "Unbounded", cat: "bold", lang: "both", family: "Unbounded", fallback: "sans-serif", weight: 800, transform: "uppercase", previewColor: "#22D3EE" },
+  { name: "Alumni Condensed", cat: "bold", lang: "both", family: "Alumni Sans", fallback: "sans-serif", weight: 900, transform: "uppercase", previewColor: "#00B37E" },
+  { name: "Pribambas", cat: "colorful", lang: "both", family: "Pribambas", fallback: "cursive", weight: 400, previewColor: "#F43F5E" },
+  { name: "Exo Tech", cat: "minimal", lang: "both", family: "Exo 2", fallback: "sans-serif", weight: 800, previewColor: "#2F6FED" },
+  { name: "Yeseva Display", cat: "minimal", lang: "both", family: "Yeseva One", fallback: "serif", weight: 400, previewColor: "#B4483C" },
+  { name: "Pacifico", cat: "script", lang: "both", family: "Pacifico", fallback: "cursive", weight: 400, previewColor: "#E8577A" },
 ];
 
 // `overrides.fontFamily` holds one bare family name. Documents written before that was settled
