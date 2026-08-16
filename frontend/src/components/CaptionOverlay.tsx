@@ -223,6 +223,11 @@ export default function CaptionOverlay({
         left: "50%",
         top: `${topPx}px`,
         transform: "translate(-50%, -50%)",
+        // Establishes the 3D rendering context every word span's rotateX/rotateY entrance
+        // (tiltIn/flipX/flipY/perspectiveDrop) needs to read as a real tilt rather than a flat
+        // squash — `perspective` has to live on an ancestor of the transformed element, not on
+        // the element itself, and this block is that ancestor for every word.
+        perspective: "800px",
         maxWidth: `${containerWidth * HORIZONTAL_SAFE_WIDTH_FRACTION}px`,
         // Column flex with centred items, not just `text-align: center`: each line is
         // `white-space: nowrap`, so a line the wrap budget couldn't satisfy (a single word wider

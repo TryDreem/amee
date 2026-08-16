@@ -14,7 +14,14 @@ class CaptionAnimation(str, Enum):
     """Cosmetic entrance transition, orthogonal to `RevealMode` - which
     word(s) exist vs. how the segment transitions on screen (INVARIANTS
     S8). No bounds check, same treatment as `textTransform`/`italic`/
-    `glow`."""
+    `glow`.
+
+    The first six are the original set (design ANIMATIONS_D). The rest
+    (contract §8) group into: finer fade/slide/zoom variants, rotation/3D,
+    spring/impact, clip-path reveals, `neonGlow`, character/word-level
+    reveals (`typewriter`/`letterCascade`), and word-highlight karaoke
+    modes (`karaokeFill`/`karaokeBox` - the only two that change how a
+    word's own highlight is drawn, not just how the block enters)."""
 
     none = "none"
     fade = "fade"
@@ -22,6 +29,32 @@ class CaptionAnimation(str, Enum):
     bounce = "bounce"
     blur = "blur"
     snap = "snap"
+    fade_simple = "fadeSimple"
+    fade_scale = "fadeScale"
+    fade_blur = "fadeBlur"
+    slide_up = "slideUp"
+    slide_down = "slideDown"
+    slide_left = "slideLeft"
+    slide_right = "slideRight"
+    zoom_out = "zoomOut"
+    rotate_in = "rotateIn"
+    tilt_in = "tiltIn"
+    swing_pendulum = "swingPendulum"
+    spring_elastic = "springElastic"
+    jelly_squash = "jellySquash"
+    flip_x = "flipX"
+    flip_y = "flipY"
+    perspective_drop = "perspectiveDrop"
+    wipe_reveal = "wipeReveal"
+    circle_reveal = "circleReveal"
+    curtain_reveal = "curtainReveal"
+    punch_in = "punchIn"
+    shake_settle = "shakeSettle"
+    neon_glow = "neonGlow"
+    typewriter = "typewriter"
+    letter_cascade = "letterCascade"
+    karaoke_fill = "karaokeFill"
+    karaoke_box = "karaokeBox"
 
 
 class TextTransform(str, Enum):

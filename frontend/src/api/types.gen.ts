@@ -272,9 +272,16 @@ export interface components {
          *     word(s) exist vs. how the segment transitions on screen (INVARIANTS
          *     S8). No bounds check, same treatment as `textTransform`/`italic`/
          *     `glow`.
+         *
+         *     The first six are the original set (design ANIMATIONS_D). The rest
+         *     (contract §8) group into: finer fade/slide/zoom variants, rotation/3D,
+         *     spring/impact, clip-path reveals, `neonGlow`, character/word-level
+         *     reveals (`typewriter`/`letterCascade`), and word-highlight karaoke
+         *     modes (`karaokeFill`/`karaokeBox` - the only two that change how a
+         *     word's own highlight is drawn, not just how the block enters).
          * @enum {string}
          */
-        CaptionAnimation: "none" | "fade" | "pop" | "bounce" | "blur" | "snap";
+        CaptionAnimation: "none" | "fade" | "pop" | "bounce" | "blur" | "snap" | "fadeSimple" | "fadeScale" | "fadeBlur" | "slideUp" | "slideDown" | "slideLeft" | "slideRight" | "zoomOut" | "rotateIn" | "tiltIn" | "swingPendulum" | "springElastic" | "jellySquash" | "flipX" | "flipY" | "perspectiveDrop" | "wipeReveal" | "circleReveal" | "curtainReveal" | "punchIn" | "shakeSettle" | "neonGlow" | "typewriter" | "letterCascade" | "karaokeFill" | "karaokeBox";
         /** CaptionStyleSpec */
         CaptionStyleSpec: {
             /**

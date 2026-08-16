@@ -117,6 +117,290 @@
   }
 }
 
+/* The 22 progressive-mode entrances added alongside karaoke/typewriter/letter-cascade
+   (docs/api-contract.md §8, INVARIANTS S8). Curves ported verbatim from the design handoff
+   ("Caption Animations - Phrases 30.dc.html") — durations/easings live in lib/animations.ts next
+   to the matching CAPTION_ANIMATIONS entry, not here. */
+@keyframes capFadeSimple {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes capFadeScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes capFadeBlur {
+  0% {
+    opacity: 0;
+    filter: blur(10px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+@keyframes capSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(50px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes capSlideDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes capSlideLeft {
+  0% {
+    opacity: 0;
+    transform: translateX(60px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes capSlideRight {
+  0% {
+    opacity: 0;
+    transform: translateX(-60px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes capZoomOut {
+  0% {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes capRotateIn {
+  0% {
+    opacity: 0;
+    transform: rotate(-14deg) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(0) scale(1);
+  }
+}
+/* Needs `perspective` on an ancestor to read as 3D rather than a flat squash — set on
+   CaptionOverlay's outer block, which is exactly that ancestor for every word span. */
+@keyframes capTiltIn {
+  0% {
+    opacity: 0;
+    transform: rotateX(65deg) translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: rotateX(0) translateY(0);
+  }
+}
+@keyframes capSwingPendulum {
+  0% {
+    opacity: 0;
+    transform: rotate(-22deg);
+  }
+  30% {
+    opacity: 1;
+    transform: rotate(14deg);
+  }
+  55% {
+    transform: rotate(-9deg);
+  }
+  75% {
+    transform: rotate(5deg);
+  }
+  100% {
+    transform: rotate(0);
+  }
+}
+@keyframes capSpringElastic {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+  50% {
+    transform: scale(0.88);
+  }
+  70% {
+    transform: scale(1.08);
+  }
+  85% {
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes capJellySquash {
+  0% {
+    opacity: 0;
+    transform: scale(0.6, 1.4);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.25, 0.75);
+  }
+  60% {
+    transform: scale(0.9, 1.1);
+  }
+  80% {
+    transform: scale(1.05, 0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1, 1);
+  }
+}
+@keyframes capFlipX {
+  0% {
+    opacity: 0;
+    transform: rotateX(90deg);
+  }
+  100% {
+    opacity: 1;
+    transform: rotateX(0);
+  }
+}
+@keyframes capFlipY {
+  0% {
+    opacity: 0;
+    transform: rotateY(-100deg);
+  }
+  100% {
+    opacity: 1;
+    transform: rotateY(0);
+  }
+}
+@keyframes capPerspectiveDrop {
+  0% {
+    opacity: 0;
+    transform: translateY(-70px) rotateX(55deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotateX(0);
+  }
+}
+@keyframes capWipeReveal {
+  0% {
+    clip-path: inset(0 100% 0 0);
+  }
+  100% {
+    clip-path: inset(0 0% 0 0);
+  }
+}
+@keyframes capCircleReveal {
+  0% {
+    opacity: 1;
+    clip-path: circle(0% at 50% 50%);
+  }
+  100% {
+    clip-path: circle(75% at 50% 50%);
+  }
+}
+@keyframes capCurtainReveal {
+  0% {
+    clip-path: inset(50% 0 50% 0);
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes capPunchIn {
+  0% {
+    opacity: 0;
+    transform: scale(1.5) rotate(3deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(0.92) rotate(-1deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+@keyframes capShakeSettle {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  10% {
+    opacity: 1;
+    transform: translateX(-14px);
+  }
+  25% {
+    transform: translateX(12px);
+  }
+  40% {
+    transform: translateX(-8px);
+  }
+  55% {
+    transform: translateX(6px);
+  }
+  70% {
+    transform: translateX(-3px);
+  }
+  85% {
+    transform: translateX(2px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+/* text-shadow uses currentColor, not a fixed accent — the glow tints itself to whichever color
+   this word is already rendered in (base or highlight), so it composes with the existing color
+   system instead of overriding it. */
+@keyframes capNeonGlow {
+  0% {
+    opacity: 0;
+    text-shadow: 0 0 0 currentColor;
+  }
+  50% {
+    opacity: 1;
+    text-shadow:
+      0 0 18px currentColor,
+      0 0 34px currentColor;
+  }
+  100% {
+    opacity: 1;
+    text-shadow:
+      0 0 6px currentColor,
+      0 0 14px currentColor;
+  }
+}
+
 @keyframes loftIn {
   0% {
     opacity: 0;
