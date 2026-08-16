@@ -595,16 +595,33 @@ export default function Editor(): JSX.Element {
   // native undo (e.g. while typing a word's text or a timestamp).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod || e.key.toLowerCase() !== "z") {
-        return;
-      }
+      // Shared by every shortcut below: typing must always win over a shortcut, and the caption
+      // editor is a contenteditable where a literal space is the most common keystroke in the app.
       const target = e.target as HTMLElement | null;
       const isEditable =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         Boolean(target?.isContentEditable);
       if (isEditable) {
+        return;
+      }
+
+      // Space toggles playback, the way every video tool behaves. Bound at the window rather than
+      // the player so it works wherever attention is — scrolling the caption list, tuning a style
+      // slider — which is exactly when you want to re-check timing without reaching for the mouse.
+      if (e.code === "Space" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Buttons and range inputs treat Space as "activate"/"nudge" of their own; hijacking it
+        // there would break Play, Export, and the position slider for keyboard users.
+        if (target?.closest("button, [role='button'], input[type='range']")) {
+          return;
+        }
+        e.preventDefault(); // default Space scrolls the page
+        togglePlay();
+        return;
+      }
+
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.key.toLowerCase() !== "z") {
         return;
       }
       e.preventDefault();
@@ -616,8 +633,9 @@ export default function Editor(): JSX.Element {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // Intentionally empty deps: handleUndo/handleRedo read history via historyRef, not the
-    // `history` closure, specifically so this listener attaches once instead of on every edit.
+    // Intentionally empty deps: handleUndo/handleRedo read history via historyRef, and togglePlay
+    // reads the player via videoRef — none of them close over reactive state, specifically so this
+    // listener attaches once instead of on every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
