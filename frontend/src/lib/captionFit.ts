@@ -15,6 +15,11 @@ export function wrapWords(
 ): WrapResult {
   const lines: string[][] = [[]];
 
+  // A single word wider than the budget can't be helped — wrapping only happens *between* words
+  // (L2), never inside one. It still has to be reported: it is the one overflow case a line break
+  // cannot fix, and silently placing it would push the caption outside the safe area.
+  let wordTooWide = false;
+
   for (const word of words) {
     const current = lines[lines.length - 1];
     if (!current) {
@@ -22,6 +27,9 @@ export function wrapWords(
     }
     if (current.length === 0) {
       current.push(word.text);
+      if (measureWidth(word.text) > maxWidth) {
+        wordTooWide = true;
+      }
       continue;
     }
     const candidate = [...current, word.text].join(" ");
@@ -29,11 +37,14 @@ export function wrapWords(
       current.push(word.text);
     } else {
       lines.push([word.text]);
+      if (measureWidth(word.text) > maxWidth) {
+        wordTooWide = true;
+      }
     }
   }
 
   return {
     lines: lines.slice(0, MAX_LINES),
-    overflow: lines.length > MAX_LINES,
+    overflow: lines.length > MAX_LINES || wordTooWide,
   };
 }

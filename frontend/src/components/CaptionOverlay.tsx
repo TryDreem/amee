@@ -1,4 +1,4 @@
-import { Fragment, useMemo, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import type { PresetBase, Segment } from "../api/client";
 import { activeWordIndexInSegment, findActiveSegmentIndex, highlightColorFor } from "../lib/activeSegment";
@@ -99,19 +99,54 @@ export default function CaptionOverlay({
   // in this array — every other word is absent from the output, not merely styled invisible.
   // That's a content-visibility difference, not a CSS toggle over the same markup, so it has to
   // happen here, before wrapWords ever sees the rest of the segment.
+  // textTransform is applied to the string HERE, not left to CSS `text-transform` at paint time.
+  // Both produce the same picture, but only this way does the wrap measurement below see the same
+  // characters that will actually be drawn: uppercase Cyrillic is markedly wider than lowercase,
+  // so measuring the original casing made `wrapWords` believe a line fitted when the rendered
+  // uppercase version did not — the line then overflowed its box to the right and the caption read
+  // as "not centered". Same order as the SRT path (S7: punctuation first, then case).
   const displayWords = useMemo(() => {
     if (!activeSegment) {
       return null;
     }
-    const words = style.showPunctuation
-      ? activeSegment.words
-      : activeSegment.words.map((w) => ({ ...w, text: stripPunctuation(w.text) }));
+    const transform = (text: string): string => {
+      const stripped = style.showPunctuation ? text : stripPunctuation(text);
+      return style.textTransform === "uppercase" ? stripped.toUpperCase() : stripped;
+    };
+    const words = activeSegment.words.map((w) => ({ ...w, text: transform(w.text) }));
     if (style.revealMode === "single-word") {
       const active = activeWordIdx >= 0 ? words[activeWordIdx] : undefined;
       return active ? [active] : [];
     }
     return words;
-  }, [activeSegment, style.showPunctuation, style.revealMode, activeWordIdx]);
+  }, [
+    activeSegment,
+    style.showPunctuation,
+    style.textTransform,
+    style.revealMode,
+    activeWordIdx,
+  ]);
+
+  // Web fonts load asynchronously, and canvas measurement silently falls back to a system face
+  // until the real one is in. Without re-measuring afterwards the preview would keep line breaks
+  // computed from the wrong metrics, while the export render (which waits on document.fonts.ready
+  // before capturing anything) would use the right ones — the two drifting apart is exactly the
+  // R1/R2 failure this component exists to prevent.
+  const [loadedFont, setLoadedFont] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.fonts) {
+      return;
+    }
+    let cancelled = false;
+    void document.fonts.load(fontString).then(() => {
+      if (!cancelled) {
+        setLoadedFont(fontString);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fontString]);
 
   const wrapped = useMemo(() => {
     if (!displayWords) {
@@ -120,7 +155,11 @@ export default function CaptionOverlay({
     const measure = measureWidthFor(fontString);
     const maxWidth = containerWidth * HORIZONTAL_SAFE_WIDTH_FRACTION;
     return wrapWords(displayWords, measure, maxWidth);
-  }, [displayWords, fontString, containerWidth]);
+    // `loadedFont` is deliberately a dependency without being read: it signals that the canvas's
+    // measurement metrics just changed (the real face finished loading), which is invisible to the
+    // linter because the change happens inside `measureWidthFor`, not in any value here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayWords, fontString, containerWidth, loadedFont]);
 
   if (!activeSegment || !wrapped) {
     return null;
@@ -185,12 +224,21 @@ export default function CaptionOverlay({
         top: `${topPx}px`,
         transform: "translate(-50%, -50%)",
         maxWidth: `${containerWidth * HORIZONTAL_SAFE_WIDTH_FRACTION}px`,
+        // Column flex with centred items, not just `text-align: center`: each line is
+        // `white-space: nowrap`, so a line the wrap budget couldn't satisfy (a single word wider
+        // than the safe area) is wider than this box. As a block it would spill to the right only,
+        // which looks like a broken centring; as a centred flex item it spills evenly both ways
+        // and still reads as centred.
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
         textAlign: "center",
         pointerEvents: "none",
         fontFamily: cssFamily,
         fontWeight: style.fontWeight,
         fontStyle: style.italic ? "italic" : "normal",
-        textTransform: style.textTransform === "uppercase" ? "uppercase" : "none",
+        // No `textTransform` here on purpose — displayWords already applied it, so the measured
+        // string and the painted string are the same one.
         fontSize: `${fontSizePx}px`,
         lineHeight: 1.25,
         WebkitTextStroke: outlineCss,

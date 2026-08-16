@@ -25,9 +25,19 @@ describe("wrapWords", () => {
     expect(result.overflow).toBe(true);
   });
 
-  it("never splits a single word across lines even if it alone exceeds maxWidth", () => {
+  it("never splits a single word across lines, but reports it as overflow", () => {
+    // L2 forbids breaking inside a word, so the line stays whole — but it does not fit, and
+    // saying `overflow: false` would leave the user with a caption running past the safe area
+    // and no warning. A line break cannot fix this one; only a smaller font or an edit can, which
+    // is precisely what the overflow state exists to tell them (L4).
     const result = wrapWords([{ text: "supercalifragilistic" }], measureChars, 5);
     expect(result.lines).toEqual([["supercalifragilistic"]]);
+    expect(result.overflow).toBe(true);
+  });
+
+  it("does not flag overflow when every word fits on its own", () => {
+    const result = wrapWords([{ text: "aaa" }, { text: "bbb" }], measureChars, 3);
+    expect(result.lines).toEqual([["aaa"], ["bbb"]]);
     expect(result.overflow).toBe(false);
   });
 

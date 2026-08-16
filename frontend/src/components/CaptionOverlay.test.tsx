@@ -257,6 +257,32 @@ describe("CaptionOverlay", () => {
     expect(screen.getByText("you").style.color).toBe("rgb(255, 230, 0)");
   });
 
+  // The wrap budget is measured against the string that will actually be painted. Uppercase is
+  // applied to the text here rather than by CSS `text-transform`, because uppercase Cyrillic is
+  // wider than lowercase: measuring the original casing made a line look like it fitted, and the
+  // rendered caption then overflowed its box to one side and read as "not centered".
+  it("renders uppercase text itself instead of leaving it to CSS", () => {
+    const cyrillic: Segment[] = [
+      { id: "s", words: [{ id: "w", text: "выучить", start: 0, end: 0.5 }] },
+    ];
+    render(
+      <CaptionOverlay
+        segments={cyrillic}
+        currentTime={0.1}
+        style={{ ...baseStyle, textTransform: "uppercase" }}
+        containerWidth={300}
+        containerHeight={500}
+      />
+    );
+
+    const word = screen.getByText("ВЫУЧИТЬ");
+    // Present as real characters, not merely painted that way — the whole point is that whatever
+    // measures this string sees the same width the user will.
+    expect(word.textContent).toBe("ВЫУЧИТЬ");
+    const block = word.closest<HTMLElement>("[style*='max-width']");
+    expect(block?.style.textTransform).toBe("");
+  });
+
   // R1/R2: this component draws both the live preview (small container) and the headless export
   // frame (full video size). Any decoration measured in absolute px therefore looks correct in one
   // and wrong in the other -- the exact bug behind "glow differs between preview and export".
