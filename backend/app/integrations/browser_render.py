@@ -13,6 +13,7 @@ standing up a real HTTP server — which would otherwise need a port, and ports 
 parallel worktrees/workers collide on (`scripts/wt-env.sh` exists because of that).
 """
 
+import asyncio
 import json
 import math
 import os
@@ -21,7 +22,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from playwright.async_api import Page, Route, async_playwright
+from playwright.async_api import Browser, Page, Playwright, Route, async_playwright
 
 # The export worker renders the *built* frontend, not the dev server: a production worker has no
 # Vite running, and pinning to `dist/` keeps export reproducible against whatever was deployed.
@@ -58,6 +59,24 @@ _CONTENT_TYPES = {
 class BrowserRenderError(RuntimeError):
     """The render surface could not be loaded or driven — missing build output, a page that never
     signalled ready, or a navigation/JS failure."""
+
+
+def _render_concurrency() -> int:
+    """How many browsers render frames at once. 4 by default — measured as the point where the
+    gain flattens (8 was no better than 4) — but env-tunable because the right number depends on
+    the host's cores and spare memory, not on anything this code can see."""
+    try:
+        return max(1, int(os.environ.get("AMEE_RENDER_CONCURRENCY", "4")))
+    except ValueError:
+        return 4
+
+
+def _require_render_surface() -> None:
+    if not (_DIST_DIR / "render.html").is_file():
+        raise BrowserRenderError(
+            f"no built render surface at {_DIST_DIR}/render.html — "
+            "run `pnpm -C frontend build` (or set AMEE_FRONTEND_DIST)"
+        )
 
 
 async def _serve_from_dist(route: Route) -> None:
@@ -102,12 +121,36 @@ async def caption_page(
 
     Yields a `Page`; use `screenshot_at` to capture instants from it.
     """
-    if not (_DIST_DIR / "render.html").is_file():
-        raise BrowserRenderError(
-            f"no built render surface at {_DIST_DIR}/render.html — "
-            "run `pnpm -C frontend build` (or set AMEE_FRONTEND_DIST)"
-        )
+    _require_render_surface()
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            yield await _open_render_page(
+                browser,
+                segments=segments,
+                preset=preset,
+                overrides=overrides,
+                per_phrase_style=per_phrase_style,
+                width=width,
+                height=height,
+            )
+        finally:
+            await browser.close()
 
+
+async def _open_render_page(
+    browser: Browser,
+    *,
+    segments: list[dict[str, Any]],
+    preset: dict[str, Any],
+    overrides: dict[str, Any],
+    per_phrase_style: bool,
+    width: int,
+    height: int,
+) -> Page:
+    """One loaded, ready-to-seek page in an already-running browser. Split out from
+    `caption_page` because the parallel renderer needs several of these across several browsers,
+    each with its own lifetime."""
     payload = {
         "segments": segments,
         "preset": preset,
@@ -116,36 +159,29 @@ async def caption_page(
         "width": width,
         "height": height,
     }
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch()
-        try:
-            # device_scale_factor stays 1: the page is laid out in the video's own pixel
-            # dimensions, so a scale factor would silently render at the wrong resolution.
-            context = await browser.new_context(
-                viewport={"width": width, "height": height},
-                device_scale_factor=1,
-            )
-            page = await context.new_page()
-            await page.route("**/*", _serve_from_dist)
-            # Injected before any script of the page runs — render.tsx reads it at module scope
-            # and throws if it is missing, so this cannot race the bundle. json.dumps, not repr:
-            # word text is arbitrary user content (apostrophes, quotes, non-ASCII) and Python's
-            # True/False/None are not JSON literals.
-            await page.add_init_script(
-                f"window.__AMEE_RENDER__ = {json.dumps(payload)};"
-            )
-            await page.goto(_RENDER_URL, wait_until="load")
-            try:
-                await page.wait_for_function(
-                    "() => window.__ameeReady === true", timeout=_READY_TIMEOUT_MS
-                )
-            except Exception as exc:
-                raise BrowserRenderError(
-                    "render surface never became ready (fonts or bundle failed to load)"
-                ) from exc
-            yield page
-        finally:
-            await browser.close()
+    # device_scale_factor stays 1: the page is laid out in the video's own pixel dimensions, so a
+    # scale factor would silently render at the wrong resolution.
+    context = await browser.new_context(
+        viewport={"width": width, "height": height},
+        device_scale_factor=1,
+    )
+    page = await context.new_page()
+    await page.route("**/*", _serve_from_dist)
+    # Injected before any script of the page runs — render.tsx reads it at module scope and throws
+    # if it is missing, so this cannot race the bundle. json.dumps, not repr: word text is
+    # arbitrary user content (apostrophes, quotes, non-ASCII) and Python's True/False/None are not
+    # JSON literals.
+    await page.add_init_script(f"window.__AMEE_RENDER__ = {json.dumps(payload)};")
+    await page.goto(_RENDER_URL, wait_until="load")
+    try:
+        await page.wait_for_function(
+            "() => window.__ameeReady === true", timeout=_READY_TIMEOUT_MS
+        )
+    except Exception as exc:
+        raise BrowserRenderError(
+            "render surface never became ready (fonts or bundle failed to load)"
+        ) from exc
+    return page
 
 
 async def screenshot_at(page: Page, time_seconds: float) -> bytes:
@@ -197,21 +233,66 @@ async def render_frames(
     user-facing number is the caller's job (contract §5). `should_cancel` is polled between frames
     rather than mid-frame: a single screenshot is short enough that finishing it costs nothing, and
     it keeps every written file complete — a half-written PNG would break the ffmpeg read.
+
+    **Renders across several browsers at once** (`AMEE_RENDER_CONCURRENCY`). Measured on a 17s
+    1080x1920 clip: a screenshot costs ~58ms almost regardless of how many pixels it covers, so
+    this phase is bound by round-trip latency, not by CPU. Separate browsers, not extra tabs in
+    one: tabs share a browser process that serialises capture, and only reached ~1.5x, while four
+    browsers reach ~3.5x. Each browser costs roughly 250MB while the export runs.
     """
     total = frame_count(duration_seconds, fps)
-    async with caption_page(
-        segments=segments,
-        preset=preset,
-        overrides=overrides,
-        per_phrase_style=per_phrase_style,
-        width=width,
-        height=height,
-    ) as page:
-        for index in range(total):
+    workers = min(_render_concurrency(), total)
+
+    done = 0
+    progress_lock = asyncio.Lock()
+
+    async def _render_slice(browser: Browser, indices: list[int]) -> None:
+        nonlocal done
+        page = await _open_render_page(
+            browser,
+            segments=segments,
+            preset=preset,
+            overrides=overrides,
+            per_phrase_style=per_phrase_style,
+            width=width,
+            height=height,
+        )
+        for index in indices:
             if should_cancel is not None and await should_cancel():
                 raise FrameRenderCancelled()
             frame = await screenshot_at(page, index / fps)
             (dest_dir / f"frame_{index + 1:06d}.png").write_bytes(frame)
             if on_progress is not None:
-                await on_progress((index + 1) / total * 100)
+                # Percent is "frames finished anywhere", not this worker's own position: the
+                # slices finish at slightly different rates, and a per-worker percent would make
+                # the shared bar jump backwards whenever a slower one reported.
+                async with progress_lock:
+                    done += 1
+                    await on_progress(done / total * 100)
+
+    async def _run_worker(playwright: Playwright, indices: list[int]) -> None:
+        browser = await playwright.chromium.launch()
+        try:
+            await _render_slice(browser, indices)
+        finally:
+            await browser.close()
+
+    _require_render_surface()
+    async with async_playwright() as playwright:
+        # Interleaved (0,4,8… / 1,5,9…), not contiguous blocks: every worker then walks the whole
+        # timeline, so they hit the same mix of cheap and expensive frames and finish together
+        # instead of one drawing every caption-heavy second while another renders empty gaps.
+        slices = [list(range(offset, total, workers)) for offset in range(workers)]
+        try:
+            # TaskGroup, not gather: gather propagates the first failure but leaves its siblings
+            # running, so a cancelled export would keep the other browsers rendering into a
+            # directory nobody will read, while `async_playwright()` tore down underneath them.
+            # TaskGroup cancels the others and waits for them before letting the error out.
+            async with asyncio.TaskGroup() as group:
+                for indices in slices:
+                    group.create_task(_run_worker(playwright, indices))
+        except* FrameRenderCancelled:
+            # Unwrapped from the ExceptionGroup TaskGroup raises: callers (and P8's cancel path)
+            # match on the plain exception type, not on group membership.
+            raise FrameRenderCancelled() from None
     return total

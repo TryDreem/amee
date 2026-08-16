@@ -227,6 +227,42 @@ async def test_render_frames_writes_one_png_per_frame(tmp_path: Path) -> None:
     assert all(f.read_bytes().startswith(b"\x89PNG\r\n\x1a\n") for f in frames)
 
 
+async def test_render_frames_loses_no_frame_when_split_across_browsers(
+    tmp_path: Path,
+) -> None:
+    """Frames are rendered by several browsers at once, each taking every Nth index. A slicing or
+    naming mistake would show up as a gap in the sequence, which ffmpeg's `%06d` reader treats as
+    the end of the video — silently truncating the captions rather than failing."""
+    frames = 13  # deliberately not a multiple of the worker count
+    await _render(tmp_path, duration_seconds=1.3, fps=10.0)
+
+    names = sorted(f.name for f in tmp_path.glob("*.png"))
+    assert names == [f"frame_{i:06d}.png" for i in range(1, frames + 1)]
+
+
+async def test_render_frames_is_unaffected_by_the_worker_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Parallelism is purely a speed device: the same document must produce byte-identical frames
+    whether one browser renders them or four. Anything shared between workers (a stale page, a
+    misassigned index) would surface here as a difference."""
+    monkeypatch.setenv("AMEE_RENDER_CONCURRENCY", "1")
+    serial_dir = tmp_path / "serial"
+    serial_dir.mkdir()
+    await _render(serial_dir, duration_seconds=0.6, fps=10.0)
+
+    monkeypatch.setenv("AMEE_RENDER_CONCURRENCY", "4")
+    parallel_dir = tmp_path / "parallel"
+    parallel_dir.mkdir()
+    await _render(parallel_dir, duration_seconds=0.6, fps=10.0)
+
+    for serial_frame in sorted(serial_dir.glob("*.png")):
+        parallel_frame = parallel_dir / serial_frame.name
+        assert parallel_frame.read_bytes() == serial_frame.read_bytes(), (
+            serial_frame.name
+        )
+
+
 async def test_render_frames_captures_each_frame_at_its_own_time(
     tmp_path: Path,
 ) -> None:
