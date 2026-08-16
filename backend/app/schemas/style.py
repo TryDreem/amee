@@ -55,6 +55,8 @@ class CaptionAnimation(str, Enum):
     letter_cascade = "letterCascade"
     karaoke_fill = "karaokeFill"
     karaoke_box = "karaokeBox"
+    glitch_slice = "glitchSlice"
+    rgb_split = "rgbSplit"
 
 
 class TextTransform(str, Enum):

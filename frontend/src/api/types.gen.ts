@@ -281,7 +281,7 @@ export interface components {
          *     word's own highlight is drawn, not just how the block enters).
          * @enum {string}
          */
-        CaptionAnimation: "none" | "fade" | "pop" | "bounce" | "blur" | "snap" | "fadeSimple" | "fadeScale" | "fadeBlur" | "slideUp" | "slideDown" | "slideLeft" | "slideRight" | "zoomOut" | "rotateIn" | "tiltIn" | "swingPendulum" | "springElastic" | "jellySquash" | "flipX" | "flipY" | "perspectiveDrop" | "wipeReveal" | "circleReveal" | "curtainReveal" | "punchIn" | "shakeSettle" | "neonGlow" | "typewriter" | "letterCascade" | "karaokeFill" | "karaokeBox";
+        CaptionAnimation: "none" | "fade" | "pop" | "bounce" | "blur" | "snap" | "fadeSimple" | "fadeScale" | "fadeBlur" | "slideUp" | "slideDown" | "slideLeft" | "slideRight" | "zoomOut" | "rotateIn" | "tiltIn" | "swingPendulum" | "springElastic" | "jellySquash" | "flipX" | "flipY" | "perspectiveDrop" | "wipeReveal" | "circleReveal" | "curtainReveal" | "punchIn" | "shakeSettle" | "neonGlow" | "typewriter" | "letterCascade" | "karaokeFill" | "karaokeBox" | "glitchSlice" | "rgbSplit";
         /** CaptionStyleSpec */
         CaptionStyleSpec: {
             /**

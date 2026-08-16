@@ -65,6 +65,11 @@ export const CAPTION_ANIMATIONS: AnimationOption[] = [
   { id: "punchIn", name: "Punch In", single: false, revealMode: "progressive", captionAnimation: "punchIn", keyframe: "capPunchIn", ease: "ease-out" },
   { id: "shakeSettle", name: "Shake Settle", single: false, revealMode: "progressive", captionAnimation: "shakeSettle", keyframe: "capShakeSettle", ease: "ease-out" },
   { id: "neonGlow", name: "Neon Glow In", single: false, revealMode: "progressive", captionAnimation: "neonGlow", keyframe: "capNeonGlow", ease: "ease-out" },
+
+  // Glitch category — added in a follow-up diff after the first 22, same handoff (dropped by
+  // mistake the first time, caught on review of the contract change).
+  { id: "glitchSlice", name: "Glitch Slice", single: false, revealMode: "progressive", captionAnimation: "glitchSlice", keyframe: "capGlitchSlice", ease: "steps(6, end)" },
+  { id: "rgbSplit", name: "RGB Split Converge", single: false, revealMode: "progressive", captionAnimation: "rgbSplit", keyframe: "capRgbSplit", ease: "ease-out" },
 ];
 
 // Which gallery card a resolved (revealMode, captionAnimation) pair corresponds to. Matched on

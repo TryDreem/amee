@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { CAPTION_ANIMATIONS, findAnimationOption } from "./animations";
 
 describe("CAPTION_ANIMATIONS", () => {
-  it("has 31 cards: 3 original single-word + 28 multi-word (6 original + 22 from the handoff)", () => {
-    expect(CAPTION_ANIMATIONS).toHaveLength(31);
+  it("has 33 cards: 3 original single-word + 30 multi-word (6 original + 24 from the handoff)", () => {
+    expect(CAPTION_ANIMATIONS).toHaveLength(33);
     expect(CAPTION_ANIMATIONS.filter((a) => a.single)).toHaveLength(3);
-    expect(CAPTION_ANIMATIONS.filter((a) => !a.single)).toHaveLength(28);
+    expect(CAPTION_ANIMATIONS.filter((a) => !a.single)).toHaveLength(30);
   });
 
   it("gives every card a real keyframe except 'No animation'", () => {
