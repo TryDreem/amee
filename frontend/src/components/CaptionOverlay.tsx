@@ -36,9 +36,28 @@ function measureWidthFor(font: string): (text: string) => number {
 }
 
 // Pure rendering choices, not wire-contract values (outline.size/shadow.size themselves are
-// the contract — contract §8; these px mappings are how the frontend draws them).
-const OUTLINE_WIDTH_PX: Record<string, number> = { none: 0, small: 1, medium: 2, large: 3 };
-const SHADOW_BLUR_PX: Record<string, number> = { none: 0, small: 6, medium: 14, large: 24 };
+// the contract — contract §8; these mappings are how the frontend draws them).
+//
+// Expressed as a FRACTION OF FONT SIZE, never absolute px (same rule as `fontSize` itself, which
+// is a fraction of video height — L7). Absolute values here silently broke preview/export parity:
+// the identical component renders into a ~500px-tall preview box and a 1920px-tall export frame,
+// so a hardcoded `20px` glow is 80% of the glyph height in preview and 10% of it at 4K. The text
+// scaled with the video and its decorations did not, which read as "glow looks different in the
+// export" even though both sides ran the same code. Ratios chosen to match how the old absolute
+// values looked at the default 5% font size, so the preview is visually unchanged.
+const OUTLINE_WIDTH_RATIO: Record<string, number> = {
+  none: 0,
+  small: 0.04,
+  medium: 0.08,
+  large: 0.12,
+};
+const SHADOW_BLUR_RATIO: Record<string, number> = {
+  none: 0,
+  small: 0.24,
+  medium: 0.56,
+  large: 0.96,
+};
+const GLOW_BLUR_RATIO = 0.8;
 
 // Single-word entrance duration (design: fixed 320ms for the one rendered word). Multi-word
 // durations are per-word (`max(220, textLength*60)ms`), staggered by each word's start time.
@@ -115,12 +134,16 @@ export default function CaptionOverlay({
   const highlightColor = highlightColorFor(style.highlightColors, activeIndex, style.color);
   let wordCursor = 0;
 
-  const outlineWidth = style.outline ? OUTLINE_WIDTH_PX[style.outline.size] ?? 0 : 0;
+  const outlineWidth = style.outline
+    ? (OUTLINE_WIDTH_RATIO[style.outline.size] ?? 0) * fontSizePx
+    : 0;
   const outlineCss =
     style.outline && outlineWidth > 0
       ? `${outlineWidth}px ${hexToRgba(style.outline.color, style.outline.alpha)}`
       : undefined;
-  const shadowBlur = style.shadow ? SHADOW_BLUR_PX[style.shadow.size] ?? 0 : 0;
+  const shadowBlur = style.shadow
+    ? (SHADOW_BLUR_RATIO[style.shadow.size] ?? 0) * fontSizePx
+    : 0;
   const shadowCss =
     style.shadow && shadowBlur > 0
       ? `0 0 ${shadowBlur}px ${hexToRgba(style.shadow.color, style.shadow.alpha)}`
@@ -197,7 +220,9 @@ export default function CaptionOverlay({
             const animation = word ? wordAnimationStyle(word.start, text.length) : {};
             wordCursor += 1;
             const color = isHighlighted ? highlightColor : style.color;
-            const glowCss = style.glow ? `0 0 20px ${color}` : undefined;
+            const glowCss = style.glow
+              ? `0 0 ${GLOW_BLUR_RATIO * fontSizePx}px ${color}`
+              : undefined;
             const textShadow = [glowCss, shadowCss].filter(Boolean).join(", ") || undefined;
             // The inter-word space lives BETWEEN the spans, not inside them: each word span is
             // display:inline-block (required for the per-word transform keyframes to apply — CSS

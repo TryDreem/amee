@@ -256,4 +256,52 @@ describe("CaptionOverlay", () => {
     expect(screen.getByText("love").style.color).toBe("rgb(255, 230, 0)");
     expect(screen.getByText("you").style.color).toBe("rgb(255, 230, 0)");
   });
+
+  // R1/R2: this component draws both the live preview (small container) and the headless export
+  // frame (full video size). Any decoration measured in absolute px therefore looks correct in one
+  // and wrong in the other -- the exact bug behind "glow differs between preview and export".
+  // Doubling the container must double every decoration, since fontSize is a fraction of it.
+  it("scales glow, shadow, and outline with the container, not in fixed pixels", () => {
+    const decorated: PresetBase = {
+      ...baseStyle,
+      glow: true,
+      shadow: { size: "large", color: "#ff0000", alpha: 100 },
+      outline: { size: "small", color: "#000000", alpha: 100 },
+    };
+    const blurOf = (value: string): number =>
+      Number(/(\d+(?:\.\d+)?)px/.exec(value)?.[1] ?? 0);
+    // The caption block carries the stroke; each word span carries the glow. Walking up from a
+    // word rather than querying by class keeps this independent of the component's DOM shape.
+    const blockOf = (word: HTMLElement): HTMLElement =>
+      word.closest<HTMLElement>("[style*='max-width']") ?? word;
+
+    const small = render(
+      <CaptionOverlay
+        segments={segments}
+        currentTime={0.1}
+        style={decorated}
+        containerWidth={300}
+        containerHeight={500}
+      />
+    );
+    const smallStroke = blurOf(blockOf(screen.getByText("Hello,")).style.webkitTextStroke);
+    const smallGlow = blurOf(screen.getByText("Hello,").style.textShadow);
+    small.unmount();
+
+    render(
+      <CaptionOverlay
+        segments={segments}
+        currentTime={0.1}
+        style={decorated}
+        containerWidth={600}
+        containerHeight={1000}
+      />
+    );
+    const bigStroke = blurOf(blockOf(screen.getByText("Hello,")).style.webkitTextStroke);
+
+    expect(smallStroke).toBeGreaterThan(0);
+    expect(smallGlow).toBeGreaterThan(0);
+    expect(bigStroke).toBeCloseTo(smallStroke * 2, 5);
+    expect(blurOf(screen.getByText("Hello,").style.textShadow)).toBeCloseTo(smallGlow * 2, 5);
+  });
 });
