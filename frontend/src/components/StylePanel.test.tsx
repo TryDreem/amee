@@ -4,11 +4,18 @@ import { describe, expect, it, vi } from "vitest";
 import type { Preset } from "../api/client";
 import { STR } from "../i18n";
 import { hexToRgb } from "../lib/color";
+import { FONT_PREVIEW_COLORS } from "../lib/fonts";
 import { presetsFixture } from "../mocks/fixtures";
 import { resolveTheme, type Prefs } from "../theme";
 import StylePanel from "./StylePanel";
 
 const prefs: Prefs = { lang: "en", mode: "dark", theme: "navy" };
+
+// jsdom normalises an inline hex to rgb(), so expectations have to be written in that form.
+function rgb(hex: string): string {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 const basePreset = presetsFixture[0] as Preset;
 
@@ -75,9 +82,7 @@ describe("StylePanel reveal mode", () => {
 });
 
 describe("StylePanel font gallery", () => {
-  // jsdom normalises the inline hex to rgb(), so compare against that form.
-  const { r, g, b } = hexToRgb(resolveTheme(prefs.theme, prefs.mode).accent);
-  const accent = `rgb(${r}, ${g}, ${b})`;
+  const accent = rgb(resolveTheme(prefs.theme, prefs.mode).accent);
 
   // getAllByText, not getByText: "Outline" is both a font card and the label of the outline-size
   // control in the pinned strip below.
@@ -118,13 +123,25 @@ describe("StylePanel font gallery", () => {
     expect(cardFor("Outline").style.border).not.toContain(accent);
   });
 
-  // Every card used to carry its own preview colour, and the dark slate ones were invisible on
-  // the dark theme's card.
-  it("draws every font name in the theme's text colour", () => {
+  // Cards used to carry a literal preview hex, and the near-black slate ones rendered as blank
+  // rectangles on the dark theme. The colour is now a hue resolved per theme.
+  it("resolves each font's colour against the current theme", () => {
+    const { unmount } = renderPanel();
+    const onDark = screen.getByText("Anton").style.color;
+    expect(onDark).toBe(rgb(FONT_PREVIEW_COLORS.dark.red));
+    unmount();
+
+    renderPanel({ prefs: { ...prefs, mode: "light" } });
+    expect(screen.getByText("Anton").style.color).toBe(rgb(FONT_PREVIEW_COLORS.light.red));
+    expect(screen.getByText("Anton").style.color).not.toBe(onDark);
+  });
+
+  it("keeps neighbouring cards visibly different from each other", () => {
     renderPanel();
-    for (const label of ["Anton", "Clean", "Archivo Black", "Pacifico"]) {
-      expect(screen.getByText(label).style.color).toBe("rgb(255, 255, 255)");
-    }
+    const colors = ["Bebas Bold", "Montserrat", "Clean"].map(
+      (label) => screen.getByText(label).style.color
+    );
+    expect(new Set(colors).size).toBe(colors.length);
   });
 });
 

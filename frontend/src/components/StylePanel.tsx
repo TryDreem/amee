@@ -18,6 +18,7 @@ import {
   FONT_OPTIONS,
   fontMatchesFilter,
   fontName,
+  fontPreviewColor,
   type FontFilter,
   type FontOption,
 } from "../lib/fonts";
@@ -538,6 +539,7 @@ export default function StylePanel({
               {FONT_OPTIONS.filter((font) => fontMatchesFilter(font, fontFilter, favFonts)).map((font, i) => {
                 const selected = isFontSelected(font);
                 const isFav = favFonts.includes(font.name);
+                const fontColor = fontPreviewColor(font.hue, prefs.mode);
                 return (
                   <div
                     key={font.name}
@@ -595,15 +597,16 @@ export default function StylePanel({
                         fontWeight: font.weight,
                         fontFamily: cssFontFamily(font.family),
                         fontStyle: font.italic ? "italic" : "normal",
-                        // The theme's text colour, not a per-font one (see lib/fonts.ts) — the
-                        // glow and outline card decorations tint to it too, so they stay visible
-                        // on both themes as well.
-                        color: font.outline ? "transparent" : mode.textMain,
+                        // Each card keeps its own colour, resolved for the current theme rather
+                        // than stored as a fixed hex (lib/fonts.ts) — the card background flips
+                        // between near-black and white, so a fixed one is legible on only one of
+                        // them. Glow and outline decorations tint to the same colour.
+                        color: font.outline ? "transparent" : fontColor,
                         textAlign: "center",
                         lineHeight: 1.25,
                         textTransform: font.transform === "uppercase" ? "uppercase" : "none",
-                        WebkitTextStroke: font.outline ? "1px " + mode.textMain : undefined,
-                        textShadow: font.glow ? "0 0 10px " + mode.textMain : undefined,
+                        WebkitTextStroke: font.outline ? "1px " + fontColor : undefined,
+                        textShadow: font.glow ? "0 0 10px " + fontColor : undefined,
                       }}
                     >
                       {font.name}
