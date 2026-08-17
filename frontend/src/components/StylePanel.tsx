@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import type {
   OutlineOrShadow,
@@ -318,17 +318,46 @@ export default function StylePanel({
     });
   }
 
+  // Which card the current style counts as. Not an exact match on the whole bundle: the fields a
+  // card writes are all independently editable afterwards (weight, uppercase, italic and glow each
+  // have their own control below), so demanding all of them agree meant that changing the weight
+  // right after picking a font deselected the font — the gallery claimed nothing was chosen while
+  // that font was plainly in use.
+  //
+  // Family alone isn't enough either, because several cards are different looks built on the same
+  // family (Clean / Neon Glow / Outline are all Inter) and would then all light up at once. So:
+  // among the cards with the right family, the one agreeing on the most of the remaining fields
+  // wins, ties going to the first — always exactly one selected card, and it survives edits to
+  // any single field.
+  const selectedFontName = useMemo(() => {
+    // fontName(), not a raw compare: a document saved before fontFamily was settled as a bare
+    // name holds a whole CSS stack, which would match no card at all.
+    const family = fontName(resolvedStyle.fontFamily);
+    let best: { name: string; score: number } | null = null;
+    for (const font of FONT_OPTIONS) {
+      if (font.family !== family) {
+        continue;
+      }
+      const score =
+        (resolvedStyle.fontWeight === font.weight ? 1 : 0) +
+        (resolvedStyle.italic === Boolean(font.italic) ? 1 : 0) +
+        (resolvedStyle.glow === Boolean(font.glow) ? 1 : 0) +
+        ((resolvedStyle.textTransform === "uppercase") === (font.transform === "uppercase") ? 1 : 0);
+      if (!best || score > best.score) {
+        best = { name: font.name, score };
+      }
+    }
+    return best?.name ?? null;
+  }, [
+    resolvedStyle.fontFamily,
+    resolvedStyle.fontWeight,
+    resolvedStyle.italic,
+    resolvedStyle.glow,
+    resolvedStyle.textTransform,
+  ]);
+
   function isFontSelected(font: FontOption): boolean {
-    return (
-      // fontName(), not a raw compare: a document saved before fontFamily was settled as a bare
-      // name holds a whole CSS stack, which would match no card and leave the gallery looking
-      // like nothing is selected.
-      fontName(resolvedStyle.fontFamily) === font.family &&
-      resolvedStyle.fontWeight === font.weight &&
-      resolvedStyle.italic === Boolean(font.italic) &&
-      resolvedStyle.glow === Boolean(font.glow) &&
-      (resolvedStyle.textTransform === "uppercase") === (font.transform === "uppercase")
-    );
+    return font.name === selectedFontName;
   }
 
   // A card writes ONLY the animation. `revealMode` is its own control (below), because the two are
@@ -566,12 +595,15 @@ export default function StylePanel({
                         fontWeight: font.weight,
                         fontFamily: cssFontFamily(font.family),
                         fontStyle: font.italic ? "italic" : "normal",
-                        color: font.outline ? "transparent" : font.previewColor,
+                        // The theme's text colour, not a per-font one (see lib/fonts.ts) — the
+                        // glow and outline card decorations tint to it too, so they stay visible
+                        // on both themes as well.
+                        color: font.outline ? "transparent" : mode.textMain,
                         textAlign: "center",
                         lineHeight: 1.25,
                         textTransform: font.transform === "uppercase" ? "uppercase" : "none",
-                        WebkitTextStroke: font.outline ? "1px " + font.previewColor : undefined,
-                        textShadow: font.glow ? "0 0 10px " + font.previewColor : undefined,
+                        WebkitTextStroke: font.outline ? "1px " + mode.textMain : undefined,
+                        textShadow: font.glow ? "0 0 10px " + mode.textMain : undefined,
                       }}
                     >
                       {font.name}

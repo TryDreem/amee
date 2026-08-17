@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Preset } from "../api/client";
 import { STR } from "../i18n";
+import { hexToRgb } from "../lib/color";
 import { presetsFixture } from "../mocks/fixtures";
-import type { Prefs } from "../theme";
+import { resolveTheme, type Prefs } from "../theme";
 import StylePanel from "./StylePanel";
 
 const prefs: Prefs = { lang: "en", mode: "dark", theme: "navy" };
@@ -70,6 +71,60 @@ describe("StylePanel reveal mode", () => {
     fireEvent.click(screen.getByText(STR.en.revealModeSingleWord));
 
     expect(onChangeOverrides).toHaveBeenCalledWith({ revealMode: "single-word" });
+  });
+});
+
+describe("StylePanel font gallery", () => {
+  // jsdom normalises the inline hex to rgb(), so compare against that form.
+  const { r, g, b } = hexToRgb(resolveTheme(prefs.theme, prefs.mode).accent);
+  const accent = `rgb(${r}, ${g}, ${b})`;
+
+  // getAllByText, not getByText: "Outline" is both a font card and the label of the outline-size
+  // control in the pinned strip below.
+  function cardFor(label: string): HTMLElement {
+    for (const el of screen.getAllByText(label)) {
+      const card = el.closest(".amee-grid-card");
+      if (card instanceof HTMLElement) {
+        return card;
+      }
+    }
+    throw new Error(`no card for ${label}`);
+  }
+
+  // The reported bug: pick a font, change the weight, and the gallery goes blank — it claimed no
+  // font was chosen while that font was plainly in use.
+  it("keeps a font selected after its weight is changed from the control below", () => {
+    renderPanel({
+      resolvedStyle: {
+        ...basePreset.base,
+        fontFamily: "Archivo Black",
+        fontWeight: 900, // the card itself bundles 400
+        textTransform: "uppercase",
+      },
+    });
+
+    expect(cardFor("Archivo Black").style.border).toContain(accent);
+  });
+
+  // ...but family alone can't decide it: Clean, Neon Glow and Outline are three different looks
+  // built on Inter, and lighting up all three would be its own kind of wrong.
+  it("selects exactly one card when several looks share a family", () => {
+    renderPanel({
+      resolvedStyle: { ...basePreset.base, fontFamily: "Inter", fontWeight: 700, glow: true },
+    });
+
+    expect(cardFor("Neon Glow").style.border).toContain(accent);
+    expect(cardFor("Clean").style.border).not.toContain(accent);
+    expect(cardFor("Outline").style.border).not.toContain(accent);
+  });
+
+  // Every card used to carry its own preview colour, and the dark slate ones were invisible on
+  // the dark theme's card.
+  it("draws every font name in the theme's text colour", () => {
+    renderPanel();
+    for (const label of ["Anton", "Clean", "Archivo Black", "Pacifico"]) {
+      expect(screen.getByText(label).style.color).toBe("rgb(255, 255, 255)");
+    }
   });
 });
 
