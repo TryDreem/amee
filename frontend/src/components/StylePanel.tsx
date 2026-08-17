@@ -447,12 +447,12 @@ export default function StylePanel({
                       minHeight: "76px",
                       overflow: "hidden",
                       textAlign: "center",
-                      // A fixed dark backdrop instead of the theme's card colour: these are
-                      // captions, and captions are made to sit on footage. On the light theme a
-                      // white or pale preset would otherwise preview as an empty card.
-                      background: "linear-gradient(135deg,#23262f,#0f1116)",
+                      // Same card surface as the font and animation galleries below. A darker
+                      // "like footage" backdrop would show pale presets better, but three
+                      // stacked galleries where one is visibly a different material read as a
+                      // mistake, and the preview text carries the look on its own.
+                      background: selected ? `${theme.accent}24` : mode.cardBg,
                       border: "1px solid " + (selected ? theme.accent : mode.cardBorder),
-                      boxShadow: selected ? `0 0 0 1px ${theme.accent}` : undefined,
                       // The 3D entrances (tiltIn/flipX/flipY/perspectiveDrop) need this on an
                       // ancestor to read as a tilt rather than a flat squash, exactly as in
                       // CaptionOverlay. No seeded preset uses one yet; a future one might.
