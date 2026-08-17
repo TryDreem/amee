@@ -38,17 +38,18 @@ a number of things are built the way they are. The full, binding technical speci
    timestamp, not just a sentence-level guess), and the words are grouped into readable caption
    phrases automatically.
 3. **Edit** — in the browser, adjust wording, timing, and grouping, and separately adjust the visual
-   style: font, size, color, highlight colors, outline/shadow/glow, reveal mode (whole phrase vs.
-   word-by-word vs. single active word), entrance animation, vertical position, and punctuation
-   display. Everything updates in a live preview instantly, with no server round-trip per keystroke
-   or slider drag.
+   style: font, size, color, highlight colors, outline/shadow/glow, reveal mode (word-by-word vs.
+   single active word), entrance animation, vertical position, and punctuation display. Everything
+   updates in a live preview instantly, with no server round-trip per keystroke or slider drag.
 4. **Export** — burn the captions into the video, or generate a standalone SRT file, independently
    of each other. The burn-in is rendered by the same component that draws the live preview (see
    [Key decisions](#preview-and-export-are-the-same-renderer-so-parity-is-structural-not-engineered)
    below), so what you see while editing is what ends up in the file.
 
 The whole thing is designed to feel instant to edit and only ever touch the network for the
-expensive steps: transcription and the final render.
+expensive steps: transcription and the final render. Neither of those pins the user to a screen —
+both are tracked across pages and announce themselves when they finish, so uploading a video and
+walking away is a supported way to use the app rather than a way to lose track of a job.
 
 ---
 
@@ -371,6 +372,14 @@ and roughly a fifth of that at 4K. Fixed to the same rule as everything else: ev
 is now a fraction of the resolved font size, so it scales with the text instead of silently drifting
 away from it as resolution changes.
 
+There is one place the rule deliberately stops: the label above the font-size slider. A stored
+`fontSize` of `0.06` is correct data and a terrible readout — "6%" is a percentage of something the
+user never sees, and a slider pinned to its right end next to the number 6 reads as a bug. The label
+shows the handle's own travel instead, so full right is 100%. Nothing about the stored value, the
+bounds, or the caption changes; only the sentence the UI tells about it. Relative units are the right
+answer for the wire and the wrong answer for a human, and translating between the two is the UI's job,
+not a reason to change either side.
+
 ### Whole-document writes only — no PATCH, anywhere
 
 Both the caption content and the caption style are read and written as complete documents. There's no
@@ -389,6 +398,13 @@ no auth yet to make it dangerous," but "hard delete, full stop, forever." Worth 
 the kind of decision that's easy to quietly walk back under pressure once a user asks "can I get that
 back," and the project's stance is that this should be a conscious redesign if it ever happens, not a
 default that erodes silently.
+
+"Every file" specifically includes past exports, and that is load-bearing rather than incidental: a
+burned-in render is roughly the size of its source video, and every re-export keeps its own copy under
+its own job id, so exports are by far the heaviest thing a project accumulates. They are removed
+because they live *inside* the project directory that gets deleted, not because anything enumerates
+them — which is exactly the kind of guarantee that quietly stops being true when someone later moves
+export output somewhere more convenient. There is a test whose only job is to notice.
 
 ### Postgres from day one, not SQLite
 
@@ -473,13 +489,33 @@ at the call site for exactly that reason.
 
 ### A "new" style option has to change pixels, not just carry a new label
 
-The caption entrance-animation catalog grew from 9 to 33 named options, sourced from a design
-reference cataloguing dozens of motion styles. A number of them were rejected on the way in for the
-same reason: a gallery card that writes an existing animation value under a new `revealMode` (or vice
-versa) is not a new option, it's the same picture with a second name pointing at it — worse than not
-offering it, because the two labels can't be told apart once the choice is saved and the editor is
-reopened. The bar applied throughout: a card earns a place in the gallery only if it resolves to
-pixels no other card already produces.
+The caption entrance-animation catalog grew from 9 to 34 wire values (30 with a gallery card today),
+sourced from a design reference cataloguing dozens of motion styles. A number of them were rejected on
+the way in for the same reason: a gallery card that writes an existing animation value under a new
+`revealMode` (or vice versa) is not a new option, it's the same picture with a second name pointing at
+it — worse than not offering it, because the two labels can't be told apart once the choice is saved
+and the editor is reopened. The bar applied throughout: a card earns a place in the gallery only if it
+resolves to pixels no other card already produces.
+
+### Two independent fields need two controls, or most of the combinations become unreachable
+
+`revealMode` (which words are on screen) and `captionAnimation` (how they arrive) are orthogonal by
+specification — the invariants say so in as many words. The gallery ignored that: each card wrote both
+fields at once, so of thirty animations exactly three were reachable in single-word mode, and picking
+any other one for a single-word phrase silently dragged it back to whole-phrase. The bug did not
+present as "a setting was overwritten"; it presented as *"the animation doesn't change"*, because the
+mode it landed in didn't play the entrance the user had just picked.
+
+Two fields, two controls. Thirty animations times three modes, all reachable, and no card can quietly
+edit a field it isn't labelled as owning.
+
+The same audit killed one of the three modes as a *choice*. `revealMode: "phrase"` is still valid on
+the wire and still rendered, but it has no button, because it never delivered what its name promised:
+every word still enters at its own timestamp, so the only thing it actually changed versus
+`progressive` was painting every word in the highlight colour instead of only the active one.
+"Everything on screen at once" is what `captionAnimation: "none"` does, and always did. An option that
+has to be explained before it can be chosen isn't an option, it's a trap — a migration moved the one
+preset and any saved document off it so nothing is left sitting on a mode with no control.
 
 ---
 
@@ -519,12 +555,10 @@ them. Worth listing explicitly rather than letting the API surface table above i
 - **Merge two segments** — the Behavior Matrix in `docs/architecture.md` describes this operation,
   but there is no frontend implementation at all yet, not even the pure data-transform function
   (splitting a segment exists; merging does not). No UI, no client code, nothing to wire up yet.
-- **`POST /projects/{id}/open`** — the frontend has a typed client function for this, but no page
-  calls it. "Last opened" isn't actually tracked from the UI today.
-- **"Whole phrase" reveal mode** — `CaptionOverlay` can render all three reveal modes
-  (`phrase`/`progressive`/`single-word`) and the wire format supports all three, but the style
-  panel's animation picker only ever writes `progressive` or `single-word` — there's currently no
-  way to select plain whole-phrase reveal from the UI, even though the rendering code for it works.
+
+`revealMode: "phrase"` is also unreachable from the UI, but that one is a decision rather than a gap —
+see [Two independent fields need two controls](#two-independent-fields-need-two-controls-or-most-of-the-combinations-become-unreachable)
+above for why the button was removed and what replaced it.
 
 The complete, current list — kept in sync with the binding specs, not restated from memory — lives in
 `docs/INVARIANTS.md` under "Open."

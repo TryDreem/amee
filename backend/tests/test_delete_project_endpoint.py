@@ -162,6 +162,28 @@ async def test_delete_removes_the_project_storage_directory(
     assert not directory.exists()
 
 
+async def test_delete_removes_past_export_artifacts(sample_video: Path) -> None:
+    """Exports are the heaviest thing a project leaves on disk — a burned-in render is roughly
+    the size of the source video, and every re-export keeps its own copy under its own job id
+    (storage.video_export_paths). They are removed by `delete_project_files`'s single recursive
+    delete of the project directory rather than by any export-specific cleanup, which is only
+    true as long as exports keep living *inside* that directory. This test is what makes that a
+    guarantee instead of a coincidence."""
+    project_id = await _create_fully_transcribed_project(sample_video)
+    video_dest, _ = storage.video_export_paths(project_id, uuid.uuid4())
+    video_dest.write_bytes(b"burned-in render")
+    srt_dest, _ = storage.srt_export_paths(project_id, uuid.uuid4())
+    srt_dest.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n")
+    assert video_dest.exists() and srt_dest.exists()
+
+    response = await _delete(project_id)
+
+    assert response.status_code == 204
+    assert not video_dest.exists()
+    assert not srt_dest.exists()
+    assert not (storage.project_dir(project_id) / "exports").exists()
+
+
 async def test_delete_409s_when_transcribe_job_is_processing() -> None:
     """Confirmed with the human: transcribe has no OS process to signal
     (WhisperX runs in-process), so DELETE refuses outright rather than
