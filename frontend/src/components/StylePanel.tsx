@@ -69,6 +69,25 @@ const PRESET_PREVIEW_REPLAY_MS = 2600;
 const PRESET_PREVIEW_ANIMATION_MS = 620;
 const PRESET_PREVIEW_STAGGER_MS = 90;
 
+// How far along its own travel a slider sits, 0-100. Used for the font-size readout only.
+//
+// `fontSize` is a fraction of video height (L7) and its preset bounds are 0.02-0.06, so printing
+// the stored value read as "2%" at the smallest and "6%" at the largest — a percentage of
+// something the user never sees, whose ceiling looked like a mistake. Nothing about the stored
+// value or the bounds changes here: the same drag produces the same caption, the label just
+// describes the handle instead of the fraction, so full right is 100%.
+//
+// Deliberately not applied to Caption position just above, whose percentage is a real position in
+// the frame and already means something on its own.
+function sliderPercent(value: number, range: { min: number; max: number }): number {
+  const span = range.max - range.min;
+  if (span <= 0) {
+    return 100;
+  }
+  // Clamped because a document saved under wider bounds can still hold a value outside them.
+  return Math.round(Math.min(1, Math.max(0, (value - range.min) / span)) * 100);
+}
+
 // Favorites are pure UI (starred fonts/animations), not part of any wire shape — persisted to
 // localStorage so they survive reloads and tab switches. Fonts keyed by name, animations by id.
 const LS_FAV_FONTS = "amee_fav_fonts";
@@ -752,7 +771,7 @@ export default function StylePanel({
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1, minWidth: "140px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11.5px", color: mode.textFaint3 }}>
               <span>{L.fontSizeLabel}</span>
-              <span>{Math.round(resolvedStyle.fontSize * 1000) / 10}%</span>
+              <span>{sliderPercent(resolvedStyle.fontSize, bounds.fontSize)}%</span>
             </div>
             <input
               type="range"

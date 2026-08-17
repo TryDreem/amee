@@ -145,6 +145,27 @@ describe("StylePanel font gallery", () => {
   });
 });
 
+describe("StylePanel font size readout", () => {
+  // The stored value is a fraction of video height, so the raw number read as "6%" at the top of
+  // the slider. The label now describes the handle's travel; the value written on drag is
+  // untouched.
+  it.each([
+    [basePreset.bounds.fontSize.max, "100%"],
+    [basePreset.bounds.fontSize.min, "0%"],
+    [(basePreset.bounds.fontSize.min + basePreset.bounds.fontSize.max) / 2, "50%"],
+  ])("shows %s as %s", (fontSize, expected) => {
+    renderPanel({ resolvedStyle: { ...basePreset.base, fontSize } });
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it("clamps a value saved under wider bounds instead of printing past 100%", () => {
+    renderPanel({
+      resolvedStyle: { ...basePreset.base, fontSize: basePreset.bounds.fontSize.max * 2 },
+    });
+    expect(screen.getByText("100%")).toBeInTheDocument();
+  });
+});
+
 describe("StylePanel preset cards", () => {
   // A card that only printed the preset's name told the user nothing about what picking it does.
   it("draws each preset's name in that preset's own font, case, colour and entrance", () => {
