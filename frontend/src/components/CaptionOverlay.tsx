@@ -204,7 +204,7 @@ export default function CaptionOverlay({
   // the element mounted — which is what lets the headless export render seek to an arbitrary
   // frame and get exactly what preview shows at that time (INVARIANTS R1/P9). `both` fill covers
   // both ends: before the word's start it holds the from-state, after the end the to-state.
-  const anim = findAnimationOption(style.revealMode, style.captionAnimation);
+  const anim = findAnimationOption(style.captionAnimation);
   const wordAnimationStyle = (wordStart: number, textLength: number): CSSProperties => {
     if (!anim?.keyframe) {
       return {};

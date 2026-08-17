@@ -188,19 +188,44 @@ describe("CaptionOverlay", () => {
     expect(screen.getByText("Hello,").style.animationName).toBe("");
   });
 
-  // Single-word cards reuse pop/bounce/snap captionAnimation values but render distinct capWord*
-  // keyframes in single-word mode.
-  it("uses the single-word keyframe in single-word mode", () => {
+  // An entrance looks like itself in every reveal mode: the two fields are independent (contract
+  // §8, S8). Single-word used to substitute its own capWord* keyframes for three animations,
+  // which is why only those three were ever offered in that mode.
+  it("plays the same keyframe for an animation regardless of reveal mode", () => {
+    const keyframeFor = (revealMode: PresetBase["revealMode"]): string => {
+      const view = render(
+        <CaptionOverlay
+          segments={segments}
+          currentTime={0.1}
+          style={{ ...baseStyle, revealMode, captionAnimation: "pop" }}
+          containerWidth={300}
+          containerHeight={500}
+        />
+      );
+      const name = screen.getByText("Hello,").style.animationName;
+      view.unmount();
+      return name;
+    };
+
+    expect(keyframeFor("progressive")).toBe("capPop");
+    expect(keyframeFor("phrase")).toBe("capPop");
+    expect(keyframeFor("single-word")).toBe("capPop");
+  });
+
+  // The bug this pins: every animation must work in single-word mode, not just the three that
+  // happened to have a card. `slideUp` previously resolved to nothing there, so the caption
+  // appeared with no entrance at all.
+  it("plays a non-original animation in single-word mode", () => {
     render(
       <CaptionOverlay
         segments={segments}
         currentTime={0.1}
-        style={{ ...baseStyle, revealMode: "single-word", captionAnimation: "pop" }}
+        style={{ ...baseStyle, revealMode: "single-word", captionAnimation: "slideUp" }}
         containerWidth={300}
         containerHeight={500}
       />
     );
-    expect(screen.getByText("Hello,").style.animationName).toBe("capWordPop");
+    expect(screen.getByText("Hello,").style.animationName).toBe("capSlideUp");
   });
 
   // "progressive" is a MOVING highlight (arch §7 Behavior Matrix): only the single

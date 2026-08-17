@@ -82,52 +82,6 @@
   }
 }
 
-/* Single-word entrance keyframes (design ANIMATIONS_D "One Word · …" cards). Distinct from the
-   phrase-mode keyframes above — played on the one word that revealMode "single-word" renders. */
-@keyframes capWordPop {
-  0% {
-    opacity: 0;
-    transform: scale(0.3);
-  }
-  55% {
-    opacity: 1;
-    transform: scale(1.28);
-  }
-  78% {
-    transform: scale(0.92);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes capWordPunch {
-  0% {
-    opacity: 0;
-    transform: scale(1.9);
-    filter: blur(0.133em);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
-  }
-}
-
-@keyframes capWordSlideUp {
-  0% {
-    opacity: 0;
-    transform: translateY(1.267em) scale(0.85);
-  }
-  60% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
 
 /* The 22 progressive-mode entrances added alongside karaoke/typewriter/letter-cascade
    (docs/api-contract.md §8, INVARIANTS S8). Curves ported verbatim from the design handoff

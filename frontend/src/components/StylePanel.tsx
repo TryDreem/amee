@@ -1,6 +1,12 @@
 import { useEffect, useState, type CSSProperties } from "react";
 
-import type { OutlineOrShadow, Preset, PresetBase, StyleOverrides } from "../api/client";
+import type {
+  OutlineOrShadow,
+  Preset,
+  PresetBase,
+  RevealMode,
+  StyleOverrides,
+} from "../api/client";
 import ColorPickerModal from "./ColorPickerModal";
 import type { Strings } from "../i18n";
 import { CAPTION_ANIMATIONS, findAnimationOption, type AnimationOption } from "../lib/animations";
@@ -246,6 +252,33 @@ export default function StylePanel({
     );
   }
 
+  // Same shape as yesNoRow but for an N-way choice. Used by the reveal-mode control, which is a
+  // three-way pick rather than a boolean.
+  function choiceRow<T extends string>(
+    label: string,
+    options: { value: T; label: string }[],
+    active: T,
+    onChange: (value: T) => void
+  ) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <div style={{ fontSize: "11.5px", color: mode.textFaint3 }}>{label}</div>
+        <div style={{ display: "flex", gap: "6px" }}>
+          {options.map((option) => (
+            <div
+              key={option.value}
+              className="amee-cta-btn"
+              style={pillStyle(active === option.value)}
+              onClick={() => onChange(option.value)}
+            >
+              {option.label}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // Picking a font applies its whole bundled look (family + weight + transform + italic + glow),
   // matching the design where each named font is a preset of those fields — otherwise the distinct
   // gallery previews (Neon Glow, Bebas, Elegant Serif) would all collapse to the same plain family.
@@ -273,15 +306,16 @@ export default function StylePanel({
     );
   }
 
-  // Every card writes both of its own values. It used to write `revealMode` only for the
-  // single-word cards and otherwise leave whatever was there, which worked while the gallery had
-  // just two reveal modes in it — but with "phrase" cards a card must be able to move the mode in
-  // any direction, and "the card's own pair" is the rule that does that without special cases.
+  // A card writes ONLY the animation. `revealMode` is its own control (below), because the two are
+  // genuinely independent: which words are on screen is a different question from how they arrive.
+  // Folding them into one gallery — as the original 9-card design did — meant most animations were
+  // reachable in one reveal mode only, so picking a new animation for a single-word segment
+  // silently dragged it back to whole-phrase.
   function handlePickAnimation(a: AnimationOption) {
-    onChangeOverrides({ revealMode: a.revealMode, captionAnimation: a.captionAnimation });
+    onChangeOverrides({ captionAnimation: a.captionAnimation });
   }
 
-  const selectedAnimId = findAnimationOption(resolvedStyle.revealMode, resolvedStyle.captionAnimation)?.id;
+  const selectedAnimId = findAnimationOption(resolvedStyle.captionAnimation)?.id;
 
   // 3 fixed slots (StyleOverrides.highlightColors is a plain string[] — contract §8). No
   // dedicated alpha field, so alpha is folded straight into the stored color string via
@@ -490,6 +524,21 @@ export default function StylePanel({
         {sectionHeader("animation", L.captionAnimationLabel, true)}
         <div style={collapseWrapStyle(openSection === "animation", 0.5)}>
           <div style={collapseInnerStyle}>
+            {/* Which words are on screen — its own control, not folded into the gallery below.
+                Any reveal mode combines with any animation; they are independent fields on the
+                wire (contract §8) and are now independent here too. */}
+            <div style={{ padding: "4px 4px 14px" }}>
+              {choiceRow<RevealMode>(
+                L.revealModeLabel,
+                [
+                  { value: "phrase", label: L.revealModePhrase },
+                  { value: "progressive", label: L.revealModeProgressive },
+                  { value: "single-word", label: L.revealModeSingleWord },
+                ],
+                resolvedStyle.revealMode,
+                (revealMode) => onChangeOverrides({ revealMode })
+              )}
+            </div>
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", padding: "4px 4px 12px" }}>
               {(["All", "Favorites"] as const).map((filter) => (
                 <div

@@ -120,6 +120,10 @@ export interface Strings {
   outlineColorLabel: string;
 
   captionAnimationLabel: string;
+  revealModeLabel: string;
+  revealModePhrase: string;
+  revealModeProgressive: string;
+  revealModeSingleWord: string;
   chips: {
     All: string;
     Favorites: string;
@@ -260,6 +264,10 @@ export const STR: Record<Lang, Strings> = {
     outlineColorLabel: "Цвет обводки",
 
     captionAnimationLabel: "Анимация",
+    revealModeLabel: "Как показывать",
+    revealModePhrase: "Вся фраза",
+    revealModeProgressive: "По словам",
+    revealModeSingleWord: "Одно слово",
     chips: {
       All: "Все",
       Favorites: "Избранное",
@@ -397,6 +405,10 @@ export const STR: Record<Lang, Strings> = {
     outlineColorLabel: "Outline Color",
 
     captionAnimationLabel: "Animation",
+    revealModeLabel: "Reveal",
+    revealModePhrase: "Whole phrase",
+    revealModeProgressive: "Word by word",
+    revealModeSingleWord: "One word",
     chips: {
       All: "All",
       Favorites: "Favorites",
