@@ -117,7 +117,7 @@ async def test_export_srt_does_not_persist_ecs_or_style(sample_video: Path) -> N
 
     body = _valid_body()
     body["ecs"]["segments"][0]["words"][0]["text"] = "submitted-but-unsaved"
-    body["style"]["overrides"] = {"fontSize": 0.1}
+    body["style"]["overrides"] = {"fontSize": 0.05}
 
     async with httpx.AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"

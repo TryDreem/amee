@@ -1,11 +1,23 @@
 
-/* Caption entrance transitions (CaptionStyleSpec.captionAnimation) — ported verbatim from the
-   design's ANIMATIONS_D keyframes. Applied once per active-segment change (arch §7), not per
-   word — the design's own per-word staggered variant doesn't apply to our segment-level field. */
+/* Caption entrance transitions (CaptionStyleSpec.captionAnimation) — ported from the design's
+   ANIMATIONS_D keyframes. Applied once per active-segment change (arch §7), not per word — the
+   design's own per-word staggered variant doesn't apply to our segment-level field.
+
+   EVERY LENGTH IN HERE IS `em`, NEVER `px`, and that is load-bearing rather than stylistic. This
+   one component draws both the ~500px-tall editor preview and the full-resolution export frame
+   (INVARIANTS P9/R1), so an absolute offset is a different fraction of the glyph in each: the
+   design's `6px` RGB-split fringe is a fifth of a 30px word and nearly invisible against a 96px
+   one, which is exactly how it was first reported ("rgbSplit looks different in the export").
+   `em` resolves against each word span's own font size, which is itself a fraction of video
+   height (L7), so the whole chain scales together. The design's numbers were authored at a 30px
+   word size — that is the divisor used when converting them here.
+
+   The one exception below is `loftIn`, which animates UI panels at a fixed UI font size and
+   correctly stays in px. */
 @keyframes capFadeSlide {
   0% {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(0.333em);
   }
   100% {
     opacity: 1;
@@ -46,8 +58,8 @@
 @keyframes capBlurIn {
   0% {
     opacity: 0;
-    filter: blur(9px);
-    transform: translateY(8px);
+    filter: blur(0.3em);
+    transform: translateY(0.267em);
   }
   100% {
     opacity: 1;
@@ -58,11 +70,11 @@
 @keyframes capSlideSnap {
   0% {
     opacity: 0;
-    transform: translateY(46px) scale(0.88);
+    transform: translateY(1.533em) scale(0.88);
   }
   55% {
     opacity: 1;
-    transform: translateY(-6px) scale(1.04);
+    transform: translateY(-0.2em) scale(1.04);
   }
   100% {
     opacity: 1;
@@ -94,7 +106,7 @@
   0% {
     opacity: 0;
     transform: scale(1.9);
-    filter: blur(4px);
+    filter: blur(0.133em);
   }
   100% {
     opacity: 1;
@@ -106,7 +118,7 @@
 @keyframes capWordSlideUp {
   0% {
     opacity: 0;
-    transform: translateY(38px) scale(0.85);
+    transform: translateY(1.267em) scale(0.85);
   }
   60% {
     opacity: 1;
@@ -142,7 +154,7 @@
 @keyframes capFadeBlur {
   0% {
     opacity: 0;
-    filter: blur(10px);
+    filter: blur(0.333em);
   }
   100% {
     opacity: 1;
@@ -152,7 +164,7 @@
 @keyframes capSlideUp {
   0% {
     opacity: 0;
-    transform: translateY(50px);
+    transform: translateY(1.667em);
   }
   100% {
     opacity: 1;
@@ -162,7 +174,7 @@
 @keyframes capSlideDown {
   0% {
     opacity: 0;
-    transform: translateY(-50px);
+    transform: translateY(-1.667em);
   }
   100% {
     opacity: 1;
@@ -172,7 +184,7 @@
 @keyframes capSlideLeft {
   0% {
     opacity: 0;
-    transform: translateX(60px);
+    transform: translateX(2em);
   }
   100% {
     opacity: 1;
@@ -182,7 +194,7 @@
 @keyframes capSlideRight {
   0% {
     opacity: 0;
-    transform: translateX(-60px);
+    transform: translateX(-2em);
   }
   100% {
     opacity: 1;
@@ -214,7 +226,7 @@
 @keyframes capTiltIn {
   0% {
     opacity: 0;
-    transform: rotateX(65deg) translateY(20px);
+    transform: rotateX(65deg) translateY(0.667em);
   }
   100% {
     opacity: 1;
@@ -306,7 +318,7 @@
 @keyframes capPerspectiveDrop {
   0% {
     opacity: 0;
-    transform: translateY(-70px) rotateX(55deg);
+    transform: translateY(-2.333em) rotateX(55deg);
   }
   100% {
     opacity: 1;
@@ -358,22 +370,22 @@
   }
   10% {
     opacity: 1;
-    transform: translateX(-14px);
+    transform: translateX(-0.467em);
   }
   25% {
-    transform: translateX(12px);
+    transform: translateX(0.4em);
   }
   40% {
-    transform: translateX(-8px);
+    transform: translateX(-0.267em);
   }
   55% {
-    transform: translateX(6px);
+    transform: translateX(0.2em);
   }
   70% {
-    transform: translateX(-3px);
+    transform: translateX(-0.1em);
   }
   85% {
-    transform: translateX(2px);
+    transform: translateX(0.067em);
   }
   100% {
     transform: translateX(0);
@@ -390,14 +402,14 @@
   50% {
     opacity: 1;
     text-shadow:
-      0 0 18px currentColor,
-      0 0 34px currentColor;
+      0 0 0.6em currentColor,
+      0 0 1.133em currentColor;
   }
   100% {
     opacity: 1;
     text-shadow:
-      0 0 6px currentColor,
-      0 0 14px currentColor;
+      0 0 0.2em currentColor,
+      0 0 0.467em currentColor;
   }
 }
 /* Glitch category, added in a follow-up diff after the first 22 shipped — same handoff, this pair
@@ -405,24 +417,24 @@
 @keyframes capGlitchSlice {
   0% {
     opacity: 0;
-    transform: translate(-8px, 0);
+    transform: translate(-0.267em, 0);
     clip-path: inset(0 0 60% 0);
   }
   20% {
     opacity: 1;
-    transform: translate(6px, 0);
+    transform: translate(0.2em, 0);
     clip-path: inset(40% 0 0 0);
   }
   40% {
-    transform: translate(-4px, 0);
+    transform: translate(-0.133em, 0);
     clip-path: inset(0 0 30% 0);
   }
   60% {
-    transform: translate(3px, 0);
+    transform: translate(0.1em, 0);
     clip-path: inset(20% 0 0 0);
   }
   80% {
-    transform: translate(-2px, 0);
+    transform: translate(-0.067em, 0);
   }
   100% {
     opacity: 1;
@@ -436,14 +448,14 @@
   0% {
     opacity: 0;
     text-shadow:
-      -6px 0 #ff3b3b,
-      6px 0 #3bd1ff;
+      -0.2em 0 #ff3b3b,
+      0.2em 0 #3bd1ff;
   }
   60% {
     opacity: 1;
     text-shadow:
-      -2px 0 #ff3b3b,
-      2px 0 #3bd1ff;
+      -0.067em 0 #ff3b3b,
+      0.067em 0 #3bd1ff;
   }
   100% {
     opacity: 1;

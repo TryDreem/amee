@@ -170,7 +170,14 @@ export default function CaptionOverlay({
     style.verticalPosition < style.safeArea.top ||
     style.verticalPosition > 1 - style.safeArea.bottom;
 
-  const highlightColor = highlightColorFor(style.highlightColors, activeIndex, style.color);
+  // Single-word mode always uses the first colour, never the per-segment cycle: only one word is
+  // ever on screen and it is always the highlighted one, so cycling by segment index would just
+  // make the caption change colour from phrase to phrase. The style panel collapses to a single
+  // swatch in this mode for the same reason — this keeps the render agreeing with that even when
+  // the stored array still has three entries from before the mode was switched.
+  const highlightColor = isSingleWord
+    ? (style.highlightColors[0] ?? style.color)
+    : highlightColorFor(style.highlightColors, activeIndex, style.color);
   let wordCursor = 0;
 
   const outlineWidth = style.outline

@@ -330,4 +330,38 @@ describe("CaptionOverlay", () => {
     expect(bigStroke).toBeCloseTo(smallStroke * 2, 5);
     expect(blurOf(screen.getByText("Hello,").style.textShadow)).toBeCloseTo(smallGlow * 2, 5);
   });
+
+  // Single-word mode shows exactly one word at a time and always highlights it, so cycling
+  // `highlightColors` by segment index would just make the caption change colour between phrases.
+  // The style panel collapses to one swatch in this mode; the renderer has to agree even when the
+  // stored array still holds three entries from before the mode was switched.
+  it("uses only the first highlight colour in single-word mode, never the per-segment cycle", () => {
+    const twoSegments: Segment[] = [
+      { id: "s1", words: [{ id: "w1", text: "first", start: 0, end: 0.5 }] },
+      { id: "s2", words: [{ id: "w2", text: "second", start: 0.5, end: 1 }] },
+    ];
+    const style: PresetBase = {
+      ...baseStyle,
+      revealMode: "single-word",
+      highlightColors: ["#ff0000", "#00ff00", "#0000ff"],
+    };
+    const at = (currentTime: number, text: string): string => {
+      const view = render(
+        <CaptionOverlay
+          segments={twoSegments}
+          currentTime={currentTime}
+          style={style}
+          containerWidth={300}
+          containerHeight={500}
+        />
+      );
+      const color = screen.getByText(text).style.color;
+      view.unmount();
+      return color;
+    };
+
+    // Segment index 1 would pick "#00ff00" under the cycling rule; it must stay on the first.
+    expect(at(0.2, "first")).toBe("rgb(255, 0, 0)");
+    expect(at(0.7, "second")).toBe("rgb(255, 0, 0)");
+  });
 });

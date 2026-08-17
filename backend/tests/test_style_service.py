@@ -41,14 +41,14 @@ async def test_put_style_within_bounds_persists() -> None:
     project_id = await _make_project()
     body = CaptionStyleSpecPutBody(
         presetId=_DEFAULT_PRESET_ID,
-        overrides=StyleOverrides(fontSize=0.1, verticalPosition=0.5),
+        overrides=StyleOverrides(fontSize=0.05, verticalPosition=0.5),
     )
 
     async with async_session_factory() as session:
         result = await style_service.put_style(session, project_id, body)
 
     assert result is not None
-    assert result.overrides.fontSize == 0.1
+    assert result.overrides.fontSize == 0.05
     assert result.overrides.verticalPosition == 0.5
 
 
@@ -56,7 +56,7 @@ async def test_put_style_out_of_bounds_font_size_raises() -> None:
     project_id = await _make_project()
     body = CaptionStyleSpecPutBody(
         presetId=_DEFAULT_PRESET_ID,
-        # preset bounds: fontSize 0.04-0.12 (M2 step 1 seed)
+        # preset bounds: fontSize 0.02-0.06 (lowered in d4e81c72af95)
         overrides=StyleOverrides(fontSize=0.5),
     )
 

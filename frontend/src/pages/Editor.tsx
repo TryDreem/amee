@@ -1515,11 +1515,18 @@ export default function Editor(): JSX.Element {
               activePresetId={styleSpec.presetId}
               resolvedStyle={panelStyle}
               bounds={activePreset.bounds}
-              // When editing one segment's style, highlight colors collapse to a single "Main"
-              // swatch (arch §4.2 — a per-phrase override is authored as a length-1
-              // highlightColors array; per-word karaoke across 3 colors is meaningless for one
-              // phrase). Off / no segment selected → the normal 3-swatch document editor.
-              singleColor={Boolean(editingSegment)}
+              // Highlight colors collapse to a single "Main" swatch in two cases, both because
+              // the 3-colour cycle has nothing to cycle over:
+              //  - editing one segment's style (arch §4.2 — a per-phrase override is authored as
+              //    a length-1 highlightColors array; per-word karaoke across 3 colours is
+              //    meaningless for one phrase);
+              //  - `revealMode: "single-word"`, where exactly one word is on screen at a time and
+              //    it is always the highlighted one, so cycling by segment index just makes the
+              //    caption change colour between phrases for no reason the user asked for.
+              // Off → the normal 3-swatch document editor.
+              singleColor={
+                Boolean(editingSegment) || panelStyle.revealMode === "single-word"
+              }
               onSelectPreset={selectPreset}
               onChangeOverrides={handleChangeStyleOverrides}
               onLiveChangeOverrides={handleChangeStyleOverridesLive}

@@ -19,7 +19,7 @@ async def test_get_presets_returns_exactly_one_default() -> None:
 
     preset = defaults[0]
     assert preset["name"] == "Bold Statement"
-    assert preset["base"]["fontSize"] == 0.08
+    assert preset["base"]["fontSize"] == 0.04
     assert preset["base"]["revealMode"] == "progressive"
     assert preset["base"]["highlightColors"] == ["#ffe600"]
     assert preset["base"]["textTransform"] == "none"

@@ -283,7 +283,7 @@ async def test_put_ecs_with_segment_override_roundtrip() -> None:
                 "segments": [
                     {
                         "id": seg_id,
-                        "overrides": {"fontSize": 0.1, "color": "#ff0000"},
+                        "overrides": {"fontSize": 0.05, "color": "#ff0000"},
                         "words": [
                             {
                                 "id": str(uuid.uuid4()),
@@ -300,7 +300,7 @@ async def test_put_ecs_with_segment_override_roundtrip() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["segments"][0]["overrides"] == {
-        "fontSize": 0.1,
+        "fontSize": 0.05,
         "color": "#ff0000",
     }
 

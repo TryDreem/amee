@@ -59,13 +59,13 @@ async def test_put_style_roundtrip(sample_video: Path) -> None:
             f"/api/v1/projects/{project_id}/style",
             json={
                 "presetId": _DEFAULT_PRESET_ID,
-                "overrides": {"fontSize": 0.1, "color": "#ff0000"},
+                "overrides": {"fontSize": 0.05, "color": "#ff0000"},
             },
         )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["overrides"]["fontSize"] == 0.1
+    assert body["overrides"]["fontSize"] == 0.05
     assert body["overrides"]["color"] == "#ff0000"
 
 
@@ -188,7 +188,7 @@ async def test_put_style_bumps_project_updated_at(sample_video: Path) -> None:
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/style",
-            json={"presetId": _DEFAULT_PRESET_ID, "overrides": {"fontSize": 0.1}},
+            json={"presetId": _DEFAULT_PRESET_ID, "overrides": {"fontSize": 0.05}},
         )
     assert response.status_code == 200
 

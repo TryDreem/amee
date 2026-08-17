@@ -14,4 +14,4 @@ async def test_list_all_returns_seeded_default_preset() -> None:
     assert default_presets[0].id == uuid.UUID("c1a1a1a1-0000-4000-8000-000000000001")
     assert default_presets[0].name == "Bold Statement"
     assert default_presets[0].base["fontFamily"] == "Inter"
-    assert default_presets[0].bounds["fontSize"] == {"min": 0.04, "max": 0.12}
+    assert default_presets[0].bounds["fontSize"] == {"min": 0.02, "max": 0.06}
