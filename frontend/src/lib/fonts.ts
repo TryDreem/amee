@@ -51,7 +51,12 @@ export type PreviewHue =
   | "rose"
   | "pink"
   | "violet"
-  | "slate";
+  | "slate"
+  // Plain white on the dark theme — for a face whose whole character is a clean bright caption
+  // (Pricedown). On the light theme it resolves to the near-black text colour instead: a literal
+  // white would be an invisible card there, which is the exact failure this whole hue system
+  // exists to prevent.
+  | "plain";
 
 export const FONT_PREVIEW_COLORS: Record<Mode, Record<PreviewHue, string>> = {
   dark: {
@@ -68,6 +73,7 @@ export const FONT_PREVIEW_COLORS: Record<Mode, Record<PreviewHue, string>> = {
     pink: "#F0A6C8",
     violet: "#A78BFA",
     slate: "#CBD5E1",
+    plain: "#FFFFFF",
   },
   light: {
     blue: "#1D4ED8",
@@ -83,6 +89,7 @@ export const FONT_PREVIEW_COLORS: Record<Mode, Record<PreviewHue, string>> = {
     pink: "#BE185D",
     violet: "#6D28D9",
     slate: "#334155",
+    plain: "#17171A",
   },
 };
 
@@ -109,7 +116,7 @@ export const FONT_OPTIONS: FontOption[] = [
   { name: "Alex Brush", cat: "script", lang: "lat", family: "Alex Brush", fallback: "cursive", weight: 400, hue: "rose" },
   { name: "Great Vibes", cat: "script", lang: "lat", family: "Great Vibes", fallback: "cursive", weight: 400, hue: "pink" },
   { name: "Young Serif", cat: "minimal", lang: "lat", family: "Young Serif", fallback: "serif", weight: 400, hue: "rust" },
-  { name: "Pricedown", cat: "bold", lang: "lat", family: "Pricedown", fallback: "cursive", weight: 400, hue: "amber" },
+  { name: "Pricedown", cat: "bold", lang: "lat", family: "Pricedown", fallback: "cursive", weight: 400, hue: "plain" },
   { name: "Uni Sans Heavy", cat: "bold", lang: "lat", family: "Uni Sans Heavy", fallback: "sans-serif", weight: 400, transform: "uppercase", hue: "blue" },
   { name: "Luckiest Guy", cat: "bold", lang: "lat", family: "Luckiest Guy", fallback: "cursive", weight: 400, hue: "lime" },
   { name: "Aileron", cat: "minimal", lang: "lat", family: "Aileron", fallback: "sans-serif", weight: 400, hue: "teal" },
