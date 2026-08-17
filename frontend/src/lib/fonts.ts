@@ -76,6 +76,13 @@ export const FONT_OPTIONS: FontOption[] = [
   { name: "Exo Tech", cat: "minimal", lang: "both", family: "Exo 2", fallback: "sans-serif", weight: 800, previewColor: "#2F6FED" },
   { name: "Yeseva Display", cat: "minimal", lang: "both", family: "Yeseva One", fallback: "serif", weight: 400, previewColor: "#B4483C" },
   { name: "Pacifico", cat: "script", lang: "both", family: "Pacifico", fallback: "cursive", weight: 400, previewColor: "#E8577A" },
+
+  // Requested as "Grobold" (dafont.com) — not added under that name: dafont's own license page
+  // marks it "Free for personal use" only, not cleared for a product, and dafont doesn't serve a
+  // stable direct file URL to @font-face against anyway (downloads are a zip behind a click).
+  // Bagel Fat One is the closest same-genre stand-in actually available with a real license
+  // (Google Fonts, OFL) — a chunky, rounded cartoon caps face in the same spirit.
+  { name: "Bagel Fat One", cat: "bold", lang: "lat", family: "Bagel Fat One", fallback: "cursive", weight: 400, previewColor: "#F59E0B" },
 ];
 
 // `overrides.fontFamily` holds one bare family name. Documents written before that was settled
