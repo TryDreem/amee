@@ -10,6 +10,7 @@ import type {
 import ColorPickerModal from "./ColorPickerModal";
 import type { Strings } from "../i18n";
 import { CAPTION_ANIMATIONS, findAnimationOption, type AnimationOption } from "../lib/animations";
+import { outlineCssFor, textShadowFor } from "../lib/captionDecoration";
 import { colorWithAlpha, DEFAULT_HIGHLIGHT_COLORS, parseColorString } from "../lib/color";
 import {
   cssFontFamily,
@@ -55,6 +56,18 @@ const FONT_WEIGHTS: { value: number; label: string }[] = [
 
 const OUTLINE_SHADOW_SIZES: OutlineOrShadow["size"][] = ["none", "small", "medium", "large"];
 
+// A preset card draws its own name in the look it applies — font, case, colour, outline, glow,
+// shadow — and replays its entrance animation on a loop, so the whole thing can be chosen by eye
+// instead of by reading a name and clicking to find out. The size is the card's, not the video's:
+// outline/shadow/glow are fractions of font size (lib/captionDecoration), so the proportions
+// survive the shrink even though the absolute pixels don't.
+const PRESET_PREVIEW_FONT_PX = 17;
+// Long enough that the loop reads as a periodic demo rather than a flicker, short enough that a
+// glance at the section catches at least one.
+const PRESET_PREVIEW_REPLAY_MS = 2600;
+const PRESET_PREVIEW_ANIMATION_MS = 620;
+const PRESET_PREVIEW_STAGGER_MS = 90;
+
 // Favorites are pure UI (starred fonts/animations), not part of any wire shape — persisted to
 // localStorage so they survive reloads and tab switches. Fonts keyed by name, animations by id.
 const LS_FAV_FONTS = "amee_fav_fonts";
@@ -99,6 +112,18 @@ export default function StylePanel({
   const [favFonts, setFavFonts] = useState<string[]>(() => loadFavs(LS_FAV_FONTS));
   const [favAnims, setFavAnims] = useState<string[]>(() => loadFavs(LS_FAV_ANIMS));
   const [hoveredAnim, setHoveredAnim] = useState<string | null>(null);
+
+  // Drives the preset previews' animation replay. Incrementing it re-keys each card's text span,
+  // which remounts it and therefore restarts its CSS entrance — the same restart trick the
+  // animation gallery uses on hover. Only ticks while the section is actually open.
+  const [presetBeat, setPresetBeat] = useState(0);
+  useEffect(() => {
+    if (openSection !== "presets") {
+      return;
+    }
+    const timer = setInterval(() => setPresetBeat((v) => v + 1), PRESET_PREVIEW_REPLAY_MS);
+    return () => clearInterval(timer);
+  }, [openSection]);
 
   // Which field a click on a color swatch is currently editing — a single modal instance
   // serves all of them (3 highlight swatches + shadow + outline).
@@ -399,31 +424,68 @@ export default function StylePanel({
         <div style={collapseWrapStyle(openSection === "presets", 0.5)}>
           <div style={collapseInnerStyle}>
             <div style={gridStyle}>
-              {presets.map((preset, i) => (
-                <div
-                  key={preset.id}
-                  onClick={() => onSelectPreset(preset.id)}
-                  className="amee-grid-card"
-                  style={{
-                    padding: "16px 10px",
-                    borderRadius: "10px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minHeight: "70px",
-                    textAlign: "center",
-                    fontSize: "12.5px",
-                    fontWeight: 600,
-                    background: preset.id === activePresetId ? `${theme.accent}24` : mode.cardBg,
-                    border: "1px solid " + (preset.id === activePresetId ? theme.accent : mode.cardBorder),
-                    color: mode.textMain,
-                    ...revealStyle("presets", i),
-                  }}
-                >
-                  {preset.name}
-                </div>
-              ))}
+              {presets.map((preset, i) => {
+                const selected = preset.id === activePresetId;
+                const base = preset.base;
+                // The colour a caption in this preset actually shows: highlightColors[0] is what
+                // the active word wears, and every reveal mode always has an active word.
+                const previewColor = base.highlightColors[0] ?? base.color;
+                const outlineCss = outlineCssFor(base.outline, PRESET_PREVIEW_FONT_PX);
+                const anim = findAnimationOption(base.captionAnimation);
+                return (
+                  <div
+                    key={preset.id}
+                    onClick={() => onSelectPreset(preset.id)}
+                    className="amee-grid-card"
+                    style={{
+                      padding: "14px 8px",
+                      borderRadius: "10px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minHeight: "76px",
+                      overflow: "hidden",
+                      textAlign: "center",
+                      // A fixed dark backdrop instead of the theme's card colour: these are
+                      // captions, and captions are made to sit on footage. On the light theme a
+                      // white or pale preset would otherwise preview as an empty card.
+                      background: "linear-gradient(135deg,#23262f,#0f1116)",
+                      border: "1px solid " + (selected ? theme.accent : mode.cardBorder),
+                      boxShadow: selected ? `0 0 0 1px ${theme.accent}` : undefined,
+                      // The 3D entrances (tiltIn/flipX/flipY/perspectiveDrop) need this on an
+                      // ancestor to read as a tilt rather than a flat squash, exactly as in
+                      // CaptionOverlay. No seeded preset uses one yet; a future one might.
+                      perspective: "500px",
+                      ...revealStyle("presets", i),
+                    }}
+                  >
+                    <span
+                      key={`${preset.id}-${presetBeat}`}
+                      style={{
+                        display: "inline-block",
+                        fontFamily: cssFontFamily(base.fontFamily),
+                        fontWeight: base.fontWeight,
+                        fontStyle: base.italic ? "italic" : "normal",
+                        textTransform: base.textTransform === "uppercase" ? "uppercase" : "none",
+                        fontSize: `${PRESET_PREVIEW_FONT_PX}px`,
+                        lineHeight: 1.2,
+                        color: previewColor,
+                        WebkitTextStroke: outlineCss,
+                        // Fill over stroke, so the stroke's inward half doesn't swallow the glyph
+                        // — same reason CaptionOverlay sets it.
+                        paintOrder: outlineCss ? "stroke fill" : undefined,
+                        textShadow: textShadowFor(base, PRESET_PREVIEW_FONT_PX, previewColor),
+                        animation: anim?.keyframe
+                          ? `${anim.keyframe} ${PRESET_PREVIEW_ANIMATION_MS}ms ${anim.ease} ${i * PRESET_PREVIEW_STAGGER_MS}ms both`
+                          : undefined,
+                      }}
+                    >
+                      {preset.name}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -526,12 +588,22 @@ export default function StylePanel({
           <div style={collapseInnerStyle}>
             {/* Which words are on screen — its own control, not folded into the gallery below.
                 Any reveal mode combines with any animation; they are independent fields on the
-                wire (contract §8) and are now independent here too. */}
+                wire (contract §8) and are now independent here too.
+
+                Only two of the wire's three values are offered. "phrase" is still valid on the
+                wire and still rendered (CaptionOverlay/subtitles.py both handle it), but it has
+                no button: it does not actually mean "the whole phrase appears at once" — every
+                word still enters at its own `start`, so the only thing it changes versus
+                "progressive" is that every word wears the highlight colour instead of just the
+                active one. "Whole phrase, all at once" is what `captionAnimation: "none"`
+                already gives, so the button was offering a look the user could reach anyway
+                under a name that promised something else. A data migration moves the one preset
+                and any saved document off "phrase" so nothing is left on a mode with no
+                control. */}
             <div style={{ padding: "4px 4px 14px" }}>
               {choiceRow<RevealMode>(
                 L.revealModeLabel,
                 [
-                  { value: "phrase", label: L.revealModePhrase },
                   { value: "progressive", label: L.revealModeProgressive },
                   { value: "single-word", label: L.revealModeSingleWord },
                 ],

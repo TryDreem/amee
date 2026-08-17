@@ -6,6 +6,14 @@ interface ExportToastProps {
   prefs: Prefs;
   strings: Strings;
   status: TerminalJobStatus;
+  // Both default to the export wording. Transcription reuses this same corner card (it is the
+  // notification the user is already trained to look for), and only needs to say something else
+  // in it -- the layout, the status colours and the actions are identical.
+  title?: string;
+  subtitle?: string;
+  // Lifts the card so a second one can sit above it -- an export and a transcription can finish
+  // while both are being tracked, and they would otherwise land on the exact same pixels.
+  bottomOffsetPx?: number;
   onOpen: () => void;
   onDownload?: () => void; // only ever passed for the "done" case -- nothing to download otherwise
   onDismiss: () => void;
@@ -23,22 +31,30 @@ const ICON_BG: Record<ExportToastProps["status"], string> = {
 // still-running minimized export has no persistent indicator of its own, only the ring on the
 // Export button. No auto-dismiss timer anywhere in the design's own toast path, confirmed by the
 // human this session -- only the ✕ closes it.
+//
+// Also the card a finished transcription announces itself in, via `title`/`subtitle`: the user
+// who left the processing screen to do something else is looking for a notification in this
+// corner, and giving that a second, differently-shaped card would only make it easier to miss.
 export default function ExportToast({
   prefs,
   strings: L,
   status,
+  title,
+  subtitle,
+  bottomOffsetPx = 0,
   onOpen,
   onDownload,
   onDismiss,
 }: ExportToastProps): JSX.Element {
   const mode = UI_MODES[prefs.mode];
-  const title = status === "done" ? L.exportDone : status === "cancelled" ? L.exportCancelled : L.exportFailed;
+  const headline =
+    title ?? (status === "done" ? L.exportDone : status === "cancelled" ? L.exportCancelled : L.exportFailed);
 
   return (
     <div
       style={{
         position: "fixed",
-        bottom: "20px",
+        bottom: `${20 + bottomOffsetPx}px`,
         right: "20px",
         zIndex: 60,
         display: "flex",
@@ -84,7 +100,20 @@ export default function ExportToast({
         )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: "12.5px", fontWeight: 700, color: mode.textMain }}>{title}</div>
+        <div style={{ fontSize: "12.5px", fontWeight: 700, color: mode.textMain }}>{headline}</div>
+        {subtitle && (
+          <div
+            style={{
+              fontSize: "11px",
+              color: mode.textFaint3,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {subtitle}
+          </div>
+        )}
         <div style={{ display: "flex", gap: "14px" }}>
           {status === "done" && onDownload && (
             <div onClick={onDownload} style={{ fontSize: "11.5px", fontWeight: 600, color: resolveTheme(prefs.theme, prefs.mode).accent, cursor: "pointer" }}>

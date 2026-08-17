@@ -13,6 +13,9 @@ interface ProcessingStatusProps {
   startError: string | null;
   onRetry: () => void;
   onOpenEditor: () => void;
+  // Leaves this screen without stopping anything: the job is tracked by TranscribeContext, which
+  // keeps polling from wherever the user goes and raises a toast when it lands.
+  onBackToMenu: () => void;
 }
 
 export default function ProcessingStatus({
@@ -23,6 +26,7 @@ export default function ProcessingStatus({
   startError,
   onRetry,
   onOpenEditor,
+  onBackToMenu,
 }: ProcessingStatusProps): JSX.Element {
   const mode = UI_MODES[prefs.mode];
   const isLight = prefs.mode === "light";
@@ -63,6 +67,19 @@ export default function ProcessingStatus({
     color: theme.text,
     background: theme.accent,
     padding: "12px 26px",
+    borderRadius: "10px",
+    textAlign: "center" as const,
+    display: "inline-block",
+    width: "fit-content",
+    cursor: "pointer",
+  };
+
+  const secondaryBtnStyle = {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: mode.iconText,
+    background: mode.iconBg,
+    padding: "10px 22px",
     borderRadius: "10px",
     textAlign: "center" as const,
     display: "inline-block",
@@ -188,6 +205,18 @@ export default function ProcessingStatus({
             {L.retry}
           </div>
         )}
+
+        {/* Always available, including once the job is done -- there is nothing here that has to
+            be watched, and the hint below says so, because a screen with a progress list on it
+            reads as "do not leave" unless it is told otherwise. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "18px" }}>
+          <div onClick={onBackToMenu} className="amee-cta-btn" style={secondaryBtnStyle}>
+            {L.returnToMenu}
+          </div>
+          {!isDone && !isFailed && (
+            <div style={{ fontSize: "12px", color: mode.textFaint3 }}>{L.procKeepsRunning}</div>
+          )}
+        </div>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>

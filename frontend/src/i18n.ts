@@ -45,6 +45,9 @@ export interface Strings {
   procDone: string;
   procDoneSub: string;
   procFailed: string;
+  procKeepsRunning: string;
+  transcribeReadyToast: string;
+  transcribeFailedToast: string;
   retry: string;
 
   addWord: string;
@@ -121,7 +124,6 @@ export interface Strings {
 
   captionAnimationLabel: string;
   revealModeLabel: string;
-  revealModePhrase: string;
   revealModeProgressive: string;
   revealModeSingleWord: string;
   chips: {
@@ -188,6 +190,9 @@ export const STR: Record<Lang, Strings> = {
     procGeneratingPreview: "Собираем превью…",
     procDone: "Всё готово!",
     procDoneSub: "Черновые субтитры готовы",
+    procKeepsRunning: "Обработка продолжится в фоне — мы сообщим, когда будет готово",
+    transcribeReadyToast: "Субтитры готовы",
+    transcribeFailedToast: "Не удалось обработать видео",
     procFailed: "Не получилось обработать видео",
     retry: "Повторить",
 
@@ -265,7 +270,6 @@ export const STR: Record<Lang, Strings> = {
 
     captionAnimationLabel: "Анимация",
     revealModeLabel: "Как показывать",
-    revealModePhrase: "Вся фраза",
     revealModeProgressive: "По словам",
     revealModeSingleWord: "Одно слово",
     chips: {
@@ -329,6 +333,9 @@ export const STR: Record<Lang, Strings> = {
     procGeneratingPreview: "Building the preview…",
     procDone: "All done!",
     procDoneSub: "Draft captions are ready",
+    procKeepsRunning: "Processing keeps running in the background — we'll let you know when it's done",
+    transcribeReadyToast: "Captions are ready",
+    transcribeFailedToast: "Could not process the video",
     procFailed: "Something went wrong processing your video",
     retry: "Retry",
 
@@ -406,7 +413,6 @@ export const STR: Record<Lang, Strings> = {
 
     captionAnimationLabel: "Animation",
     revealModeLabel: "Reveal",
-    revealModePhrase: "Whole phrase",
     revealModeProgressive: "Word by word",
     revealModeSingleWord: "One word",
     chips: {

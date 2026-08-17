@@ -11,8 +11,8 @@ import SavedToast from "../components/SavedToast";
 import UploadZone from "../components/UploadZone";
 import ProcessingStatus from "../components/ProcessingStatus";
 import { useExport } from "../contexts/ExportContext";
+import { useTranscribe } from "../contexts/TranscribeContext";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
-import { useJobPolling } from "../hooks/useJobPolling";
 import {
   ApiError,
   createProject,
@@ -73,10 +73,20 @@ export default function Home(): JSX.Element {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  // Just what the processing screen and a retry need, not a whole Project: the "open it" action
+  // on a failed-transcription toast has to restore this screen from a tracked record, which
+  // carries the project's id and name and nothing else.
+  const [activeProject, setActiveProject] = useState<{ id: string; name: string } | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
-  const { job, error: pollError } = useJobPolling(jobId);
+
+  // Transcription is watched by the app-level context, not by a hook owned by this page: the
+  // whole point of the "Return to main menu" button on the processing screen is that leaving the
+  // screen -- or this page entirely -- must not stop the watching. The processing view just reads
+  // the tracked job for whichever id it started.
+  const transcribeCtx = useTranscribe();
+  const job = jobId ? (transcribeCtx.jobsById[jobId] ?? null) : null;
+  const pollError = jobId ? (transcribeCtx.pollErrorsById[jobId] ?? null) : null;
 
   // Step 11d: Home's export ring badge (design: h_exportBadge*) reads the same cross-page context
   // Editor writes to (Step 11a) -- unscoped by project, since this page shows exports from every
@@ -101,6 +111,22 @@ export default function Home(): JSX.Element {
       return r.minimized && job_ != null && isTerminalJobStatus(job_.status);
     }) ?? null;
   const toastExportJob = toastExportRecord ? exportCtx.jobsById[toastExportRecord.id] : undefined;
+
+  // A finished transcription the user is not already looking at. The processing screen shows that
+  // same job in full, so announcing it there would be noise; every other case -- they went back
+  // to the menu, reloaded, or came back from another project -- is exactly what the "Return to
+  // main menu" button promises to tell them about.
+  const finishedTranscribeRecord =
+    transcribeCtx.records.find((r) => {
+      const job_ = transcribeCtx.jobsById[r.id];
+      if (!job_ || !isTerminalJobStatus(job_.status)) {
+        return false;
+      }
+      return !(view === "processing" && r.id === jobId);
+    }) ?? null;
+  const finishedTranscribeJob = finishedTranscribeRecord
+    ? transcribeCtx.jobsById[finishedTranscribeRecord.id]
+    : undefined;
 
   function handleExportBadgeClick() {
     if (leadingExportRecord) {
@@ -195,12 +221,20 @@ export default function Home(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function startTranscribe(project: Project) {
+  function startTranscribe(project: { id: string; name: string }) {
     setStartError(null);
     setJobId(null);
+    // A retry supersedes the job it replaces, so that job's record goes -- otherwise its "failed"
+    // toast would outlive the failure. Scoped to this project on purpose: a transcription running
+    // for a different project has to keep its own record.
+    const superseded = transcribeCtx.records.find((r) => r.projectId === project.id);
+    if (superseded) {
+      transcribeCtx.dismiss(superseded.id);
+    }
     transcribeProject(project.id)
       .then((job_) => {
         setJobId(job_.id);
+        transcribeCtx.track(job_.id, project.id, project.name);
       })
       .catch((err: unknown) => {
         // A 409 means a transcribe job already exists for this project — that's not a
@@ -210,6 +244,7 @@ export default function Home(): JSX.Element {
             .then((fresh) => {
               if (fresh.latest_transcribe_job_id) {
                 setJobId(fresh.latest_transcribe_job_id);
+                transcribeCtx.track(fresh.latest_transcribe_job_id, project.id, project.name);
               } else {
                 setStartError(describeError(err));
               }
@@ -229,7 +264,7 @@ export default function Home(): JSX.Element {
     createProject(file, undefined, language === AUTO_LANGUAGE_CODE ? undefined : language)
       .then((project) => {
         setUploading(false);
-        setActiveProject(project);
+        setActiveProject({ id: project.id, name: project.name });
         setView("processing");
         startTranscribe(project);
       })
@@ -243,7 +278,29 @@ export default function Home(): JSX.Element {
     if (!activeProject) {
       return;
     }
+    if (jobId) {
+      transcribeCtx.dismiss(jobId);
+    }
     navigate(`/projects/${activeProject.id}`);
+  }
+
+  // "Open" on the transcription toast. Done -> the editor, which is the whole point of the
+  // notification. Failed -> back to the processing screen instead, because there is no editor to
+  // open and the error text and its Retry button live there.
+  function handleTranscribeToastOpen() {
+    if (!finishedTranscribeRecord || !finishedTranscribeJob) {
+      return;
+    }
+    if (finishedTranscribeJob.status === "done") {
+      const projectId = finishedTranscribeRecord.projectId;
+      transcribeCtx.dismiss(finishedTranscribeRecord.id);
+      navigate(`/projects/${projectId}`);
+      return;
+    }
+    setStartError(null); // a stale error from an earlier attempt would outrank the job's own
+    setActiveProject({ id: finishedTranscribeRecord.projectId, name: finishedTranscribeRecord.projectName });
+    setJobId(finishedTranscribeRecord.id);
+    setView("processing");
   }
 
   function handleDeleteClick(project: Project) {
@@ -331,6 +388,20 @@ export default function Home(): JSX.Element {
           onDismiss={() => exportCtx.dismiss(toastExportRecord.id)}
         />
       )}
+      {finishedTranscribeRecord && finishedTranscribeJob && isTerminalJobStatus(finishedTranscribeJob.status) && (
+        <ExportToast
+          prefs={prefs}
+          strings={L}
+          status={finishedTranscribeJob.status}
+          title={
+            finishedTranscribeJob.status === "done" ? L.transcribeReadyToast : L.transcribeFailedToast
+          }
+          subtitle={finishedTranscribeRecord.projectName}
+          bottomOffsetPx={toastExportRecord ? 88 : 0}
+          onOpen={handleTranscribeToastOpen}
+          onDismiss={() => transcribeCtx.dismiss(finishedTranscribeRecord.id)}
+        />
+      )}
       <TopBar
         prefs={prefs}
         onUpdatePrefs={update}
@@ -389,6 +460,7 @@ export default function Home(): JSX.Element {
           startError={startError}
           onRetry={() => startTranscribe(activeProject)}
           onOpenEditor={handleOpenEditor}
+          onBackToMenu={() => setView("list")}
         />
       )}
     </div>

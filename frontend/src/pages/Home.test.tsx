@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { ExportProvider } from "../contexts/ExportContext";
+import { TranscribeProvider } from "../contexts/TranscribeContext";
 import { projectFixture, transcribeJobFixture } from "../mocks/fixtures";
 import { server } from "../mocks/server";
 import Home from "./Home";
@@ -11,12 +12,14 @@ import Home from "./Home";
 function renderHome(initialEntries?: { pathname: string; state?: unknown }[]) {
   return render(
     <ExportProvider>
-      <MemoryRouter initialEntries={initialEntries}>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/projects/:id" element={<div>Editor placeholder</div>} />
-        </Routes>
-      </MemoryRouter>
+      <TranscribeProvider>
+        <MemoryRouter initialEntries={initialEntries}>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/projects/:id" element={<div>Editor placeholder</div>} />
+          </Routes>
+        </MemoryRouter>
+      </TranscribeProvider>
     </ExportProvider>
   );
 }
@@ -87,6 +90,38 @@ describe("Home", () => {
     expect(await screen.findByText("Transcribing speech…")).toBeInTheDocument();
     // the hook polls every 2s — give the next real tick room to land.
     expect(await screen.findByText("All done!", {}, { timeout: 4000 })).toBeInTheDocument();
+  }, 6000);
+
+  // The whole point of the button: leaving the processing screen must not stop the watching.
+  // Before TranscribeContext the poll lived in this page's own hook, so there was nothing to
+  // leave to -- and nothing left to announce a result with.
+  it("keeps watching a transcription after returning to the menu, then announces it in a toast", async () => {
+    let pollCount = 0;
+    server.use(
+      http.get("*/api/v1/jobs/:jobId", () => {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return HttpResponse.json({ ...transcribeJobFixture, status: "processing", progress: "transcribing" });
+        }
+        return HttpResponse.json(transcribeJobFixture);
+      })
+    );
+
+    renderHome();
+    await screen.findByText(projectFixture.name);
+
+    fireEvent.click(screen.getByText("Create project"));
+    const file = new File(["fake video bytes"], "clip.mp4", { type: "video/mp4" });
+    fireEvent.change(screen.getByTestId("upload-file-input"), { target: { files: [file] } });
+
+    expect(await screen.findByText("Transcribing speech…")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Return to main menu"));
+    expect(await screen.findByText(projectFixture.name)).toBeInTheDocument();
+
+    // Still polling from the menu -- the toast is the only thing that says so.
+    expect(await screen.findByText("Captions are ready", {}, { timeout: 4000 })).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Open"));
+    expect(await screen.findByText("Editor placeholder")).toBeInTheDocument();
   }, 6000);
 
   it("shows a failed job with a retry action", async () => {
