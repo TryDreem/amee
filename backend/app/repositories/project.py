@@ -71,6 +71,7 @@ def _order_by(sort: ProjectSort) -> list[ColumnElement[Any]]:
 async def list_page(
     session: AsyncSession,
     *,
+    owner_id: uuid.UUID,
     limit: int,
     offset: int,
     q: str | None = None,
@@ -84,7 +85,7 @@ async def list_page(
     `limit`/`offset` are taken as given — clamping them is a business rule
     and lives in the service layer, not here.
     """
-    filters = []
+    filters = [ProjectModel.owner_id == owner_id]
     if q:
         # ILIKE, not lower(name) LIKE lower(...): Postgres-native, and the
         # escape below keeps a literal % or _ in the user's query from
@@ -103,6 +104,17 @@ async def list_page(
         select(func.count()).select_from(ProjectModel).where(*filters)
     )
     return list(page.scalars().all()), total.scalar_one()
+
+
+async def count_by_owner(session: AsyncSession, owner_id: uuid.UUID) -> int:
+    """A live count, not a running counter column — deleting a project frees a quota slot
+    immediately, with no separate decrement to keep in sync (services/projects.py's quota check)."""
+    result = await session.execute(
+        select(func.count())
+        .select_from(ProjectModel)
+        .where(ProjectModel.owner_id == owner_id)
+    )
+    return result.scalar_one()
 
 
 async def update_media(

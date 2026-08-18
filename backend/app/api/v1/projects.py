@@ -50,12 +50,13 @@ async def list_projects(
     q: str | None = Query(None, description="Case-insensitive match on project name."),
     sort: ProjectSort = Query(ProjectSort.newest),
     session: AsyncSession = Depends(get_db),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
 ) -> ProjectPage:
     # No `ge=`/`le=` on limit/offset on purpose - those would make FastAPI
     # 422 an out-of-range page size, and the contract says clamp instead.
     # The clamping itself is a business rule, so it lives in the service.
     return await project_service.list_projects(
-        session, limit=limit, offset=offset, q=q, sort=sort
+        session, owner_id=owner_id, limit=limit, offset=offset, q=q, sort=sort
     )
 
 

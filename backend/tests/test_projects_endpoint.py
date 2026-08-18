@@ -112,7 +112,7 @@ async def test_create_project_accepts_mov_extension(sample_video: Path) -> None:
 async def test_create_project_rejects_oversized_file(
     sample_video: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Shrink the 2GB limit rather than uploading a real 2GB file.
+    # Shrink the 100MB limit rather than uploading a real 100MB file.
     monkeypatch.setattr("app.services.projects._MAX_UPLOAD_BYTES", 10)
     async with httpx.AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
@@ -126,6 +126,43 @@ async def test_create_project_rejects_oversized_file(
         body = response.json()
         assert body["error"]["details"][0]["field"] == "file"
         assert "limit" in body["error"]["details"][0]["issue"]
+
+
+async def test_create_project_enforces_the_per_owner_quota(
+    sample_video: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Shrink the cap rather than uploading 5 real videos - the quota check itself (a live
+    COUNT(*) WHERE owner_id) is the thing under test, not the specific number 5."""
+    monkeypatch.setattr("app.services.projects._MAX_PROJECTS_PER_OWNER", 2)
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        for _ in range(2):
+            with sample_video.open("rb") as f:
+                ok = await client.post(
+                    "/api/v1/projects", files={"file": ("sample.mp4", f, "video/mp4")}
+                )
+            assert ok.status_code == 201
+
+        with sample_video.open("rb") as f:
+            over_cap = await client.post(
+                "/api/v1/projects", files={"file": ("sample.mp4", f, "video/mp4")}
+            )
+        assert over_cap.status_code == 422
+        body = over_cap.json()
+        assert body["error"]["details"][0]["field"] == "quota"
+
+        # Same client -> same guest cookie -> deleting one frees a slot immediately (a live
+        # count, not a running counter that would need its own decrement).
+        listing = await client.get("/api/v1/projects")
+        first_id = listing.json()["items"][0]["id"]
+        await client.delete(f"/api/v1/projects/{first_id}")
+
+        with sample_video.open("rb") as f:
+            after_delete = await client.post(
+                "/api/v1/projects", files={"file": ("sample.mp4", f, "video/mp4")}
+            )
+        assert after_delete.status_code == 201
 
 
 async def test_create_project_with_unsupported_language_returns_422(

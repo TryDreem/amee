@@ -52,6 +52,13 @@ _PROGRESS_WRITE_THRESHOLD_PERCENT = 1.0
 # the two phases occupy disjoint bands so the bar never moves backwards.
 _RENDER_PHASE_SHARE = 0.7
 
+# Quota model's duration cap (services/projects.py has the matching project-count/file-size
+# checks, and explains why this one specifically lives here rather than on the upload path:
+# enforcing it there would need a synchronous probe, reopening arch §2.8's decision to move
+# probing off of POST /projects). A video over the cap still uploads and holds a quota slot, but
+# transcription refuses to run for it, landing the job in `failed` with a clear reason.
+_MAX_VIDEO_DURATION_SECONDS = 60
+
 
 @celery_app.task(queue="transcribe")
 def transcribe_task(job_id: str) -> None:
@@ -186,6 +193,11 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
 
         async def persist_probe_and_thumbnail() -> None:
             probe = await probe_task
+            if probe.duration_seconds > _MAX_VIDEO_DURATION_SECONDS:
+                raise ValueError(
+                    f"video exceeds the {_MAX_VIDEO_DURATION_SECONDS}s duration "
+                    f"limit ({probe.duration_seconds:.1f}s)"
+                )
             thumb_path, thumb_url = storage.thumbnail_path(project_id)
             await extract_thumbnail(
                 video_path, probe.duration_seconds, thumb_path, is_hdr=probe.is_hdr

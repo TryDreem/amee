@@ -187,6 +187,26 @@ def test_transcribe_task_reports_progress_while_processing(
     assert observed[-1] is None
 
 
+def test_transcribe_task_rejects_video_over_the_duration_cap(
+    eager_celery: None, sample_video: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Quota model's duration cap (services/projects.py has the matching project-count/file-size
+    checks; this one lives here instead - see the comment on _MAX_VIDEO_DURATION_SECONDS).
+    Shrinks the cap below sample_video's real ~1s duration rather than fabricating a long video -
+    the real ffmpeg probe is what's under test, not a mocked one."""
+    monkeypatch.setattr("app.workers.tasks._MAX_VIDEO_DURATION_SECONDS", 0)
+    job_id = asyncio.run(_create_queued_job(sample_video))
+
+    with patch(
+        "app.services.raw_transcript.transcribe_video", return_value=_FAKE_TRANSCRIPTION
+    ):
+        transcribe_task.delay(str(job_id))
+
+    finished = asyncio.run(_get_job(job_id))
+    assert finished.status == JobStatus.failed
+    assert "duration" in finished.error
+
+
 def test_transcribe_task_marks_job_failed_when_setup_fails(
     eager_celery: None, sample_video: Path
 ) -> None:

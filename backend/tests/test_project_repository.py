@@ -36,15 +36,18 @@ async def test_get_missing_returns_none() -> None:
 
 
 async def test_list_page_includes_created() -> None:
+    owner_id = uuid.uuid4()
     async with async_session_factory() as session:
         created = await project_repo.create(
             session,
-            owner_id=uuid.uuid4(),
+            owner_id=owner_id,
             name="List test",
             video_url="/files/projects/y/source.mp4",
         )
 
-        page, total = await project_repo.list_page(session, limit=50, offset=0)
+        page, total = await project_repo.list_page(
+            session, owner_id=owner_id, limit=50, offset=0
+        )
 
         assert any(p.id == created.id for p in page)
         assert total >= 1

@@ -24,7 +24,15 @@ from app.services.language import SUPPORTED_LANGUAGE_CODES
 # probing) can't be checked on the request path; those failures surface in
 # the transcribe job instead.
 _ALLOWED_UPLOAD_EXTENSIONS = {".mp4", ".mov"}
-_MAX_UPLOAD_BYTES = 2 * 1024**3  # 2GB
+
+# Quota model (still-open per architecture.md §14.12 / CLAUDE.md's "still open" list) — the
+# human's chosen numbers. 100MB is a business-layer tightening under §2.7's stated 2GB ceiling,
+# not a change to it. The matching duration cap (1 minute) is deliberately NOT enforced here:
+# checking it would need a synchronous ffmpeg probe on this request path, which would reopen
+# arch §2.8's own explicit decision to move probing off of it. It's enforced instead inside the
+# transcribe job (app/workers/tasks.py), where the probe already runs.
+_MAX_UPLOAD_BYTES = 100 * 1024**2  # 100MB
+_MAX_PROJECTS_PER_OWNER = 5
 
 # Public (not `_`-prefixed): the route advertises the default in its own
 # signature, and tests assert against the cap, so both are part of this
@@ -115,6 +123,15 @@ async def create_project(
                 field="language", issue=f"unsupported language code: {language}"
             )
         )
+    existing_count = await project_repo.count_by_owner(session, owner_id)
+    if existing_count >= _MAX_PROJECTS_PER_OWNER:
+        details.append(
+            ErrorDetail(
+                field="quota",
+                issue=f"project limit reached: at most {_MAX_PROJECTS_PER_OWNER} "
+                "projects per user",
+            )
+        )
     if details:
         raise DomainValidationError(details)
 
@@ -156,6 +173,7 @@ async def open_project(session: AsyncSession, project_id: uuid.UUID) -> bool:
 async def list_projects(
     session: AsyncSession,
     *,
+    owner_id: uuid.UUID,
     limit: int = DEFAULT_PAGE_LIMIT,
     offset: int = 0,
     q: str | None = None,
@@ -167,11 +185,15 @@ async def list_projects(
     paginated endpoint back into "fetch everything". Clamping lives here
     rather than as a FastAPI `le=` constraint precisely because `le=` would
     422 instead.
+
+    Scoped to `owner_id`: each user's "My projects" is genuinely theirs now
+    that real per-user identity exists, not the single shared placeholder
+    every project used to carry.
     """
     limit = max(1, min(limit, MAX_PAGE_LIMIT))
     offset = max(0, offset)
     models, total = await project_repo.list_page(
-        session, limit=limit, offset=offset, q=q, sort=sort
+        session, owner_id=owner_id, limit=limit, offset=offset, q=q, sort=sort
     )
     return ProjectPage(
         items=[await _to_schema(session, m) for m in models], total=total
