@@ -45,6 +45,15 @@ async def create_raw_transcript(
     transcription = await asyncio.to_thread(
         transcribe_video, video_path, language=project.language
     )
+    if not transcription.words:
+        # WhisperX ran successfully but found nothing to transcribe - silence, music-only audio,
+        # or speech below its confidence threshold. Left unchecked, this used to persist an empty
+        # Raw Transcript, then an empty ECS, and the transcribe job would still land on `done`:
+        # a project with a real video and zero captions, with nothing telling the user why.
+        # Raising here propagates through _run_transcribe's existing try/except (app/workers/
+        # tasks.py) into `Job.status = "failed"` with a clear message - the same mechanism
+        # already used for the duration-cap rejection, not a new failure path.
+        raise ValueError("no speech detected in this video")
 
     model = await raw_transcript_repo.create(
         session,

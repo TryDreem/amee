@@ -33,6 +33,7 @@ _FAKE_WORDS = [
 # about the smart re-splitter, so this keeps them from making a real
 # network call to an LLM provider.
 _FAKE_TRANSCRIPTION = Transcription(words=_FAKE_WORDS, language="xx")
+_EMPTY_TRANSCRIPTION = Transcription(words=[], language="xx")
 
 
 @pytest.fixture
@@ -185,6 +186,31 @@ def test_transcribe_task_reports_progress_while_processing(
 
     assert "transcribing" in observed
     assert observed[-1] is None
+
+
+def test_transcribe_task_fails_when_whisperx_finds_no_speech(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """Silence, music-only audio, or speech below WhisperX's confidence threshold used to persist
+    an empty Raw Transcript and an empty ECS while still landing the job on `done` - a project
+    with a real video and zero captions, with nothing telling the user why."""
+    job_id = asyncio.run(_create_queued_job(sample_video))
+    job = asyncio.run(_get_job(job_id))
+
+    with patch(
+        "app.services.raw_transcript.transcribe_video",
+        return_value=_EMPTY_TRANSCRIPTION,
+    ):
+        transcribe_task.delay(str(job_id))
+
+    finished = asyncio.run(_get_job(job_id))
+    assert finished.status == JobStatus.failed
+    assert "speech" in finished.error
+
+    # Raises before raw_transcript_repo.create is ever called - no partial row left behind for a
+    # retry to see and skip past.
+    words = asyncio.run(_get_raw_transcript_words(job.project_id))
+    assert words is None
 
 
 def test_transcribe_task_rejects_video_over_the_duration_cap(
