@@ -3,7 +3,6 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants import PLACEHOLDER_OWNER_ID
 from app.exceptions import DomainValidationError
 from app.integrations import storage
 from app.models.project import ProjectModel
@@ -84,6 +83,7 @@ async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
 async def create_project(
     session: AsyncSession,
     *,
+    owner_id: uuid.UUID,
     name: str | None,
     filename: str,
     content: bytes,
@@ -128,7 +128,7 @@ async def create_project(
     model = await project_repo.create(
         session,
         project_id=project_id,
-        owner_id=PLACEHOLDER_OWNER_ID,
+        owner_id=owner_id,
         name=name or filename,
         video_url=video_url,
         language=language,
@@ -136,7 +136,7 @@ async def create_project(
     # CaptionStyleSpec is initialized immediately, using the default preset
     # (contract §4) — style doesn't depend on transcription (arch §6).
     await style_service.create_default_style(
-        session, project_id=project_id, owner_id=PLACEHOLDER_OWNER_ID
+        session, project_id=project_id, owner_id=owner_id
     )
     return await _to_schema(session, model)
 

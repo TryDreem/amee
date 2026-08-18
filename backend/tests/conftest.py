@@ -45,6 +45,13 @@ if "AMEE_REDIS_URL" in os.environ:
     _redis_url_parts = urlsplit(os.environ["AMEE_REDIS_URL"])
     os.environ["AMEE_REDIS_URL"] = urlunsplit(_redis_url_parts._replace(path="/15"))
 
+# app.integrations.session_cookie signs session cookies against this — it's read fresh on every
+# call (no import-time caching), unlike AMEE_DB_URL/AMEE_STORAGE_DIR above, so setdefault is
+# enough here: a real value in .env.secrets is used if present, a fixed test value otherwise.
+# Not a real secret leaking anywhere - this only has to be *some* consistent value so signatures
+# verify within one test run.
+os.environ.setdefault("AMEE_SESSION_SECRET", "test-session-secret-not-for-production")
+
 
 def _create_test_database_if_missing() -> None:
     async def _create() -> None:

@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import get_current_user_id
 from app.db import get_db
 from app.schemas.project import Project, ProjectPage, ProjectSort
 from app.services import projects as project_service
@@ -23,10 +24,12 @@ async def create_project(
     name: str | None = Form(None),
     language: str | None = Form(None),
     session: AsyncSession = Depends(get_db),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
 ) -> Project:
     content = await file.read()
     return await project_service.create_project(
         session,
+        owner_id=owner_id,
         name=name,
         filename=file.filename or "upload.mp4",
         content=content,
