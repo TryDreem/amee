@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,9 +13,15 @@ from app.schemas.common import ErrorBody, ErrorDetail, ErrorResponse
 
 app = FastAPI(title="Amee API", version="0.1.0")
 
+# The session cookie (app/api/v1/deps.py) only works cross-origin if the browser is told this
+# API trusts credentialed requests from the frontend's exact origin — the CORS spec forbids
+# allow_credentials=True together with a wildcard allow_origins, so unlike every other setting
+# here this can't default to "*". Same env var and same default as auth.py's _frontend_origin(),
+# since a mismatch between the two would silently reintroduce this bug for one of the two paths.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[os.environ.get("AMEE_FRONTEND_ORIGIN", "http://localhost:8001")],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
