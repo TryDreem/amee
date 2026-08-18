@@ -7,7 +7,7 @@ from app.db import get_db
 from app.integrations.session_cookie import sign_user_id, verify_cookie
 from app.repositories import user as user_repo
 
-_SESSION_COOKIE_NAME = "amee_session"
+SESSION_COOKIE_NAME = "amee_session"
 
 
 async def get_current_user_id(
@@ -22,7 +22,7 @@ async def get_current_user_id(
     and sets a new cookie on the response — guest identity is automatic, never an explicit user
     action (docs/api-contract.md §15, proposed). This never 401s: a session, guest or real,
     always exists once this dependency has run once for a given browser."""
-    cookie = request.cookies.get(_SESSION_COOKIE_NAME)
+    cookie = request.cookies.get(SESSION_COOKIE_NAME)
     candidate_id = verify_cookie(cookie) if cookie else None
     if candidate_id is not None:
         user = await user_repo.get(session, candidate_id)
@@ -31,7 +31,7 @@ async def get_current_user_id(
 
     user = await user_repo.create_guest(session)
     response.set_cookie(
-        _SESSION_COOKIE_NAME,
+        SESSION_COOKIE_NAME,
         sign_user_id(user.id),
         httponly=True,
         samesite="lax",
