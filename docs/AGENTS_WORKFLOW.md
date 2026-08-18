@@ -139,7 +139,7 @@ F works entirely against MSW until B lands. Flip `VITE_API_MOCK=0` at the end of
 - timeline editor: word-boundary drag with **clamping**, split, merge
 - whole-phrase edit → retokenization *(algorithm is open — implement the simplest placeholder behind
   one function and label it)*
-- Recalculate Groups button, Reset to Raw
+- Reset to Raw
 - overflow detection: real text measurement, wrap-between-words, 2-line max, visual error state
 - safe-area warning
 - export flow + result download

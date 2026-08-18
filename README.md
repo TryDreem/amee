@@ -33,7 +33,8 @@ a number of things are built the way they are. The full, binding technical speci
 
 ## What it does
 
-1. **Upload** a video (`.mp4`/`.mov`, H.264/HEVC, up to 4K, up to 2GB).
+1. **Upload** a video (`.mp4`/`.mov`, H.264/HEVC, up to 4K, up to 100MB, up to 1 minute) — quota-limited
+   to 5 projects per user.
 2. **Transcribe** it — WhisperX produces a word-level transcript (every word gets its own start/end
    timestamp, not just a sentence-level guess), and the words are grouped into readable caption
    phrases automatically.
@@ -242,6 +243,7 @@ be able to create new word/segment ids on its own with zero collision risk.
 | Recalculate Groups | `POST /projects/{id}/recalculate-groups`² |
 | Reset to Raw | `POST /projects/{id}/reset-to-raw`² |
 | Export | `POST /projects/{id}/export` (video, persists) · `POST /projects/{id}/export-srt` (SRT only, doesn't persist) |
+| Authentication | `GET /auth/me` · `POST /auth/logout` · `POST /auth/me/avatar` · `GET /auth/google/start` · `GET /auth/google/callback` |
 
 `GET`/`PUT` pairs are always whole-document operations — no `PATCH` anywhere, deliberately (see
 below). The full wire-level spec, including every field, every validation rule, and every status
@@ -393,7 +395,7 @@ for a single-editor MVP; flagged as something to revisit if concurrent editing e
 
 Deleting a project is a hard delete: the database row and every file under that project's storage
 directory, gone, in one pass. No trash, no recovery, no soft-delete flag. This was confirmed as a
-decision that holds *even once real authentication exists* later — not "hard delete because there's
+decision that holds *even with real authentication in place* — not "hard delete because there's
 no auth yet to make it dangerous," but "hard delete, full stop, forever." Worth noting because it's
 the kind of decision that's easy to quietly walk back under pressure once a user asks "can I get that
 back," and the project's stance is that this should be a conscious redesign if it ever happens, not a
@@ -408,22 +410,24 @@ export output somewhere more convenient. There is a test whose only job is to no
 
 ### Postgres from day one, not SQLite
 
-Every entity carries an `owner_id` from its very first schema, even though in single-user operation
-it always resolves to one hardcoded placeholder. The idea is that adding real multi-user auth later
-becomes "stop hardcoding the placeholder," not "add ownership to every table and migrate." Postgres
-was chosen over the simpler SQLite specifically so that decision doesn't force a database migration
-at the exact moment real users show up — and because SQLite's single-writer lock doesn't sit well with
-Celery workers updating job status concurrently, even at today's scale. The general rule behind this
-and several other choices in the project: **decisions that are expensive to retrofit are made
-correctly now; decisions that are cheap to add later are deliberately deferred.** No payments, no real
-auth, no cloud storage today — but the seams for all three already exist.
+Every entity carries an `owner_id` from its very first schema. It used to resolve to one hardcoded
+placeholder in single-user operation; now that real auth has landed (guest sessions + Google OAuth,
+see [API surface](#api-surface) and `docs/api-contract.md` §15), it's the real per-session or
+per-account id everywhere — exactly the "stop hardcoding the placeholder" swap this was designed
+for, not a schema migration. Postgres was chosen over the simpler SQLite specifically so that swap
+didn't force a database migration at the exact moment real users showed up — and because SQLite's
+single-writer lock doesn't sit well with Celery workers updating job status concurrently, even at
+today's scale. The general rule behind this and several other choices in the project: **decisions
+that are expensive to retrofit are made correctly now; decisions that are cheap to add later are
+deliberately deferred.** No payments, no cloud storage today — but the seams for both already exist.
 
 ### Redis is never a source of truth
 
-Redis holds exactly two things today: an in-progress export's percentage complete, and the OS process
-id of the ffmpeg process rendering it (so a cancel request knows what to kill). If Redis is
-unreachable, both degrade to "not shown" / "can't be cancelled anymore" — never to a stuck job, a
-wrong status, or a crash. The job's actual status (`queued`/`processing`/`done`/`failed`/`cancelled`)
+Redis holds three things today: an in-progress export's percentage complete, the OS process id of
+the ffmpeg process rendering it (so a cancel request knows what to kill), and the fixed-window
+counters behind rate limiting (per-IP and per-user, `docs/api-contract.md` §15). If Redis is
+unreachable, all three degrade gracefully — progress/pid to "not shown" / "can't be cancelled
+anymore", rate limiting to "not enforced" — never to a stuck job, a wrong status, or a crash. The job's actual status (`queued`/`processing`/`done`/`failed`/`cancelled`)
 always lives in Postgres, never in Celery's own result backend either, for the same reason: exactly
 one system is ever allowed to be authoritative about "what's actually happening," so there's no case
 where two sources disagree and something has to arbitrate between them.
@@ -536,8 +540,15 @@ rather than left to be discovered:
   value and deliberately has no keyframe at all).
 - **No document versioning / optimistic concurrency.** Last-write-wins on every save. Fine for one
   editor per project; a real problem the moment two people can edit the same project at once.
-- **No authentication, no payments, no quota model.** The seams exist (`owner_id` on every entity, a
-  natural service-layer checkpoint before export); none of the actual mechanisms are built.
+- **No payments.** Authentication (guest sessions + Google OAuth) and a quota model (5 projects /
+  100MB / 1 minute per user, plus per-IP and per-user rate limits) are both real and enforced now —
+  see [API surface](#api-surface) and `docs/api-contract.md` §15. There's no pricing tier beyond
+  the free quota.
+- **No per-project authorization check.** `POST .../transcribe`, `POST .../export`,
+  `POST .../export-srt`, and `DELETE /projects/{id}` don't verify that the calling session's
+  `owner_id` matches the target project's — anyone who knows (or guesses) a project id can
+  currently act on it. Rate limiting and quota are enforced per-caller; whether a caller may touch
+  *this specific* project is not yet checked anywhere.
 - **Retokenization algorithm is unspecified.** When a user edits a whole phrase's text at once, how
   the new word list's timestamps get redistributed across the original time budget is left as an
   implementation detail, not a fixed algorithm.

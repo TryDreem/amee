@@ -44,19 +44,24 @@ This document assumes the reader has the architecture doc; it implements that da
   }
   ```
 - **Timestamps:** `created_at`/`updated_at` are ISO 8601 strings. `Word.start`/`Word.end` are **not** wall-clock timestamps — they're floating-point seconds offset from video start (architecture doc §4.2), and stay that way here.
-- **Rate limiting:** every response may carry `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset` headers. On limit exceeded:
-  ```json
-  429
-  {
-    "error": {
-      "code": "rate_limited",
-      "message": "string",
-      "details": [ { "field": "owner_id", "issue": "retry after N seconds" } ]
-    }
+- **Rate limiting:** every response carries `X-RateLimit-Limit` / `X-RateLimit-Remaining` /  `X-RateLimit-Reset` headers. On limit exceeded:
+```json
+429
+{
+  "error": {
+  "code": "rate_limited",
+  "message": "string",
+  "details": [ { "field": "owner_id" | "ip", "issue": "retry after N seconds" } ]
   }
-  ```
-  with a `Retry-After` header (seconds). **Not enforced in the MVP** — one placeholder `owner_id`, nothing to limit against yet — but the response shape is fixed now, not later, so the frontend can handle `429` before enforcement exists rather than needing a client update the day it's turned on. The limiting key is `owner_id`, matching the field already present on every entity (§ above) — this becomes per-user automatically once real auth lands, no contract change needed. Enforcement itself (middleware/decorator on the API layer) is cheap to add later per architecture doc §1.2's own rule, so it isn't built now.
-
+}
+```
+with a `Retry-After` header (seconds). **Enforced** (§15) via three independent fixed-window
+counters in Redis: a blanket per-IP limit (30 req/min) on every `/api/v1` route except `GET
+/jobs/{id}` (excluded — polled roughly every 2s while a job runs, arch §2.8, which alone would
+exhaust this budget); a per-IP upload limit (5/hour) on `POST /projects`; and a per-user action
+limit (5/hour, `owner_id`-keyed) on `POST .../transcribe`, `POST .../export`, `POST
+.../export-srt`. `details[0].field` is `"ip"` for the first two, `"owner_id"` for the third.
+Fails open on a Redis outage — degrades to "no rate limiting," never a 500 or a stuck request.
 ---
 
 ## 2. Typical Flow
@@ -106,8 +111,19 @@ Creates the `Project` and stores the video via the storage abstraction (architec
 
 Video width/height/duration, a thumbnail, and (conditionally) a preview proxy are all produced by the same async job that runs WhisperX (architecture doc §2.8) — **not** at upload time. `POST /projects` returns immediately with those fields `null`; the Layout Engine's fit calculations (architecture doc §8.1) wait on `GET /jobs/{id}` reaching `status: "done"`, same as the caption editor does.
 
-**Validation:** rejects the upload against the limits in architecture doc §2.7 — format not mp4/mov, codec not H.264/HEVC, resolution over 4K (3840×2160), file size over 2GB, or `language` present and not one of WhisperX's supported ISO 639-1 codes (architecture doc §2.9).
-**422** with `error.details` identifying which limit was exceeded (§1's envelope — no separate shape for uploads).
+**Validation:** rejects the upload — format not mp4/mov, file size over 100MB (a business-layer
+tightening under architecture doc §2.7's 2GB ceiling, not a change to it — §15), `language`
+present and not one of WhisperX's supported ISO 639-1 codes (architecture doc §2.9), or the caller
+already owns 5 projects (`error.details[0].field: "quota"` — §15's quota model). Resolution/codec
+checks still require a probe and still happen later (arch §2.8), not here.
+**422** with `error.details` identifying which limit was exceeded (§1's envelope). **429** if the
+per-IP upload rate limit is exceeded (§1, §15).
+
+The 1-minute duration cap (§15) is deliberately **not** checked here — it's enforced
+asynchronously inside the transcribe job instead (a synchronous probe on this request path would
+reopen architecture doc §2.8's own decision to move probing off of it). A video over the cap
+uploads successfully, occupies a quota slot, and fails at `POST .../transcribe` time with
+`Job.status: "failed"` and a clear `error` message.
 
 
 **201** →
@@ -159,7 +175,10 @@ the request.
 Same shape as `POST /projects`'s 201 body. Single fetch. `404` if not found.
 
 ### `GET /projects`
-List, paginated. Query params, all optional:
+
+Scoped to the calling user (§15) — returns only projects whose `owner_id` matches the caller's
+session, guest or real. List, paginated. Query params, all optional:
+
 - `limit` — default `8`, clamped server-side to `1..50` regardless of what's requested.
 - `offset` — default `0`.
 - `q` — case-insensitive substring match against `Project.name`. Same pagination applies to
@@ -595,8 +614,6 @@ Same body shape as `POST /projects/{id}/export` — `{ecs, style}`. Unlike `/exp
 | 9 | Undo scope of Reset to Raw Transcript | Participates in the normal undo stack — enabled by Reset being non-persisting on the backend, exactly like Recalculate Groups (§11). |
 | 10 | UI confirmation before Recalculate Groups | Still open — a frontend UX question with no contract impact. |
 | 11 | Queue granularity beyond `transcribe`/`export` | Still just two today; the LLM smart re-splitter (arch §2.3/§5.3) runs inside the `transcribe` job rather than motivating a third queue — it blocks that job's completion either way, so a separate queue bought no real concurrency. Queue choice stays an internal detail behind the `Job` abstraction. |
-| 12 | Payment/quota integration point | Still deferred. The natural insertion point is the top of `POST /projects/{id}/export`, before the job is enqueued — noted, not built. |
-| 13 | Authentication mechanism | Still deferred. `owner_id` is present on every entity architecture doc §2.4 names, resolving to one placeholder value everywhere in the MVP. |
 | — | `Word.id` lifecycle at retokenization | New item, raised during contract design. Explicitly left unspecified — see §7. No wire-format consequence either way. |
 
 **New judgment calls in this document worth a second look** (not forced by the architecture doc the way most of the above is):
@@ -616,13 +633,120 @@ None of this changes an endpoint or a JSON shape beyond the rate-limit conventio
 |---|---|---|
 | Export progress + cancellation (`progress_percent`, tracked pid of the active phase) | Job service (§5) | **Confirmed, not speculative — the only currently-implemented use in this table.** `Job.progress_percent` and the PID of export's currently-active subprocess (frame-render phase or ffmpeg mux phase) live only in Redis, never Postgres. Losing either mid-export just means "no progress shown" / "can't be cancelled anymore" — never a stuck or wrong `Job` row. |
 | Cache (presets, job-status reads) | Data access layer (architecture doc §2.2) | Repository interface is unchanged; cache-aside lives inside the repository implementation. The app database stays authoritative — a cache miss just means "slower," never "wrong." |
-| Rate limiting counters | API-layer middleware (§1) | Standard token-bucket backing store. Keyed by `owner_id` (§1), same as the `429` convention above. |
+| Rate limiting counters | API-layer dependency (§1, §15) | **Confirmed, implemented** — fixed-window (INCR+EXPIRE), not token-bucket. Keyed by `owner_id` or client IP depending on which of the three limiters (§1). |
 | Ephemeral job-status push | New — a poll→push channel for `GET /jobs/{id}` (raised earlier in this conversation as a genuine scaling win at high poll volume, distinct from the queue-count question) | Redis pub/sub carries "status changed" *notifications* only, to trigger a WebSocket/SSE push. It does not carry the status itself as something a client can trust on its own — the persisted row in the app database (architecture doc §2.3) is still what a client re-checks on reconnect. A dropped pub/sub message costs a UX delay until the next poll, never a wrong status. |
-| Sessions | Integration/data access layer, once real auth (§13, item 13) lands | Not needed while `owner_id` resolves to one placeholder. |
+| Sessions | Integration/data access layer (§15) | **Confirmed, implemented.** No `sessions` table — an HMAC-signed cookie carries the user id directly (accepted limitation: can't revoke one specific session without rotating the server-wide secret; no "active sessions" UI concept exists to need that yet). |
 
 **Not source of truth, anywhere, for anything** — the one invariant across all five uses above, and the thing that keeps Redis from reintroducing the "two divergent sources of truth" problem architecture doc §2.3 explicitly designed the job system to avoid. If Redis is unavailable, correctness degrades to "slower" (cache miss, fall through to the database) — never to "wrong" or "stuck."
 
 **Nginx** — load-balances stateless FastAPI instances (architecture doc §2.2 already makes the service layer stateless, which is what makes this possible without touching business logic). Pure deployment topology; has no relationship to Celery worker concurrency in the `transcribe`/`export`/(future `split`) queues, which is tuned independently via worker process count per queue.
+
+## 15. Authentication
+
+Session model: httpOnly cookie `amee_session`, HMAC-SHA256 signed (`{user_id}.{signature}`),
+never expires explicitly — persists until the browser clears cookies (guest sessions are
+bessrochno by design). `SameSite=Lax`, not `Strict` — the Google OAuth callback arrives as a
+top-level cross-site navigation, which a `Strict` cookie would not carry. No `sessions` table —
+the cookie carries identity directly; see §14's Sessions row for the accepted trade-off.
+
+Every request that hits a session-guarded route silently gets one: no valid cookie, or a cookie
+pointing at a since-deleted user, mints a fresh guest (`User.is_guest = true`) and sets a new
+cookie on the response. Guest identity is automatic, never an explicit user action. This never
+401s. No email/password path — Google OAuth is the only real sign-in.
+
+### `GET /auth/me`
+No body. Always **200** with the current session's `User` (guest or real). **404** only in the
+rare race where the resolved user id was deleted between session resolution and the handler
+running.
+
+### `POST /auth/logout`
+No body. **204**, clears the session cookie. Does not take the session dependency — logging out
+with no session at all still succeeds, and never mints a guest just to immediately clear its own
+cookie. Does **not** delete the underlying `User` row — the next request from this browser gets a
+new guest; nothing about logout destroys existing projects.
+
+### `POST /auth/me/avatar`
+`multipart/form-data`: `file`. Accepts `.jpg`/`.jpeg`/`.png`/`.webp`, up to 5MB — separate,
+tighter limits than `POST /projects`'s video limits (§4), since this is a profile photo. **200**
+→ `User` with `avatar_url` updated. **422** on unsupported format or oversized file (§1 envelope).
+**404** on the same rare race as `GET /auth/me`. Re-upload overwrites the previous avatar file in
+place, regardless of extension.
+
+### `GET /auth/google/start`
+No body — a real page navigation, not a JSON call. **307** redirect to Google's consent screen,
+with a random `state` value set in a short-lived (10 min), separate httpOnly cookie
+(`amee_oauth_state`) for CSRF protection. **503** if the backend has no Google OAuth credentials
+configured — guest sessions and every other `/auth/*` route work regardless.
+
+### `GET /auth/google/callback`
+Google redirects the browser here with `code`/`state` (or `error` if the user cancelled on
+Google's own screen). The backend verifies `state` against the CSRF cookie, exchanges `code` for
+tokens, fetches the Google profile (`sub`/`email`/`name`/`picture` via a userinfo call, not a
+local JWT decode), then resolves one of four cases:
+
+1. This Google account already has a `User` row and it *is* the current session — repeat
+   sign-in, only `last_seen_at` updates.
+2. This Google account has no row yet, and the current session is a guest — that guest row is
+   promoted **in place** (`is_guest` flips to `false`, the id never changes) — every
+   project/segment/style/transcript/job the guest created already points at the right owner.
+3. This Google account already has a *different* row, and the current session is a guest — the
+   guest's content (all five `owner_id`-carrying tables) is reassigned onto the existing Google
+   account. The now-empty guest row is left in place, not deleted.
+4. The current session is *not* a guest and signs in as a *different* Google account — the
+   session switches accounts; nothing is reassigned. The first account's projects stay put.
+
+Always **307** back to the frontend origin (`AMEE_FRONTEND_ORIGIN`) with the new session cookie
+set on success, or to `{frontend}/?auth_error={reason}` on any failure (`cancelled`,
+`invalid_request`, `state_mismatch`, `exchange_failed`).
+
+### `User` schema
+```json
+{
+  "id": "uuid",
+  "email": "string | null",
+  "name": "string | null",
+  "avatar_url": "string | null",
+  "is_guest": "boolean",
+  "created_at": "ISO8601 string"
+}
+```
+
+### Quota model (resolved §13 item 12)
+Per-owner, enforced at `POST /projects` (§4) except duration:
+- **5 projects** — a live count, not a running counter; deleting a project frees a slot
+  immediately.
+- **100MB per file** — a business-layer limit under architecture doc §2.7's 2GB ceiling.
+- **1-minute duration** — enforced inside the transcribe job, not at upload (§4's note); the job
+  fails with a clear `error` message if the probed duration exceeds the cap.
+
+No payment/pricing model — quota only, free tier.
+
+### Rate limiting (resolved §1)
+Three independent fixed-window (Redis `INCR`+`EXPIRE`) counters, all fail-open on a Redis outage:
+- Blanket per-IP: 30 requests/min, every `/api/v1` route except `GET /jobs/{id}`.
+- Per-IP upload: 5/hour, `POST /projects` only.
+- Per-user action: 5/hour, `owner_id`-keyed, on `POST .../transcribe`, `POST .../export`, `POST
+  .../export-srt`.
+
+The per-user figure was not independently specified — it defaults to the same number as the
+per-IP upload limit and the project quota rather than an unrelated invented one.
+
+`request.client.host` only for the IP-keyed limiters — no `X-Forwarded-For` parsing. Correct
+behind this app's actual single-VPS deployment target; would need revisiting behind a reverse
+proxy or load balancer.
+
+### CORS
+`allow_origins` is the single explicit `AMEE_FRONTEND_ORIGIN` origin (not `"*"` — the CORS spec
+forbids combining a wildcard origin with `allow_credentials=True`, and a credentialed
+cross-origin session cookie needs the latter).
+
+### Known gap — not covered by this section
+None of the routes above, nor `POST .../transcribe`, `POST .../export`, `POST .../export-srt`, or
+`DELETE /projects/{id}`, check that the calling session's `owner_id` actually matches
+`project.owner_id`. Any caller who knows (or guesses) a `project_id` can currently act on any
+project regardless of who owns it. Flagged here rather than silently left implicit; not yet
+decided whether/how to close it.
+
 
 ---
 
