@@ -70,6 +70,12 @@ jobs:
         run: cd backend && alembic upgrade head
       - run: pnpm -C frontend install --frozen-lockfile
 
+      - name: build frontend for headless caption render
+        run: pnpm -C frontend build
+
+      - name: install chromium for playwright
+        run: cd backend && playwright install --with-deps chromium
+
       - name: backend
         run: make check-backend
       - name: frontend
