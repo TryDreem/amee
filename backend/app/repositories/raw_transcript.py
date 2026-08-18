@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.raw_transcript import RawTranscriptModel
@@ -43,5 +43,19 @@ async def get_by_project(
 async def delete_by_project(session: AsyncSession, project_id: uuid.UUID) -> None:
     await session.execute(
         delete(RawTranscriptModel).where(RawTranscriptModel.project_id == project_id)
+    )
+    await session.commit()
+
+
+async def reassign_owner(
+    session: AsyncSession, *, from_owner_id: uuid.UUID, to_owner_id: uuid.UUID
+) -> None:
+    """Guest-to-Google merge; see `app/repositories/project.py::reassign_owner`. Not a mutation
+    of transcript *content* - D1's write-once rule is about the words, not about which account
+    they belong to."""
+    await session.execute(
+        update(RawTranscriptModel)
+        .where(RawTranscriptModel.owner_id == from_owner_id)
+        .values(owner_id=to_owner_id)
     )
     await session.commit()

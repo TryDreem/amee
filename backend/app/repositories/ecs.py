@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -130,3 +130,17 @@ async def get_by_project(
     )
     segments = list(result.scalars().all())
     return segments or None
+
+
+async def reassign_owner(
+    session: AsyncSession, *, from_owner_id: uuid.UUID, to_owner_id: uuid.UUID
+) -> None:
+    """Guest-to-Google merge; see `app/repositories/project.py::reassign_owner`. Only
+    `SegmentModel` carries `owner_id` - `WordModel` belongs to its segment, not directly to a
+    user, so there is nothing to move there."""
+    await session.execute(
+        update(SegmentModel)
+        .where(SegmentModel.owner_id == from_owner_id)
+        .values(owner_id=to_owner_id)
+    )
+    await session.commit()

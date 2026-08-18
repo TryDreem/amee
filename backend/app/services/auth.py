@@ -2,6 +2,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.integrations.google_oauth import GoogleProfile
+from app.repositories import ecs as ecs_repo
+from app.repositories import job as job_repo
+from app.repositories import project as project_repo
+from app.repositories import raw_transcript as raw_transcript_repo
+from app.repositories import style as style_repo
 from app.repositories import user as user_repo
 from app.schemas.user import User
 
@@ -17,3 +23,79 @@ async def get_current_user(session: AsyncSession, user_id: uuid.UUID) -> User | 
     "id resolved by a dependency, then vanished" case in this codebase."""
     model = await user_repo.get(session, user_id)
     return _to_schema(model) if model else None
+
+
+async def sign_in_with_google(
+    session: AsyncSession, *, current_user_id: uuid.UUID, profile: GoogleProfile
+) -> uuid.UUID:
+    """Resolves a Google profile to the user id the session should switch to.
+
+    Four cases, and the distinction between them is the whole point of this function:
+
+    1. This Google account already has a row, and it *is* the current session's user — a repeat
+       sign-in. Nothing to move.
+    2. This Google account has no row yet, and the current session is a guest — promote that
+       guest row in place. The id never changes, so every project/segment/style/transcript/job
+       already points at the right owner: no reassignment, no partially-migrated window. This is
+       the common path for "I've been using the app, now I'm signing up".
+    3. This Google account already has a *different* row, and the current session is a guest —
+       the guest has work that has to follow them onto the real account, so reassign all five
+       owner_id-carrying tables. The emptied guest row is left in place: nothing references it
+       any more, and deleting rows on a sign-in path is a sharper edge than an inert row.
+    4. Same as (3) but the current session is *not* a guest — someone already signed in as one
+       real account is signing in as another. Switch accounts and move nothing: their first
+       account's projects are not the second account's to absorb.
+    """
+    existing = await user_repo.get_by_google_sub(session, profile.sub)
+    current = await user_repo.get(session, current_user_id)
+
+    if existing is not None:
+        if existing.id != current_user_id and current is not None and current.is_guest:
+            await _reassign_all_content(
+                session, from_owner_id=current_user_id, to_owner_id=existing.id
+            )
+        await user_repo.touch_last_seen(session, existing)
+        return existing.id
+
+    if current is not None and current.is_guest:
+        promoted = await user_repo.promote_guest_to_google(
+            session,
+            current,
+            google_sub=profile.sub,
+            email=profile.email,
+            name=profile.name,
+            avatar_url=profile.picture,
+        )
+        return promoted.id
+
+    created = await user_repo.create_google_user(
+        session,
+        google_sub=profile.sub,
+        email=profile.email,
+        name=profile.name,
+        avatar_url=profile.picture,
+    )
+    return created.id
+
+
+async def _reassign_all_content(
+    session: AsyncSession, *, from_owner_id: uuid.UUID, to_owner_id: uuid.UUID
+) -> None:
+    """All five tables that carry `owner_id`, not just `projects`. Missing one would leave a
+    project owned by the new account whose segments still belong to the abandoned guest —
+    invisible until something joins on owner_id and comes back empty."""
+    await project_repo.reassign_owner(
+        session, from_owner_id=from_owner_id, to_owner_id=to_owner_id
+    )
+    await ecs_repo.reassign_owner(
+        session, from_owner_id=from_owner_id, to_owner_id=to_owner_id
+    )
+    await style_repo.reassign_owner(
+        session, from_owner_id=from_owner_id, to_owner_id=to_owner_id
+    )
+    await raw_transcript_repo.reassign_owner(
+        session, from_owner_id=from_owner_id, to_owner_id=to_owner_id
+    )
+    await job_repo.reassign_owner(
+        session, from_owner_id=from_owner_id, to_owner_id=to_owner_id
+    )

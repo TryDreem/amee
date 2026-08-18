@@ -4,10 +4,12 @@ EXPECTED: dict[str, set[str]] = {
     # Auth resource — implemented ahead of docs/api-contract.md's own §15, which is a
     # hook-protected file and is currently a diff pending the human's sign-off, not yet applied.
     # Same sequencing already used for export-srt below: code + this test land first, the
-    # contract catches up. Only /me and /logout exist so far (auth plan, step 3) — /google/start,
-    # /google/callback, /me/avatar are later steps.
+    # contract catches up. /me/avatar is a later step; the two google routes are browser
+    # redirects rather than JSON endpoints, but they are still real routes in the schema.
     "/api/v1/auth/me": {"get"},
     "/api/v1/auth/logout": {"post"},
+    "/api/v1/auth/google/start": {"get"},
+    "/api/v1/auth/google/callback": {"get"},
     "/api/v1/projects": {"post", "get"},
     "/api/v1/projects/{project_id}": {"get", "delete"},
     "/api/v1/projects/{project_id}/open": {"post"},
@@ -35,8 +37,8 @@ def test_openapi_has_exactly_the_contract_paths() -> None:
 
 
 def test_openapi_route_count_matches_contract() -> None:
-    """20 routes: the 18 across the 10 resource groups in api-contract.md §3, plus 2 from the
+    """22 routes: the 18 across the 10 resource groups in api-contract.md §3, plus 4 from the
     proposed Auth resource (§15, not yet applied — see the comment on EXPECTED above)."""
     schema = app.openapi()
     route_count = sum(len(methods) for methods in schema["paths"].values())
-    assert route_count == 20
+    assert route_count == 22

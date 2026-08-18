@@ -2,6 +2,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import delete, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import JobModel
@@ -97,4 +98,16 @@ async def delete_by_project(session: AsyncSession, project_id: uuid.UUID) -> Non
     the `Project` row itself or Postgres rejects the delete on the foreign
     key."""
     await session.execute(delete(JobModel).where(JobModel.project_id == project_id))
+    await session.commit()
+
+
+async def reassign_owner(
+    session: AsyncSession, *, from_owner_id: uuid.UUID, to_owner_id: uuid.UUID
+) -> None:
+    """Guest-to-Google merge; see `app/repositories/project.py::reassign_owner`."""
+    await session.execute(
+        sa_update(JobModel)
+        .where(JobModel.owner_id == from_owner_id)
+        .values(owner_id=to_owner_id)
+    )
     await session.commit()

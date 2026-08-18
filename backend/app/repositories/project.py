@@ -183,3 +183,22 @@ async def delete(session: AsyncSession, project_id: uuid.UUID) -> None:
     foreign key violation if anything still references this project."""
     await session.execute(sa_delete(ProjectModel).where(ProjectModel.id == project_id))
     await session.commit()
+
+
+async def reassign_owner(
+    session: AsyncSession, *, from_owner_id: uuid.UUID, to_owner_id: uuid.UUID
+) -> None:
+    """Moves every project from one owner to another.
+
+    Used when a guest signs in with Google (app/services/auth.py): their existing work has to
+    follow them onto the real account rather than being stranded under a guest id nothing can
+    reach again. Four sibling tables carry `owner_id` too and each has its own copy of this -
+    the service calls all five, since a project whose segments still point at the old owner is
+    a worse state than either endpoint.
+    """
+    await session.execute(
+        update(ProjectModel)
+        .where(ProjectModel.owner_id == from_owner_id)
+        .values(owner_id=to_owner_id)
+    )
+    await session.commit()
