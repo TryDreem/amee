@@ -1,5 +1,11 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
+import { resolveMediaUrl } from "../api/client";
+import AccountDropdown from "./AccountDropdown";
+import AccountTooltip from "./AccountTooltip";
+import AuthModal from "./AuthModal";
+import { useAuth } from "../contexts/AuthContext";
+import { PROJECT_CAP } from "../lib/limits";
 import { THEME_ORDER, UI_MODES, resolveTheme, type Prefs } from "../theme";
 import { STR } from "../i18n";
 
@@ -10,15 +16,32 @@ interface TopBarProps {
   // h_exportBadgeShow, same flex row as h_onMenuToggle). Editor doesn't use TopBar at all, so
   // this stays optional rather than every caller having to pass `undefined`.
   beforeMenu?: ReactNode;
+  // Auth plan Part A §2/§8 -- Home already computes this from a real GET /projects for
+  // ProjectGrid; the account popover's N/5 line reuses the same number, no new fetch.
+  projectCount: number;
 }
 
-export default function TopBar({ prefs, onUpdatePrefs, beforeMenu }: TopBarProps): JSX.Element {
+export default function TopBar({ prefs, onUpdatePrefs, beforeMenu, projectCount }: TopBarProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const auth = useAuth();
 
   const mode = UI_MODES[prefs.mode];
   const isLight = prefs.mode === "light";
   const L = STR[prefs.lang];
+
+  // Auto-opens once per tab session (guarded by tooltipDismissed, sessionStorage-backed) --
+  // firing marks it dismissed immediately so it doesn't pop again on the next page, while the
+  // account button can still reopen it manually at any time.
+  useEffect(() => {
+    if (auth.status === "ready" && !auth.isLoggedIn && !auth.tooltipDismissed) {
+      setAccountOpen(true);
+      auth.dismissTooltip();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.status, auth.isLoggedIn, auth.tooltipDismissed]);
 
   return (
     <div
@@ -49,6 +72,89 @@ export default function TopBar({ prefs, onUpdatePrefs, beforeMenu }: TopBarProps
 
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         {beforeMenu}
+        <div style={{ position: "relative" }}>
+          <div
+            onClick={() => setAccountOpen((v) => !v)}
+            className="amee-icon-btn"
+            title={L.accountButtonLabel}
+            aria-label={L.accountButtonLabel}
+            style={{
+              width: "32px",
+              height: "32px",
+              borderRadius: "50%",
+              overflow: "hidden",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              color: mode.textFaint2,
+              background: accountOpen ? (isLight ? "rgba(0,0,0,.07)" : "rgba(255,255,255,.1)") : mode.iconBg,
+            }}
+          >
+            {auth.isLoggedIn && auth.user?.avatar_url ? (
+              <img
+                src={resolveMediaUrl(auth.user.avatar_url)}
+                alt=""
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            )}
+          </div>
+
+          {accountOpen && (
+            <>
+              <div
+                onClick={() => setAccountOpen(false)}
+                data-testid="account-backdrop"
+                style={{ position: "fixed", inset: 0, zIndex: 20 }}
+              />
+              {auth.isLoggedIn && auth.user ? (
+                <AccountDropdown
+                  prefs={prefs}
+                  strings={L}
+                  name={auth.user.name}
+                  email={auth.user.email ?? ""}
+                  avatarUrl={auth.user.avatar_url}
+                  projectCount={projectCount}
+                  projectCap={PROJECT_CAP}
+                  photoBusy={auth.photoBusy}
+                  photoError={auth.photoError}
+                  onChangePhoto={(file) => void auth.updateAvatar(file)}
+                  onLogOut={() => {
+                    setAccountOpen(false);
+                    void auth.logout();
+                  }}
+                />
+              ) : (
+                <AccountTooltip
+                  prefs={prefs}
+                  strings={L}
+                  projectCount={projectCount}
+                  projectCap={PROJECT_CAP}
+                  onSignIn={() => {
+                    setAccountOpen(false);
+                    setAuthModalOpen(true);
+                  }}
+                  onContinueAsGuest={() => setAccountOpen(false)}
+                />
+              )}
+            </>
+          )}
+        </div>
+
+        {authModalOpen && (
+          <AuthModal
+            prefs={prefs}
+            strings={L}
+            onGoogleClick={auth.startGoogleOAuth}
+            onClose={() => setAuthModalOpen(false)}
+          />
+        )}
+
         <div style={{ position: "relative" }}>
           <div
             onClick={() => setMenuOpen((v) => !v)}

@@ -1,4 +1,5 @@
 import type { components } from "../api/types.gen";
+import type { User } from "../api/auth";
 
 type Project = components["schemas"]["Project"];
 type Job = components["schemas"]["Job"];
@@ -10,6 +11,18 @@ type Preset = components["schemas"]["Preset"];
 // Same placeholder owner_id the contract's own §12 example uses.
 export const OWNER_ID = "00000000-0000-0000-0000-000000000001";
 export const PROJECT_ID = "9f2b7e10-1234-4a3d-8f21-abc987654321";
+
+// Logged-in fixture -- the default /auth/me handler answers 401 (logged out); tests exercising
+// the logged-in dropdown override it with this via server.use, same pattern as every other
+// per-test override in this file.
+export const userFixture: User = {
+  id: "b0000000-0000-4000-8000-000000000001",
+  email: "demo@example.com",
+  name: "Demo User",
+  avatar_url: null,
+  is_guest: false,
+  created_at: "2026-07-08T09:00:00Z",
+};
 
 const TRANSCRIBE_JOB_ID = "6a1c1e9c-2b4a-3d8f-8f21-abc123456700";
 const EXPORT_JOB_ID = "1e6a1c1e-9c2b-4a3d-8f21-abc123456789";

@@ -10,6 +10,7 @@ import {
   rawTranscriptFixture,
   styleFixture,
   transcribeJobFixture,
+  userFixture,
 } from "./fixtures";
 
 type ECSPutBody = components["schemas"]["ECSPutBody"];
@@ -99,4 +100,12 @@ export const handlers = [
   http.post("*/api/v1/projects/:projectId/jobs/:jobId/cancel", () =>
     HttpResponse.json({ ...exportJobFixture, status: "cancelled" }, { status: 202 })
   ),
+
+  // Auth (plan Part A) -- no real /auth/* routes exist on the backend yet, so the default here
+  // is "logged out" (401), matching what the real backend actually returns today. Tests
+  // exercising the logged-in dropdown override this via server.use, same pattern as every other
+  // per-test override in this file.
+  http.get("*/api/v1/auth/me", () => new HttpResponse(null, { status: 401 })),
+  http.post("*/api/v1/auth/logout", () => new HttpResponse(null, { status: 204 })),
+  http.post("*/api/v1/auth/me/avatar", () => HttpResponse.json(userFixture)),
 ];

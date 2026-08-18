@@ -8,6 +8,16 @@ export interface Strings {
   dark: string;
   light: string;
 
+  accountButtonLabel: string;
+  notRegisteredYet: string;
+  signIn: string;
+  continueAsGuest: string;
+  continueWithGoogle: string;
+  projectsUploadedLabel: (used: number, cap: number) => string;
+  logOut: string;
+  changePhotoLabel: string;
+  photoUploadError: string;
+
   myProjects: string;
   createProject: string;
   createFirst: string;
@@ -145,6 +155,16 @@ export const STR: Record<Lang, Strings> = {
     appearanceLabel: "Оформление",
     dark: "Тёмная",
     light: "Светлая",
+
+    accountButtonLabel: "Аккаунт",
+    notRegisteredYet: "Вы ещё не зарегистрированы",
+    signIn: "Войти",
+    continueAsGuest: "Продолжить как гость",
+    continueWithGoogle: "Продолжить через Google",
+    projectsUploadedLabel: (used, cap) => `${used}/${cap} проектов загружено`,
+    logOut: "Выйти",
+    changePhotoLabel: "Сменить фото",
+    photoUploadError: "Не удалось обновить фото. Попробуйте ещё раз.",
 
     myProjects: "Мои проекты",
     createProject: "Создать проект",
@@ -289,6 +309,16 @@ export const STR: Record<Lang, Strings> = {
     appearanceLabel: "Appearance",
     dark: "Dark",
     light: "Light",
+
+    accountButtonLabel: "Account",
+    notRegisteredYet: "You haven't registered yet",
+    signIn: "Sign in",
+    continueAsGuest: "Continue as guest",
+    continueWithGoogle: "Continue with Google",
+    projectsUploadedLabel: (used, cap) => `${used}/${cap} projects uploaded`,
+    logOut: "Log out",
+    changePhotoLabel: "Change photo",
+    photoUploadError: "Couldn't update your photo. Try again.",
 
     myProjects: "My projects",
     createProject: "Create project",

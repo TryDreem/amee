@@ -405,6 +405,7 @@ export default function Home(): JSX.Element {
       <TopBar
         prefs={prefs}
         onUpdatePrefs={update}
+        projectCount={projectPage?.total ?? 0}
         beforeMenu={
           activeExportRecords.length > 0 && (
             <ExportBadge

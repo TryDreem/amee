@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
+import { AuthProvider } from "../contexts/AuthContext";
 import { ExportProvider } from "../contexts/ExportContext";
 import { TranscribeProvider } from "../contexts/TranscribeContext";
 import { projectFixture, transcribeJobFixture } from "../mocks/fixtures";
@@ -11,16 +12,18 @@ import Home from "./Home";
 
 function renderHome(initialEntries?: { pathname: string; state?: unknown }[]) {
   return render(
-    <ExportProvider>
-      <TranscribeProvider>
-        <MemoryRouter initialEntries={initialEntries}>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/projects/:id" element={<div>Editor placeholder</div>} />
-          </Routes>
-        </MemoryRouter>
-      </TranscribeProvider>
-    </ExportProvider>
+    <AuthProvider>
+      <ExportProvider>
+        <TranscribeProvider>
+          <MemoryRouter initialEntries={initialEntries}>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/projects/:id" element={<div>Editor placeholder</div>} />
+            </Routes>
+          </MemoryRouter>
+        </TranscribeProvider>
+      </ExportProvider>
+    </AuthProvider>
   );
 }
 
