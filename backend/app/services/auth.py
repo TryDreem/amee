@@ -1,7 +1,10 @@
 import uuid
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import DomainValidationError
+from app.integrations import storage
 from app.integrations.google_oauth import GoogleProfile
 from app.repositories import ecs as ecs_repo
 from app.repositories import job as job_repo
@@ -9,7 +12,14 @@ from app.repositories import project as project_repo
 from app.repositories import raw_transcript as raw_transcript_repo
 from app.repositories import style as style_repo
 from app.repositories import user as user_repo
+from app.schemas.common import ErrorDetail
 from app.schemas.user import User
+
+# A profile photo, not a project master file - deliberately much tighter than
+# _ALLOWED_UPLOAD_EXTENSIONS/_MAX_UPLOAD_BYTES in services/projects.py, which is sized for
+# source video.
+_ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+_MAX_AVATAR_BYTES = 5 * 1024**2  # 5MB
 
 
 def _to_schema(model: object) -> User:
@@ -76,6 +86,40 @@ async def sign_in_with_google(
         avatar_url=profile.picture,
     )
     return created.id
+
+
+async def update_avatar(
+    session: AsyncSession, user_id: uuid.UUID, *, filename: str, content: bytes
+) -> User | None:
+    """`None` only on the same rare since-deleted-user race documented on get_current_user above
+    — the route treats it as 404, not as "validation passed but nothing happened"."""
+    details: list[ErrorDetail] = []
+    ext = Path(filename).suffix.lower()
+    if ext not in _ALLOWED_AVATAR_EXTENSIONS:
+        details.append(
+            ErrorDetail(
+                field="file",
+                issue=f"unsupported format {ext or '(no extension)'}: "
+                "expected .jpg, .jpeg, .png, or .webp",
+            )
+        )
+    if len(content) > _MAX_AVATAR_BYTES:
+        details.append(
+            ErrorDetail(
+                field="file",
+                issue=f"file exceeds the {_MAX_AVATAR_BYTES} byte limit",
+            )
+        )
+    if details:
+        raise DomainValidationError(details)
+
+    user = await user_repo.get(session, user_id)
+    if user is None:
+        return None
+
+    _, avatar_url = storage.save_avatar(user_id, filename, content)
+    updated = await user_repo.update_avatar(session, user, avatar_url=avatar_url)
+    return _to_schema(updated)
 
 
 async def _reassign_all_content(

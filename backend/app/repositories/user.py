@@ -78,6 +78,15 @@ async def promote_guest_to_google(
     return user
 
 
+async def update_avatar(
+    session: AsyncSession, user: UserModel, *, avatar_url: str
+) -> UserModel:
+    user.avatar_url = avatar_url
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
 async def touch_last_seen(session: AsyncSession, user: UserModel) -> UserModel:
     user.last_seen_at = datetime.now(timezone.utc)
     await session.commit()

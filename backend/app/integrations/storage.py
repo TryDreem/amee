@@ -31,6 +31,21 @@ def save_video(project_id: UUID, filename: str, content: bytes) -> tuple[Path, s
     return dest, f"/files/projects/{project_id}/{dest.name}"
 
 
+def save_avatar(user_id: UUID, filename: str, content: bytes) -> tuple[Path, str]:
+    """Writes an uploaded profile photo to disk (POST /auth/me/avatar) — the one storage helper
+    in this module keyed by user id rather than project id. Re-upload overwrites in place: any
+    previously stored avatar.* file is removed first, so switching .jpg -> .png doesn't leave the
+    old one behind as dead disk usage the way a filename keyed on content type would."""
+    ext = Path(filename).suffix.lower() or ".jpg"
+    directory = storage_dir() / "users" / str(user_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    for stale in directory.glob("avatar.*"):
+        stale.unlink()
+    dest = directory / f"avatar{ext}"
+    dest.write_bytes(content)
+    return dest, f"/files/users/{user_id}/{dest.name}"
+
+
 def thumbnail_path(project_id: UUID) -> tuple[Path, str]:
     """Destination for the midpoint-frame thumbnail (arch §2.8c) — the
     caller (app/workers/tasks.py) passes this straight to

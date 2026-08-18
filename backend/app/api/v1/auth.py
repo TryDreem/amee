@@ -2,7 +2,15 @@ import os
 import secrets
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +60,28 @@ async def get_me(
     # get_current_user_id already minted-or-verified a real row for this request, so this only
     # 404s in the rare window where it was deleted between that check and this one.
     user = await auth_service.get_current_user(session, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@router.post(
+    "/me/avatar",
+    response_model=User,
+    responses={
+        404: {"description": "Resolved session pointed at a since-deleted user"},
+        422: {"description": "Unsupported image format or file too large"},
+    },
+)
+async def update_avatar(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+) -> User:
+    content = await file.read()
+    user = await auth_service.update_avatar(
+        session, user_id, filename=file.filename or "avatar.jpg", content=content
+    )
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return user
