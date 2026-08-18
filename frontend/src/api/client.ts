@@ -30,7 +30,7 @@ export class ApiError extends Error {
   }
 }
 
-function apiBase(): string {
+export function apiBase(): string {
   const base = import.meta.env.VITE_API_BASE;
   if (!base) {
     throw new Error(
@@ -40,8 +40,15 @@ function apiBase(): string {
   return base;
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase()}${path}`, init);
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  // Every route now depends on the session cookie (backend app/api/v1/deps.py) to know which
+  // user is calling — without this default, fetch's own default credentials mode
+  // ("same-origin") silently drops the cookie on every cross-origin call to the backend's
+  // origin, and the backend mints a brand-new guest per request instead of reusing one.
+  const response = await fetch(`${apiBase()}${path}`, {
+    credentials: "include",
+    ...init,
+  });
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => undefined);
     throw new ApiError(response.status, body);
