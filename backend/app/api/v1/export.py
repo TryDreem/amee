@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import enforce_user_action_limit
 from app.db import get_db
 from app.schemas.export import ExportRequestBody
 from app.schemas.job import Job
@@ -16,8 +17,10 @@ router = APIRouter(prefix="/projects", tags=["export"])
     response_model=Job,
     status_code=202,
     responses={
-        422: {"description": "Validation failed (shared with PUT /ecs, PUT /style)"}
+        422: {"description": "Validation failed (shared with PUT /ecs, PUT /style)"},
+        429: {"description": "Per-user action rate limit exceeded"},
     },
+    dependencies=[Depends(enforce_user_action_limit)],
 )
 async def export_project(
     project_id: uuid.UUID,
@@ -35,8 +38,10 @@ async def export_project(
     response_model=Job,
     status_code=202,
     responses={
-        422: {"description": "Validation failed (request body is not persisted)"}
+        422: {"description": "Validation failed (request body is not persisted)"},
+        429: {"description": "Per-user action rate limit exceeded"},
     },
+    dependencies=[Depends(enforce_user_action_limit)],
 )
 async def export_project_srt(
     project_id: uuid.UUID,

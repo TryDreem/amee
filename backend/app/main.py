@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
-from app.exceptions import DomainValidationError
+from app.exceptions import DomainValidationError, RateLimitedError
 from app.integrations import storage
 from app.schemas.common import ErrorBody, ErrorDetail, ErrorResponse
 
@@ -63,6 +63,36 @@ async def domain_validation_exception_handler(
         )
     )
     return JSONResponse(status_code=422, content=body.model_dump())
+
+
+@app.exception_handler(RateLimitedError)
+async def rate_limited_exception_handler(
+    request: Request, exc: RateLimitedError
+) -> JSONResponse:
+    body = ErrorResponse(
+        error=ErrorBody(
+            code="rate_limited",
+            message="Too many requests",
+            details=[
+                ErrorDetail(
+                    field=exc.field, issue=f"retry after {exc.reset_seconds} seconds"
+                )
+            ],
+        )
+    )
+    # api-contract.md §1's fixed 429 shape: Retry-After plus the three X-RateLimit-* headers on
+    # the response that actually got rate-limited (every OTHER response carries them too, but
+    # those are set by the dependency directly on its own Response object, not here).
+    return JSONResponse(
+        status_code=429,
+        content=body.model_dump(),
+        headers={
+            "Retry-After": str(exc.reset_seconds),
+            "X-RateLimit-Limit": str(exc.limit),
+            "X-RateLimit-Remaining": str(exc.remaining),
+            "X-RateLimit-Reset": str(exc.reset_seconds),
+        },
+    )
 
 
 @app.exception_handler(RequestValidationError)

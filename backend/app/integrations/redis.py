@@ -23,7 +23,7 @@ _KEY_TTL_SECONDS = 4 * 60 * 60
 
 
 @asynccontextmanager
-async def _client() -> AsyncIterator[redis.Redis]:
+async def redis_client() -> AsyncIterator[redis.Redis]:
     """A fresh client per call, not a cached module-level singleton - same
     reasoning as `app/db.py`'s `NullPool` on the Postgres engine: a pooled
     async connection is bound to the event loop it was opened on, and
@@ -50,7 +50,7 @@ async def _set(key: str, value: str | float) -> None:
     """Best-effort by design (A3/A5): callers must not let a Redis failure
     here fail the export itself."""
     try:
-        async with _client() as client:
+        async with redis_client() as client:
             await client.set(key, value, ex=_KEY_TTL_SECONDS)
     except (KeyError, redis.RedisError):
         pass
@@ -60,7 +60,7 @@ async def _get(key: str) -> str | None:
     """`None` covers every indistinguishable-by-design case (A3): the value
     was never set, Redis is unavailable, or it was never configured."""
     try:
-        async with _client() as client:
+        async with redis_client() as client:
             value = await client.get(key)
     except (KeyError, redis.RedisError):
         return None
@@ -69,7 +69,7 @@ async def _get(key: str) -> str | None:
 
 async def _delete(key: str) -> None:
     try:
-        async with _client() as client:
+        async with redis_client() as client:
             await client.delete(key)
     except (KeyError, redis.RedisError):
         pass

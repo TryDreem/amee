@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import get_current_user_id
+from app.api.v1.deps import enforce_upload_ip_limit, get_current_user_id
 from app.db import get_db
 from app.schemas.project import Project, ProjectPage, ProjectSort
 from app.services import projects as project_service
@@ -16,8 +16,10 @@ router = APIRouter(prefix="/projects", tags=["projects"])
     response_model=Project,
     status_code=201,
     responses={
-        422: {"description": "Upload limits exceeded, or unsupported language code"}
+        422: {"description": "Upload limits exceeded, or unsupported language code"},
+        429: {"description": "Per-IP upload rate limit exceeded"},
     },
+    dependencies=[Depends(enforce_upload_ip_limit)],
 )
 async def create_project(
     file: UploadFile = File(...),

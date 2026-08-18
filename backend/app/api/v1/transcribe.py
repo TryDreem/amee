@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import enforce_user_action_limit
 from app.db import get_db
 from app.schemas.job import Job
 from app.services import transcribe as transcribe_service
@@ -15,8 +16,10 @@ router = APIRouter(prefix="/projects", tags=["transcription"])
     response_model=Job,
     status_code=202,
     responses={
-        409: {"description": "A transcribe job is already queued/processing/done"}
+        409: {"description": "A transcribe job is already queued/processing/done"},
+        429: {"description": "Per-user action rate limit exceeded"},
     },
+    dependencies=[Depends(enforce_user_action_limit)],
 )
 async def transcribe_project(
     project_id: uuid.UUID, session: AsyncSession = Depends(get_db)

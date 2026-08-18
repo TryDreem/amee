@@ -80,7 +80,9 @@ _create_test_database_if_missing()
 _migrate_test_database()
 
 from app.db import Base, async_session_factory  # noqa: E402
+from app.integrations.redis import redis_client  # noqa: E402
 from app.main import app  # noqa: E402
+from redis import asyncio as _redis_lib  # noqa: E402
 
 
 @pytest.fixture
@@ -108,6 +110,17 @@ async def _clean_database():
                 continue
             await session.execute(table.delete())
         await session.commit()
+    # Same isolation concern as AMEE_REDIS_URL's DB-15 redirect above, one level further: without
+    # this, rate-limit counters (app/integrations/rate_limit.py) accumulate across every test that
+    # hits a limited route, since httpx's ASGITransport gives every request the same fake client
+    # IP. A handful of tests each doing a couple of uploads would silently exhaust the whole
+    # suite's shared per-IP budget partway through an unrelated test.
+    if "AMEE_REDIS_URL" in os.environ:
+        try:
+            async with redis_client() as conn:
+                await conn.flushdb()
+        except (KeyError, _redis_lib.RedisError):
+            pass
 
 
 @pytest.fixture
