@@ -62,16 +62,19 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
+      - name: fix apt mirror
+        # azure.archive.ubuntu.com (the runner's default mirror) has been unreachable. A capped
+        # per-request timeout still isn't enough - noble alone points apt at ~20 index files
+        # (main/updates/backports/security x Packages/Translation/Components) on that one dead
+        # host, so even a 10s-per-request cap adds up to minutes. archive.ubuntu.com answers every
+        # one of those instantly in the same log, so skip the dead mirror entirely instead of
+        # waiting it out - once here, before anything that shells out to apt (this step, and
+        # later `playwright install --with-deps`).
+        run: sudo grep -rl 'azure.archive.ubuntu.com' /etc/apt/ | xargs -r sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g'
+
       - name: install ffmpeg
-        # azure.archive.ubuntu.com (the runner's default mirror) has been unreachable, and a
-        # capped per-request timeout still isn't enough - noble alone points apt at ~20 index
-        # files (main/updates/backports/security x Packages/Translation/Components) on that one
-        # dead host, so even a 10s-per-request cap adds up to minutes. archive.ubuntu.com answers
-        # every one of those instantly in the same log, so skip the dead mirror entirely instead
-        # of waiting it out.
         timeout-minutes: 5
         run: |
-          sudo grep -rl 'azure.archive.ubuntu.com' /etc/apt/ | xargs -r sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g'
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
@@ -84,6 +87,7 @@ jobs:
         run: pnpm -C frontend build
 
       - name: install chromium for playwright
+        timeout-minutes: 5
         run: cd backend && playwright install --with-deps chromium
 
       - name: backend
