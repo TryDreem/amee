@@ -288,9 +288,9 @@ export default function UploadZone({
           <span style={{ opacity: 0.6 }}>·</span>
           <span>{L.upTo4k}</span>
           <span style={{ opacity: 0.6 }}>·</span>
-          <span>{L.upTo2gb}</span>
+          <span>{L.upTo100mb}</span>
           <span style={{ opacity: 0.6 }}>·</span>
-          <span>{L.upTo10min}</span>
+          <span>{L.upTo1min}</span>
         </div>
 
         {errorMessage && (

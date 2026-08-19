@@ -1,94 +1,37 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import CaptionOverlay from "../components/CaptionOverlay";
-import CaptionsPanel, { type CaptionPopup } from "../components/CaptionsPanel";
+import CaptionsPanel from "../components/CaptionsPanel";
 import ExportModal from "../components/ExportModal";
 import ExportToast from "../components/ExportToast";
 import StylePanel from "../components/StylePanel";
+import VolumeIcon from "../components/VolumeIcon";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
+import { useCaptionEditing } from "../hooks/useCaptionEditing";
+import { useEditorDocument } from "../hooks/useEditorDocument";
+import { useEditorHotkeys } from "../hooks/useEditorHotkeys";
+import { useProjectExport } from "../hooks/useProjectExport";
+import { useProjectSave } from "../hooks/useProjectSave";
+import { useStyleEditing } from "../hooks/useStyleEditing";
+import { useVideoPlayer } from "../hooks/useVideoPlayer";
 import {
   ApiError,
-  getEcs,
   getProject,
-  getStyle,
   isTerminalJobStatus,
-  listPresets,
   openProject,
-  putEcs,
-  putStyle,
   resolveMediaUrl,
   resolveStyleLayers,
-  type ECS,
-  type CaptionStyleSpec,
-  type ExportPayload,
   type PresetBase,
-  type Preset,
   type Project,
-  type Segment,
-  type StyleOverrides,
 } from "../api/client";
-import { useExport } from "../contexts/ExportContext";
 import { resolveTheme, UI_MODES } from "../theme";
 import { STR } from "../i18n";
 import { findActiveSegmentIndex } from "../lib/activeSegment";
 import { triggerDownload } from "../lib/download";
-import { fontName } from "../lib/fonts";
-import {
-  addWordAt,
-  commitWordEnd,
-  commitWordStart,
-  commitWordText,
-  deleteSegment,
-  removeWord,
-  splitSegmentAt,
-} from "../lib/ecsEdit";
-import {
-  canRedo as canRedoHistory,
-  canUndo as canUndoHistory,
-  initHistory,
-  push as pushHistory,
-  redo as redoHistory,
-  undo as undoHistory,
-  type History,
-} from "../lib/history";
 
 // Export button's percent ring (r=15.5, matching the design's e_exportRingProgressStyle exactly).
 const EXPORT_RING_CIRCUMFERENCE = 2 * Math.PI * 15.5;
-
-// Step 7: everything the undo/redo stack tracks as one edit -- content (segments) and the
-// document-level style fields, snapshotted together so a single Undo button steps through
-// whichever kind of edit the user made last (matches the Behavior Matrix's own framing: one
-// linear undo/redo history, not separate content/style stacks).
-interface EditSnapshot {
-  segments: Segment[];
-  presetId: string;
-  perPhraseStyle: boolean;
-  overrides: StyleOverrides;
-}
-
-// `overrides.fontFamily` must be one bare family name: it ends up in the export's ASS `Style:`
-// line, which is comma-separated, so a CSS stack ("'Golos Text', sans-serif") shifts every field
-// after it and libass drops the style — the video burns with no captions. Documents written
-// before that was settled hold exactly that, so collapse it to the family name on load; the next
-// save/export then persists the repaired value. Applied before the save point is taken, so this
-// repair never shows up as an unsaved change.
-function normalizeStyle(style: CaptionStyleSpec): CaptionStyleSpec {
-  const family = style.overrides.fontFamily;
-  if (typeof family !== "string" || fontName(family) === family) {
-    return style;
-  }
-  return { ...style, overrides: { ...style.overrides, fontFamily: fontName(family) } };
-}
-
-function snapshotOf(ecs: ECS, style: CaptionStyleSpec): EditSnapshot {
-  return structuredClone({
-    segments: ecs.segments,
-    presetId: style.presetId,
-    perPhraseStyle: style.perPhraseStyle,
-    overrides: style.overrides,
-  });
-}
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -129,25 +72,14 @@ function headerIconBtnStyle(mode: { iconBg: string; iconText: string }): CSSProp
   };
 }
 
+// Thin by design: this page owns which project is open, the left panel's tab, the "⋯" menu, and
+// the layout -- every other concern (player transport, the edited document + undo/redo, caption
+// edits, style edits, saving, exporting) lives in its own hook next to this file.
 export default function Editor(): JSX.Element {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const { prefs } = useAmeePrefs();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const [ecs, setEcs] = useState<ECS | null>(null);
-  const [styleSpec, setStyleSpec] = useState<CaptionStyleSpec | null>(null);
-  const [presets, setPresets] = useState<Preset[] | null>(null);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const videoBoxRef = useRef<HTMLDivElement>(null);
-  const [videoBoxSize, setVideoBoxSize] = useState({ width: 0, height: 0 });
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [muted, setMuted] = useState(false);
 
   // Step 6a: left-panel tab. "style" is the default to match the design's own default view.
   const [activeTab, setActiveTab] = useState<"style" | "captions">("style");
@@ -157,364 +89,30 @@ export default function Editor(): JSX.Element {
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
-  // Export (Step 8, lifted to a shared context in Step 11a so it survives navigating away from
-  // this page and is visible from Home too). `myRecord` is this project's own tracked export, if
-  // any -- the context can hold records for other projects too (started from a different Editor
-  // visit), which this page must ignore for its own busy/kind state.
-  const exportCtx = useExport();
-  const myExportRecord = exportCtx.records.find((r) => r.projectId === id);
-  const exportJob = myExportRecord ? exportCtx.jobsById[myExportRecord.id] : undefined;
-  const exportPollError = myExportRecord ? exportCtx.pollErrorsById[myExportRecord.id] : undefined;
-  const exportKind = myExportRecord?.kind ?? null;
-  const [exportStarting, setExportStarting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  // Which job has already been handed to the user. The completion effect below dismisses the
-  // context record once handled, but that dismissal itself re-runs the effect one more time
-  // before `myExportRecord` goes away -- this makes handling a finished job idempotent per id.
-  const handledExportJobRef = useRef<string | null>(null);
+  const mode = UI_MODES[prefs.mode];
+  const theme = resolveTheme(prefs.theme, prefs.mode);
+  const L = STR[prefs.lang];
 
-  // Editing UI state. Split segment / delete segment mutation logic lands in Steps 5c/5d;
-  // Add word (Step 5b) is real below.
-  const [wordPopup, setWordPopup] = useState<CaptionPopup>(null);
-  const [confirmDeleteSegmentId, setConfirmDeleteSegmentId] = useState<string | null>(null);
-  const [pendingWordId, setPendingWordId] = useState<string | null>(null);
-  // Per-phrase style: which segment's style is currently being edited (arch §4.2). Keyed by the
-  // segment's stable `id`, never an array index (D11) — index shifts on split/delete/merge and
-  // would silently point the editor at the wrong phrase. Only meaningful while
-  // CaptionStyleSpec.perPhraseStyle is on.
-  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const player = useVideoPlayer(project?.id);
+  const doc = useEditorDocument(id);
+  const styleEditing = useStyleEditing({
+    ecs: doc.ecs,
+    styleSpec: doc.styleSpec,
+    applyEdit: doc.applyEdit,
+    commitSnapshot: doc.commitSnapshot,
+    seekTo: player.seekTo,
+    onRequestStyleTab: () => setActiveTab("style"),
+  });
+  const captions = useCaptionEditing({
+    ecs: doc.ecs,
+    strings: L,
+    applyEcsSegments: doc.applyEcsSegments,
+    onSegmentDeleted: styleEditing.clearEditingSegmentIfMatches,
+  });
+  const save = useProjectSave({ projectId: id, doc, strings: L });
+  const exp = useProjectExport({ projectId: id, project, setProject, doc, strings: L });
 
-  function showNotice(text: string) {
-    clearTimeout(noticeTimerRef.current);
-    setNotice(text);
-    noticeTimerRef.current = setTimeout(() => setNotice(null), 10000);
-  }
-
-  // Save: explicit action only (CLAUDE.md "Settled": whole-document PUT, no autosave on
-  // every edit). `dirty` tracks whether anything has changed since the last successful save
-  // or load — Add word/Split/Delete (5b-5d) all flow through setEcs, so marking dirty there
-  // covers all three without each handler needing to know about saving.
-  const [dirty, setDirty] = useState(false);
-  const [styleDirty, setStyleDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [justSaved, setJustSaved] = useState(false);
-
-  // Step 7: undo/redo history. `lastSavedRef` is the snapshot last confirmed on the server (set
-  // on initial load and after each successful save) -- dirty/styleDirty are always recomputed
-  // against it, never toggled as an independent boolean, so undo/redo can't desync them (e.g.
-  // undoing back to exactly the last-saved state must clear dirty, not leave it stuck true).
-  const [history, setHistory] = useState<History<EditSnapshot> | null>(null);
-  const historyRef = useRef<History<EditSnapshot> | null>(null);
-  const lastSavedRef = useRef<EditSnapshot | null>(null);
-  useEffect(() => {
-    historyRef.current = history;
-  }, [history]);
-
-  function recomputeDirty(next: EditSnapshot) {
-    const saved = lastSavedRef.current;
-    setDirty(saved == null || JSON.stringify(next.segments) !== JSON.stringify(saved.segments));
-    setStyleDirty(
-      saved == null ||
-        next.presetId !== saved.presetId ||
-        next.perPhraseStyle !== saved.perPhraseStyle ||
-        JSON.stringify(next.overrides) !== JSON.stringify(saved.overrides)
-    );
-  }
-
-  // Applies a snapshot as the new current state -- shared by real edits, undo, and redo, so all
-  // three ways of landing on a given document state update ecs/styleSpec/dirty identically.
-  function commitSnapshot(next: EditSnapshot) {
-    setEcs((prev) => (prev ? { ...prev, segments: next.segments } : prev));
-    setStyleSpec((prev) =>
-      prev
-        ? { ...prev, presetId: next.presetId, perPhraseStyle: next.perPhraseStyle, overrides: next.overrides }
-        : prev
-    );
-    recomputeDirty(next);
-  }
-
-  // The one entry point every real edit (content or style) goes through: pushes the current
-  // state onto the undo stack, then commits `next` as the new present. `history.present` always
-  // mirrors ecs/styleSpec, so pushing it is equivalent to snapshotting "before this edit".
-  function applyEdit(next: EditSnapshot) {
-    if (history) {
-      setHistory(pushHistory(history, next));
-    }
-    commitSnapshot(next);
-  }
-
-  function handleUndo() {
-    const h = historyRef.current;
-    if (!h || !canUndoHistory(h)) {
-      return;
-    }
-    const nextHistory = undoHistory(h);
-    setHistory(nextHistory);
-    commitSnapshot(nextHistory.present);
-  }
-
-  function handleRedo() {
-    const h = historyRef.current;
-    if (!h || !canRedoHistory(h)) {
-      return;
-    }
-    const nextHistory = redoHistory(h);
-    setHistory(nextHistory);
-    commitSnapshot(nextHistory.present);
-  }
-
-  // Content edit: builds the next snapshot from the current style fields (untouched) plus the
-  // new `segments` (every ecsEdit.ts operation -- add/remove/split/delete/commit word -- produces
-  // a full next Segment[], never a diff).
-  function applyEcsSegments(newSegments: Segment[]) {
-    if (!ecs || !styleSpec) {
-      return;
-    }
-    applyEdit({
-      segments: newSegments,
-      presetId: styleSpec.presetId,
-      perPhraseStyle: styleSpec.perPhraseStyle,
-      overrides: styleSpec.overrides,
-    });
-  }
-
-  // Sparse merge of a style-panel patch into the right place: while per-phrase mode is on AND a
-  // segment is selected for editing, it goes into THAT segment's own overrides (Segment.overrides
-  // lives in the ECS, arch §4.2, addressed by segment id per D11, created lazily); otherwise it
-  // goes into the document-level CaptionStyleSpec.overrides (contract §8's sparse "only the
-  // changed fields" shape — a slider touching fontSize doesn't clobber any other override
-  // already set). Pure -- doesn't touch state -- so it's shared between the instant-apply path
-  // and the drag-coalesced live/commit path below.
-  function nextSnapshotForOverridesPatch(patch: StyleOverrides): EditSnapshot | null {
-    if (!ecs || !styleSpec) {
-      return null;
-    }
-    if (styleSpec.perPhraseStyle && editingSegmentId) {
-      const segments = ecs.segments.map((s) =>
-        s.id === editingSegmentId ? { ...s, overrides: { ...(s.overrides ?? {}), ...patch } } : s
-      );
-      return {
-        segments,
-        presetId: styleSpec.presetId,
-        perPhraseStyle: styleSpec.perPhraseStyle,
-        overrides: styleSpec.overrides,
-      };
-    }
-    return {
-      segments: ecs.segments,
-      presetId: styleSpec.presetId,
-      perPhraseStyle: styleSpec.perPhraseStyle,
-      overrides: { ...styleSpec.overrides, ...patch },
-    };
-  }
-
-  // Instant changes (buttons, toggles, preset picks, color swatches): one patch, one history
-  // entry, applied immediately.
-  function handleChangeStyleOverrides(patch: StyleOverrides) {
-    const next = nextSnapshotForOverridesPatch(patch);
-    if (next) {
-      applyEdit(next);
-    }
-  }
-
-  // Continuous drag (range sliders): React's onChange fires on every tick of a drag, not just on
-  // release. Pushing a full history entry per tick would make one Undo only step back one tick
-  // (e.g. 9.9% instead of the 7.5% the drag started from) instead of undoing the whole gesture.
-  // `Live` applies each tick's value for a responsive preview WITHOUT touching history --
-  // history.present is deliberately left at its pre-drag value throughout the drag.
-  function handleChangeStyleOverridesLive(patch: StyleOverrides) {
-    const next = nextSnapshotForOverridesPatch(patch);
-    if (next) {
-      commitSnapshot(next);
-    }
-  }
-
-  // Called once when the drag/gesture ends (mouseup/touchend/keyup/blur on the slider). Folds
-  // every live tick since the last commit into exactly one history entry, since history.present
-  // still holds the pre-drag value.
-  function commitPendingEdit() {
-    if (!ecs || !styleSpec || !history) {
-      return;
-    }
-    const current = snapshotOf(ecs, styleSpec);
-    if (JSON.stringify(current) === JSON.stringify(history.present)) {
-      return;
-    }
-    setHistory(pushHistory(history, current));
-  }
-
-  // Preset switch: CaptionStyleSpec replaced with the new preset's base values, local
-  // overrides reset (architecture §7 Behavior Matrix — already-committed row). Preset is a
-  // document-level field (no presetId on Segment.overrides), so this stays document-level even
-  // in per-phrase mode.
-  function selectPreset(presetId: string) {
-    if (!ecs || !styleSpec) {
-      return;
-    }
-    applyEdit({
-      segments: ecs.segments,
-      presetId,
-      perPhraseStyle: styleSpec.perPhraseStyle,
-      overrides: {},
-    });
-  }
-
-  // Document-level toggle (contract §8 perPhraseStyle). Turning it OFF stops editing a specific
-  // segment (editingSegmentId → null) but deletes NO segment overrides — they lie dormant and
-  // reappear if toggled back on (arch §4.2). Turning it ON leaves editingSegmentId as-is (null
-  // until the user picks a segment via its brush).
-  function togglePerPhraseStyle() {
-    if (!ecs || !styleSpec) {
-      return;
-    }
-    const on = !styleSpec.perPhraseStyle;
-    if (!on) {
-      setEditingSegmentId(null);
-    }
-    applyEdit({
-      segments: ecs.segments,
-      presetId: styleSpec.presetId,
-      perPhraseStyle: on,
-      overrides: styleSpec.overrides,
-    });
-  }
-
-  // Brush click on a segment card (only shown when perPhraseStyle is on): select that segment for
-  // style editing, jump the player to its start, and switch to the Style tab so the panel is
-  // visible (arch §4.2 editing-vs-rendering: this sets the *editing* target, independent of which
-  // segment is on screen).
-  function handleEditSegmentStyle(segmentId: string) {
-    const segment = ecs?.segments.find((s) => s.id === segmentId);
-    const start = segment?.words[0]?.start;
-    if (start != null) {
-      seekTo(start);
-    }
-    setEditingSegmentId(segmentId);
-    setActiveTab("style");
-  }
-
-  async function startExport(kind: "video" | "srt") {
-    if (!id || !project || !ecs || !styleSpec || exportStarting || myExportRecord) {
-      return;
-    }
-    setExportError(null);
-    setExportStarting(true);
-    const payload: ExportPayload = {
-      segments: ecs.segments,
-      presetId: styleSpec.presetId,
-      perPhraseStyle: styleSpec.perPhraseStyle,
-      overrides: styleSpec.overrides,
-    };
-    const result = await exportCtx.start(id, project.name, kind, payload);
-    if (!result.ok) {
-      setExportError(result.error);
-    } else if (kind === "video") {
-      // POST /export persists the submitted ecs+style as a side effect (X5), so the document on
-      // the server now matches what's on screen — reflect that instead of leaving Save still
-      // claiming unsaved changes. /export-srt deliberately does NOT persist (X6), so it must not
-      // touch the save point.
-      lastSavedRef.current = snapshotOf(ecs, styleSpec);
-      setDirty(false);
-      setStyleDirty(false);
-    }
-    setExportStarting(false);
-  }
-
-  // ExportModal's exits (Step 11b). Continue-editing/Return-to-editor/Return-to-menu are all
-  // "stop watching, keep the record dismissed" -- distinguished only by which phase they're
-  // reachable from and, for Return-to-menu, whether they also navigate away.
-  function handleExportDismiss() {
-    if (myExportRecord) {
-      exportCtx.dismiss(myExportRecord.id);
-    }
-  }
-
-  function handleExportReturnToMenu() {
-    handleExportDismiss();
-    navigate("/");
-  }
-
-  // Step 11h: really stops the render (contract §5) -- unlike the other three exits, this does
-  // NOT dismiss the record. Polling continues; once the job's status flips to "cancelled" the
-  // modal shows its own dedicated cancelled screen, same as it already does for done/failed.
-  function handleExportCancel() {
-    if (myExportRecord) {
-      void exportCtx.cancel(myExportRecord.id);
-    }
-  }
-
-  // Shared by the Save button and "go home" (below): both need "persist whatever is dirty, then
-  // do the thing" with identical error handling, so there's one save path instead of two that
-  // could drift. Returns true when it's safe to proceed (saved, or there was nothing to save) —
-  // false on a real failure, which the caller must NOT treat as "safe to navigate away from
-  // unsaved work".
-  async function performSave(): Promise<boolean> {
-    if (!id || !ecs || !styleSpec) {
-      return true;
-    }
-    if (!dirty && !styleDirty) {
-      return true;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      let nextEcs = ecs;
-      let nextStyle = styleSpec;
-      if (dirty) {
-        nextEcs = await putEcs(id, ecs.segments);
-        setEcs(nextEcs);
-        setDirty(false);
-      }
-      if (styleDirty) {
-        nextStyle = await putStyle(id, styleSpec.presetId, styleSpec.perPhraseStyle, styleSpec.overrides);
-        setStyleSpec(nextStyle);
-        setStyleDirty(false);
-      }
-      // The server's echo becomes the new save point AND the new undo-stack "present" -- if the
-      // backend normalized anything in the round-trip, subsequent undos should land on what's
-      // actually persisted, not on the pre-save snapshot that was sent.
-      const savedSnapshot = snapshotOf(nextEcs, nextStyle);
-      lastSavedRef.current = savedSnapshot;
-      setHistory((h) => (h ? { ...h, present: savedSnapshot } : h));
-      return true;
-    } catch (err) {
-      setSaveError(err instanceof ApiError ? `${err.status}: ${err.message}` : L.saveFailed);
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleSave() {
-    if (saving) {
-      return;
-    }
-    const ok = await performSave();
-    if (ok) {
-      setJustSaved(true);
-      clearTimeout(savedTimerRef.current);
-      savedTimerRef.current = setTimeout(() => setJustSaved(false), 2000);
-    }
-  }
-
-  // Leaving the editor via the home icon (design: e_onGoHome) persists whatever is dirty first,
-  // same as clicking Save, then navigates with a "just saved" flag the Home page reads once to
-  // play the toast (design's sessionStorage flag, done via router state instead since this is one
-  // SPA rather than two static pages). A failed save must NOT navigate away — that would silently
-  // strand the user's edits behind a page they can no longer see, having just told them it worked.
-  async function handleGoHome() {
-    if (saving) {
-      return;
-    }
-    const ok = await performSave();
-    if (ok) {
-      navigate("/", { state: { justSaved: true } });
-    }
-  }
+  useEditorHotkeys({ togglePlay: player.togglePlay, undo: doc.undo, redo: doc.redo });
 
   useEffect(() => {
     if (!id) {
@@ -545,152 +143,6 @@ export default function Editor(): JSX.Element {
     };
   }, [id]);
 
-  // ECS/style/presets are independent of the video player; a failure here shouldn't block
-  // playback — captions just won't render (the video still loads and plays fine on its own).
-  useEffect(() => {
-    if (!id) {
-      return;
-    }
-    let cancelled = false;
-    Promise.all([getEcs(id), getStyle(id), listPresets()])
-      .then(([ecsResult, styleResult, presetsResult]) => {
-        if (!cancelled) {
-          const normalized = normalizeStyle(styleResult);
-          setEcs(ecsResult);
-          setStyleSpec(normalized);
-          setPresets(presetsResult);
-          const snapshot = snapshotOf(ecsResult, normalized);
-          lastSavedRef.current = snapshot;
-          setHistory(initHistory(snapshot));
-        }
-      })
-      .catch(() => {
-        // Captions are supplementary here; swallow — no error UI blocks the video for this.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
-
-  useEffect(() => {
-    const box = videoBoxRef.current;
-    if (!box) {
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        const { width, height } = entry.contentRect;
-        setVideoBoxSize({ width, height });
-      }
-    });
-    observer.observe(box);
-    return () => observer.disconnect();
-  }, [project?.id]);
-
-  // Step 7c: Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z, matching the Behavior Matrix's "button or keyboard
-  // shortcut" wording. Reads history via the ref (not the `history` state closure) so this
-  // listener is attached exactly once rather than re-subscribing on every edit. Skipped while
-  // focus is inside a text input/textarea/contenteditable so it doesn't fight the field's own
-  // native undo (e.g. while typing a word's text or a timestamp).
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      // Shared by every shortcut below: typing must always win over a shortcut, and the caption
-      // editor is a contenteditable where a literal space is the most common keystroke in the app.
-      const target = e.target as HTMLElement | null;
-      const isEditable =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        Boolean(target?.isContentEditable);
-      if (isEditable) {
-        return;
-      }
-
-      // Space toggles playback, the way every video tool behaves. Bound at the window rather than
-      // the player so it works wherever attention is — scrolling the caption list, tuning a style
-      // slider — which is exactly when you want to re-check timing without reaching for the mouse.
-      if (e.code === "Space" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        // Buttons and range inputs treat Space as "activate"/"nudge" of their own; hijacking it
-        // there would break Play, Export, and the position slider for keyboard users.
-        if (target?.closest("button, [role='button'], input[type='range']")) {
-          return;
-        }
-        e.preventDefault(); // default Space scrolls the page
-        togglePlay();
-        return;
-      }
-
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod || e.key.toLowerCase() !== "z") {
-        return;
-      }
-      e.preventDefault();
-      if (e.shiftKey) {
-        handleRedo();
-      } else {
-        handleUndo();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-    // Intentionally empty deps: handleUndo/handleRedo read history via historyRef, and togglePlay
-    // reads the player via videoRef — none of them close over reactive state, specifically so this
-    // listener attaches once instead of on every edit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Finished export job -> hand the artifact to the user, then clear the job so the poller stops
-  // and a new export can start. `result` is a union keyed on job type, so the url is read through
-  // the matching narrowing helper rather than by indexing a field that may not be there.
-  useEffect(() => {
-    if (!exportJob || !myExportRecord || !isTerminalJobStatus(exportJob.status)) {
-      return;
-    }
-    if (handledExportJobRef.current === exportJob.id) {
-      return;
-    }
-    handledExportJobRef.current = exportJob.id;
-    if (exportJob.status === "done") {
-      const url = exportKind === "srt" ? exportCtx.srtUrl(exportJob) : exportCtx.videoUrl(exportJob);
-      if (url) {
-        const filename = exportKind === "srt" ? "captions.srt" : "video.mp4";
-        // Project.latest_export_url (contract §4) is the persistent source of truth for "the
-        // last export," video only (never export_srt) -- patched in locally so the header's
-        // download-last-export icon appears immediately, without a re-fetch and without a
-        // separate ad-hoc "just finished" state duplicating the same thing.
-        if (exportKind === "video") {
-          setProject((prev) =>
-            prev ? { ...prev, latest_export_job_id: exportJob.id, latest_export_url: url } : prev
-          );
-        }
-        void triggerDownload(resolveMediaUrl(url), filename).catch(() => {
-          // The download-last-export icon (video) / "Download srt file" in the ⋯ menu (srt)
-          // remain the way to retry manually if the automatic attempt is blocked or fails.
-        });
-      } else {
-        setExportError(L.exportFailed);
-      }
-    } else if (exportJob.status === "failed") {
-      setExportError(exportJob.error ?? L.exportFailed);
-    }
-    // "cancelled" (contract §5): deliberately not an error (the human's own call this turn) --
-    // no exportError, nothing to download. ExportModal/ExportToast render their own dedicated
-    // cancelled screen straight off exportJob.status; there's nothing for this effect to do
-    // beyond the handledExportJobRef guard above.
-    // SRT has no modal (Step 11b's modal only covers the video kind, matching the design -- the
-    // ⋯ menu's SRT item was never wired into the design's export-modal system either), so nothing
-    // else will ever dismiss its record -- do it here, same as before Step 11b. A video record is
-    // deliberately left tracked: the new ExportModal's own Done/Failed screen needs it to still
-    // exist so "Continue editing"/"Return to main menu"/"Return to editor" have something to act
-    // on, instead of the record vanishing the instant the job finishes.
-    if (exportKind === "srt") {
-      exportCtx.dismiss(myExportRecord.id);
-    }
-    // `triggerDownload`/`L`/`exportCtx` are stable enough for this effect's purpose; re-running it
-    // on every render would re-fire the download.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exportJob, exportKind, myExportRecord]);
-
   // Close the "⋯" export menu on an outside click or Escape (same dismissal pattern as the
   // TopBar/color-picker popovers). Only attached while the menu is open.
   useEffect(() => {
@@ -714,245 +166,6 @@ export default function Editor(): JSX.Element {
       window.removeEventListener("keydown", onKey);
     };
   }, [exportMenuOpen]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-
-    // rAF while playing, not `timeupdate`: CaptionOverlay now derives each word's entrance
-    // animation position from `currentTime` alone (deterministic, seekable — the same code path
-    // the headless export render drives frame by frame, INVARIANTS R1/P9). `timeupdate` only
-    // fires ~4x/sec, which was fine while CSS animated itself off the wall clock, but would make
-    // a currentTime-derived animation visibly step. Paused/seeked frames still get a single
-    // update from `onSeeked`/`onPause`, so nothing depends on the loop running to stay correct.
-    let raf = 0;
-    const tick = () => {
-      setCurrentTime(video.currentTime);
-      raf = requestAnimationFrame(tick);
-    };
-    const startLoop = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(tick);
-    };
-    const stopLoop = () => {
-      cancelAnimationFrame(raf);
-      raf = 0;
-    };
-
-    const onSyncTime = () => setCurrentTime(video.currentTime);
-    const onLoadedMetadata = () => setDuration(video.duration);
-    const onPlay = () => {
-      setIsPlaying(true);
-      startLoop();
-    };
-    const onPause = () => {
-      setIsPlaying(false);
-      stopLoop();
-      onSyncTime();
-    };
-
-    if (!video.paused) {
-      startLoop();
-    }
-    video.addEventListener("seeked", onSyncTime);
-    video.addEventListener("loadedmetadata", onLoadedMetadata);
-    video.addEventListener("play", onPlay);
-    video.addEventListener("pause", onPause);
-    return () => {
-      stopLoop();
-      video.removeEventListener("seeked", onSyncTime);
-      video.removeEventListener("loadedmetadata", onLoadedMetadata);
-      video.removeEventListener("play", onPlay);
-      video.removeEventListener("pause", onPause);
-    };
-  }, [project?.id]);
-
-  const mode = UI_MODES[prefs.mode];
-  const theme = resolveTheme(prefs.theme, prefs.mode);
-  const L = STR[prefs.lang];
-
-  function togglePlay() {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-    if (video.paused) {
-      void video.play();
-    } else {
-      video.pause();
-    }
-  }
-
-  function seekTo(t: number) {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-    video.currentTime = Math.max(0, Math.min(duration || 0, t));
-  }
-
-  function handleVolumeChange(v: number) {
-    const video = videoRef.current;
-    setVolume(v);
-    setMuted(v === 0);
-    if (video) {
-      video.volume = v;
-      video.muted = v === 0;
-    }
-  }
-
-  function toggleMute() {
-    const video = videoRef.current;
-    const next = !muted;
-    setMuted(next);
-    if (video) {
-      video.muted = next;
-    }
-  }
-
-  function handleWordClick(segmentId: string, wordId: string) {
-    setConfirmDeleteSegmentId(null);
-    setWordPopup({ type: "word", segmentId, wordId });
-  }
-
-  function handleRangeClick(segmentId: string) {
-    setConfirmDeleteSegmentId(null);
-    setWordPopup({ type: "scene", segmentId });
-  }
-
-  function closeWordPopup() {
-    setWordPopup(null);
-  }
-
-  // Remove word: real, distinct from Delete segment — removes just the one word. If that
-  // empties the segment, removeWord drops the whole segment too (never leaves a 0-word one).
-  function handleRemoveWord(segmentId: string, wordId: string) {
-    setWordPopup(null);
-    if (!ecs) {
-      return;
-    }
-    applyEcsSegments(removeWord(ecs.segments, segmentId, wordId));
-  }
-
-  // Add word: real (Step 5b). Purely local edit state until an explicit save (Step 5e) —
-  // nothing here calls PUT /ecs yet.
-  function handleAddWord(segmentId: string, wordId: string, side: "left" | "right") {
-    setWordPopup(null);
-    if (!ecs) {
-      return;
-    }
-    const result = addWordAt(ecs.segments, segmentId, wordId, side);
-    if ("error" in result) {
-      showNotice(L.noticeNoRoom);
-      return;
-    }
-    applyEcsSegments(result.segments);
-    setPendingWordId(result.newWordId);
-  }
-
-  // Unified for both a freshly-inserted pending word and text-editing an existing word via its
-  // popup -- empty text removes the word, text over the edit-time limits (architecture.md
-  // §7.1) also removes it with a 10s notice. Clears pendingWordId only when it's the word that
-  // was actually committed, so committing a *different* word's text (popup open on one word
-  // while another is still pending) doesn't stomp on unrelated state.
-  function handleCommitWordText(segmentId: string, wordId: string, text: string) {
-    if (!ecs) {
-      return;
-    }
-    const result = commitWordText(ecs.segments, segmentId, wordId, text);
-    applyEcsSegments(result.segments);
-    if (pendingWordId === wordId) {
-      setPendingWordId(null);
-    }
-    if (result.kind === "removed_limit") {
-      showNotice(result.limit === "words" ? L.noticeMaxWords : L.noticeMaxChars);
-    }
-  }
-
-  // Word-boundary editing: real (word popup's start/end fields + the Scene Duration popup,
-  // which edits the segment's first/last word directly -- segment bounds stay derived, never
-  // stored, per D5; there's no separate field to hold an independent scene start/end).
-  function handleCommitWordStart(segmentId: string, wordId: string, raw: string) {
-    if (!ecs) {
-      return;
-    }
-    applyEcsSegments(commitWordStart(ecs.segments, segmentId, wordId, raw));
-  }
-
-  function handleCommitWordEnd(segmentId: string, wordId: string, raw: string) {
-    if (!ecs) {
-      return;
-    }
-    applyEcsSegments(commitWordEnd(ecs.segments, segmentId, wordId, raw));
-  }
-
-  function handleCommitSceneStart(segmentId: string, raw: string) {
-    if (!ecs) {
-      return;
-    }
-    const segment = ecs.segments.find((s) => s.id === segmentId);
-    const firstWord = segment?.words[0];
-    if (!firstWord) {
-      return;
-    }
-    applyEcsSegments(commitWordStart(ecs.segments, segmentId, firstWord.id, raw));
-  }
-
-  function handleCommitSceneEnd(segmentId: string, raw: string) {
-    if (!ecs) {
-      return;
-    }
-    const segment = ecs.segments.find((s) => s.id === segmentId);
-    const lastWord = segment?.words.at(-1);
-    if (!lastWord) {
-      return;
-    }
-    applyEcsSegments(commitWordEnd(ecs.segments, segmentId, lastWord.id, raw));
-  }
-
-  // Split segment: real (Step 5c). Clicking the segment's last word is a silent no-op
-  // (nothing to move into a right-hand part), matching the design's own behavior.
-  function handleSplitSegment(segmentId: string, wordId: string) {
-    setWordPopup(null);
-    if (!ecs) {
-      return;
-    }
-    const result = splitSegmentAt(ecs.segments, segmentId, wordId);
-    if ("noop" in result) {
-      return;
-    }
-    applyEcsSegments(result.segments);
-  }
-
-  function handleDeleteSegmentClick(segmentId: string) {
-    setWordPopup(null);
-    setConfirmDeleteSegmentId(segmentId);
-  }
-
-  // Delete segment: real (Step 5d). Also drops a pending "Add word" input if it belonged
-  // to the segment being deleted, so state doesn't point at a word that's about to vanish.
-  function handleConfirmDeleteSegment(segmentId: string) {
-    setConfirmDeleteSegmentId(null);
-    if (!ecs) {
-      return;
-    }
-    if (pendingWordId) {
-      const segment = ecs.segments.find((s) => s.id === segmentId);
-      if (segment?.words.some((w) => w.id === pendingWordId)) {
-        setPendingWordId(null);
-      }
-    }
-    if (editingSegmentId === segmentId) {
-      setEditingSegmentId(null);
-    }
-    applyEcsSegments(deleteSegment(ecs.segments, segmentId));
-  }
-
-  function handleCancelDeleteSegment() {
-    setConfirmDeleteSegmentId(null);
-  }
 
   const backLink = (
     <Link
@@ -1008,6 +221,8 @@ export default function Editor(): JSX.Element {
     );
   }
 
+  const { ecs, styleSpec, presets } = doc;
+
   // No aspect-ratio picker (catalogue item #8) — always the real video's own dimensions,
   // falling back to 9/16 while they're still null (pre-transcription).
   const aspect =
@@ -1028,19 +243,7 @@ export default function Editor(): JSX.Element {
     styleSpec && presets ? presets.find((p) => p.id === styleSpec.presetId) : undefined;
 
   const perPhrase = styleSpec?.perPhraseStyle ?? false;
-  const undoAvailable = history != null && canUndoHistory(history);
-  const redoAvailable = history != null && canRedoHistory(history);
 
-  // An export is in flight from the click until the polled job reaches done/failed.
-  const exportBusy = exportStarting || myExportRecord !== undefined;
-  // Step 11c: drives the Export button's spinner+reopen behavior specifically -- narrower than
-  // exportBusy (which also covers the brief POST-in-flight window and the SRT kind) because a
-  // finished-but-undismissed video record (done/failed, modal or toast still showing) should NOT
-  // spin the button forever.
-  const videoExportRunning =
-    myExportRecord?.kind === "video" &&
-    exportJob != null &&
-    (exportJob.status === "queued" || exportJob.status === "processing");
   const menuItemStyle: CSSProperties = {
     padding: "9px 10px",
     borderRadius: "6px",
@@ -1056,8 +259,8 @@ export default function Editor(): JSX.Element {
   // per-phrase is off, segment overrides lie dormant (null passed) and every segment renders the
   // document style.
   const renderSegment =
-    ecs && findActiveSegmentIndex(ecs.segments, currentTime) >= 0
-      ? ecs.segments[findActiveSegmentIndex(ecs.segments, currentTime)]
+    ecs && findActiveSegmentIndex(ecs.segments, player.currentTime) >= 0
+      ? ecs.segments[findActiveSegmentIndex(ecs.segments, player.currentTime)]
       : undefined;
   const resolvedStyle: PresetBase | null =
     activePreset && styleSpec
@@ -1068,7 +271,9 @@ export default function Editor(): JSX.Element {
   // selected for editing (editingSegmentId), which is frequently NOT the one on screen. When
   // per-phrase is off, or no segment is selected, the panel edits the document-level style.
   const editingSegment =
-    perPhrase && editingSegmentId ? ecs?.segments.find((s) => s.id === editingSegmentId) : undefined;
+    perPhrase && styleEditing.editingSegmentId
+      ? ecs?.segments.find((s) => s.id === styleEditing.editingSegmentId)
+      : undefined;
   const panelStyle: PresetBase | null =
     activePreset && styleSpec
       ? resolveStyleLayers(activePreset, styleSpec.overrides, editingSegment?.overrides)
@@ -1082,35 +287,35 @@ export default function Editor(): JSX.Element {
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: mode.pageBg }}>
       {/* Step 11b/11c: only the "video" kind gets the full modal, matching the design -- the ⋯
           menu's SRT export was never wired into the design's export-modal system either. */}
-      {myExportRecord && exportKind === "video" && exportJob && !myExportRecord.minimized && (
+      {exp.record && exp.kind === "video" && exp.job && !exp.record.minimized && (
         <ExportModal
           prefs={prefs}
           strings={L}
           projectName={project.name}
-          status={exportJob.status}
-          progressPercent={exportJob.progress_percent}
-          errorMessage={exportJob.error ?? exportPollError ?? null}
-          onCancel={handleExportCancel}
-          onReturnToMenu={handleExportReturnToMenu}
-          onContinueEditing={handleExportDismiss}
-          onReturnToEditor={handleExportDismiss}
-          onMinimize={() => exportCtx.minimize(myExportRecord.id)}
+          status={exp.job.status}
+          progressPercent={exp.job.progress_percent}
+          errorMessage={exp.job.error ?? exp.pollError ?? null}
+          onCancel={exp.cancel}
+          onReturnToMenu={exp.returnToMenu}
+          onContinueEditing={exp.dismiss}
+          onReturnToEditor={exp.dismiss}
+          onMinimize={exp.minimize}
         />
       )}
       {/* Minimized AND actually finished -- a still-running minimized export has no persistent
           indicator of its own (design's own choice), only the button's spinner above/below. */}
-      {myExportRecord &&
-        exportKind === "video" &&
-        exportJob &&
-        myExportRecord.minimized &&
-        isTerminalJobStatus(exportJob.status) && (
+      {exp.record &&
+        exp.kind === "video" &&
+        exp.job &&
+        exp.record.minimized &&
+        isTerminalJobStatus(exp.job.status) && (
           <ExportToast
             prefs={prefs}
             strings={L}
-            status={exportJob.status}
-            onOpen={() => exportCtx.reopen(myExportRecord.id)}
+            status={exp.job.status}
+            onOpen={exp.reopen}
             onDownload={
-              project?.latest_export_url
+              project.latest_export_url
                 ? // Narrowed by the condition above, but that narrowing doesn't survive into a
                   // closure called later (project is regular state, could in principle change) --
                   // the cast is safe here since latest_export_url only ever gets set, never
@@ -1120,7 +325,7 @@ export default function Editor(): JSX.Element {
                   }
                 : undefined
             }
-            onDismiss={handleExportDismiss}
+            onDismiss={exp.dismiss}
           />
         )}
       <div
@@ -1135,7 +340,7 @@ export default function Editor(): JSX.Element {
       >
         <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: "1 1 auto", overflow: "hidden" }}>
           <div
-            onClick={() => void handleGoHome()}
+            onClick={() => void save.handleGoHome()}
             role="button"
             aria-label={L.backToProjects}
             title={L.backToProjects}
@@ -1185,27 +390,27 @@ export default function Editor(): JSX.Element {
         {ecs && (
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <div
-              onClick={handleUndo}
+              onClick={doc.undo}
               aria-label={L.undo}
               title={L.undo}
               className="amee-icon-btn"
               style={{
                 ...headerIconBtnStyle(mode),
-                cursor: undoAvailable ? "pointer" : "default",
-                opacity: undoAvailable ? 1 : 0.35,
+                cursor: doc.undoAvailable ? "pointer" : "default",
+                opacity: doc.undoAvailable ? 1 : 0.35,
               }}
             >
               ↺
             </div>
             <div
-              onClick={handleRedo}
+              onClick={doc.redo}
               aria-label={L.redo}
               title={L.redo}
               className="amee-icon-btn"
               style={{
                 ...headerIconBtnStyle(mode),
-                cursor: redoAvailable ? "pointer" : "default",
-                opacity: redoAvailable ? 1 : 0.35,
+                cursor: doc.redoAvailable ? "pointer" : "default",
+                opacity: doc.redoAvailable ? 1 : 0.35,
               }}
             >
               ↻
@@ -1243,15 +448,15 @@ export default function Editor(): JSX.Element {
                     className="amee-menu-item"
                     onClick={() => {
                       setExportMenuOpen(false);
-                      void startExport("srt");
+                      void exp.start("srt");
                     }}
                     style={{
                       ...menuItemStyle,
-                      cursor: exportBusy ? "default" : "pointer",
-                      opacity: exportBusy ? 0.5 : 1,
+                      cursor: exp.busy ? "default" : "pointer",
+                      opacity: exp.busy ? 0.5 : 1,
                     }}
                   >
-                    {exportBusy && exportKind === "srt" ? L.exporting : L.downloadSrt}
+                    {exp.busy && exp.kind === "srt" ? L.exporting : L.downloadSrt}
                   </div>
                   {/* Subtitles-on-a-green-background has no backend support: the contract has
                       only video (§12 /export) and SRT (/export-srt), and ffmpeg's burn-in always
@@ -1267,16 +472,16 @@ export default function Editor(): JSX.Element {
                 </div>
               )}
             </div>
-            {(saveError || exportError || exportPollError) && (
+            {(save.saveError || exp.error || exp.pollError) && (
               <span role="alert" style={{ fontSize: "12px", color: "#ef4444" }}>
-                {saveError ?? exportError ?? exportPollError}
+                {save.saveError ?? exp.error ?? exp.pollError}
               </span>
             )}
-            {justSaved && !dirty && !styleDirty && (
+            {save.justSaved && !doc.dirty && !doc.styleDirty && (
               <span style={{ fontSize: "12px", color: mode.textFaint3 }}>{L.saved}</span>
             )}
             <div
-              onClick={handleSave}
+              onClick={save.handleSave}
               className="amee-cta-btn"
               style={{
                 fontSize: "13px",
@@ -1285,11 +490,11 @@ export default function Editor(): JSX.Element {
                 background: theme.accent,
                 padding: "8px 18px",
                 borderRadius: "8px",
-                cursor: (dirty || styleDirty) && !saving ? "pointer" : "default",
-                opacity: (dirty || styleDirty) && !saving ? 1 : 0.5,
+                cursor: (doc.dirty || doc.styleDirty) && !save.saving ? "pointer" : "default",
+                opacity: (doc.dirty || doc.styleDirty) && !save.saving ? 1 : 0.5,
               }}
             >
-              {saving ? L.saving : L.save}
+              {save.saving ? L.saving : L.save}
             </div>
             {/* Step 11g: Project.latest_export_url (contract §4) -- lets the user re-download the
                 last export without re-running one, even after a reload, even if it finished in a
@@ -1325,14 +530,13 @@ export default function Editor(): JSX.Element {
                 effect (X5), so it works with or without a preceding Save. Step 11c: while a
                 video export is tracked (running, minimized or not), the button shows a spinner
                 instead of the label and reopens the modal on click rather than starting a
-                second export (design: e_onOpenExport). No real percentage yet (Track 2), so this
-                is an indeterminate spin, not the design's percent-filled ring. */}
+                second export (design: e_onOpenExport). */}
             <div
               onClick={() => {
-                if (myExportRecord?.kind === "video") {
-                  exportCtx.reopen(myExportRecord.id);
+                if (exp.record?.kind === "video") {
+                  exp.reopen();
                 } else {
-                  void startExport("video");
+                  void exp.start("video");
                 }
               }}
               className="amee-cta-btn"
@@ -1346,12 +550,12 @@ export default function Editor(): JSX.Element {
                 background: mode.cardBg,
                 padding: "8px 18px",
                 borderRadius: "8px",
-                cursor: exportStarting ? "default" : "pointer",
-                opacity: exportStarting ? 0.6 : 1,
+                cursor: exp.starting ? "default" : "pointer",
+                opacity: exp.starting ? 0.6 : 1,
               }}
             >
-              {videoExportRunning &&
-                (exportJob?.progress_percent != null ? (
+              {exp.videoRunning &&
+                (exp.job?.progress_percent != null ? (
                   <svg width="13" height="13" viewBox="0 0 36 36" style={{ flex: "none" }}>
                     <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="4" />
                     <circle
@@ -1364,7 +568,7 @@ export default function Editor(): JSX.Element {
                       strokeLinecap="round"
                       style={{
                         strokeDasharray: EXPORT_RING_CIRCUMFERENCE,
-                        strokeDashoffset: EXPORT_RING_CIRCUMFERENCE * (1 - exportJob.progress_percent / 100),
+                        strokeDashoffset: EXPORT_RING_CIRCUMFERENCE * (1 - exp.job.progress_percent / 100),
                         transform: "rotate(-90deg)",
                         transformOrigin: "18px 18px",
                         transition: "stroke-dashoffset .6s cubic-bezier(.34,1.56,.64,1)",
@@ -1385,7 +589,7 @@ export default function Editor(): JSX.Element {
                     <path d="M21 12a9 9 0 1 1-3.5-7.13" />
                   </svg>
                 ))}
-              {videoExportRunning ? L.exporting : L.export}
+              {exp.videoRunning ? L.exporting : L.export}
             </div>
           </div>
         )}
@@ -1415,7 +619,7 @@ export default function Editor(): JSX.Element {
               <div style={{ fontSize: "15px", fontWeight: 700, color: mode.textMain }}>{tabLabel}</div>
               {styleSpec && (
                 <div
-                  onClick={togglePerPhraseStyle}
+                  onClick={styleEditing.togglePerPhraseStyle}
                   className="amee-cta-btn"
                   style={{
                     display: "flex",
@@ -1455,7 +659,7 @@ export default function Editor(): JSX.Element {
             </div>
           </div>
 
-          {notice && (
+          {captions.notice && (
             <div
               role="alert"
               style={{
@@ -1470,7 +674,7 @@ export default function Editor(): JSX.Element {
                 flex: "none",
               }}
             >
-              {notice}
+              {captions.notice}
             </div>
           )}
 
@@ -1481,29 +685,29 @@ export default function Editor(): JSX.Element {
                   prefs={prefs}
                   strings={L}
                   segments={ecs.segments}
-                  currentTime={currentTime}
+                  currentTime={player.currentTime}
                   resolvedStyle={resolvedStyle}
                   perPhraseStyle={perPhrase}
-                  editingSegmentId={editingSegmentId}
-                  popup={wordPopup}
-                  confirmDeleteSegmentId={confirmDeleteSegmentId}
-                  pendingWordId={pendingWordId}
-                  onSeek={seekTo}
-                  onEditSegmentStyle={handleEditSegmentStyle}
-                  onWordClick={handleWordClick}
-                  onRangeClick={handleRangeClick}
-                  onClosePopup={closeWordPopup}
-                  onAddWord={handleAddWord}
-                  onSplitSegment={handleSplitSegment}
-                  onRemoveWord={handleRemoveWord}
-                  onDeleteClick={handleDeleteSegmentClick}
-                  onConfirmDelete={handleConfirmDeleteSegment}
-                  onCancelDelete={handleCancelDeleteSegment}
-                  onCommitWordText={handleCommitWordText}
-                  onCommitWordStart={handleCommitWordStart}
-                  onCommitWordEnd={handleCommitWordEnd}
-                  onCommitSceneStart={handleCommitSceneStart}
-                  onCommitSceneEnd={handleCommitSceneEnd}
+                  editingSegmentId={styleEditing.editingSegmentId}
+                  popup={captions.wordPopup}
+                  confirmDeleteSegmentId={captions.confirmDeleteSegmentId}
+                  pendingWordId={captions.pendingWordId}
+                  onSeek={player.seekTo}
+                  onEditSegmentStyle={styleEditing.handleEditSegmentStyle}
+                  onWordClick={captions.handleWordClick}
+                  onRangeClick={captions.handleRangeClick}
+                  onClosePopup={captions.closeWordPopup}
+                  onAddWord={captions.handleAddWord}
+                  onSplitSegment={captions.handleSplitSegment}
+                  onRemoveWord={captions.handleRemoveWord}
+                  onDeleteClick={captions.handleDeleteSegmentClick}
+                  onConfirmDelete={captions.handleConfirmDeleteSegment}
+                  onCancelDelete={captions.handleCancelDeleteSegment}
+                  onCommitWordText={captions.handleCommitWordText}
+                  onCommitWordStart={captions.handleCommitWordStart}
+                  onCommitWordEnd={captions.handleCommitWordEnd}
+                  onCommitSceneStart={captions.handleCommitSceneStart}
+                  onCommitSceneEnd={captions.handleCommitSceneEnd}
                 />
               )}
             </div>
@@ -1524,13 +728,11 @@ export default function Editor(): JSX.Element {
               //    it is always the highlighted one, so cycling by segment index just makes the
               //    caption change colour between phrases for no reason the user asked for.
               // Off → the normal 3-swatch document editor.
-              singleColor={
-                Boolean(editingSegment) || panelStyle.revealMode === "single-word"
-              }
-              onSelectPreset={selectPreset}
-              onChangeOverrides={handleChangeStyleOverrides}
-              onLiveChangeOverrides={handleChangeStyleOverridesLive}
-              onCommitOverrides={commitPendingEdit}
+              singleColor={Boolean(editingSegment) || panelStyle.revealMode === "single-word"}
+              onSelectPreset={styleEditing.selectPreset}
+              onChangeOverrides={styleEditing.handleChangeStyleOverrides}
+              onLiveChangeOverrides={styleEditing.handleChangeStyleOverridesLive}
+              onCommitOverrides={doc.commitPendingEdit}
             />
           ) : (
             <div style={{ flex: 1, fontSize: "13px", color: mode.textFaint3, padding: "40px 22px", textAlign: "center" }}>
@@ -1542,7 +744,7 @@ export default function Editor(): JSX.Element {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
             <div
-              ref={videoBoxRef}
+              ref={player.videoBoxRef}
               style={{
                 position: "relative",
                 width: previewW + "px",
@@ -1554,17 +756,17 @@ export default function Editor(): JSX.Element {
               }}
             >
               <video
-                ref={videoRef}
+                ref={player.videoRef}
                 src={videoSrc}
                 style={{ width: "100%", height: "100%", objectFit: "contain" }}
               />
-              {ecs && resolvedStyle && videoBoxSize.width > 0 && (
+              {ecs && resolvedStyle && player.videoBoxSize.width > 0 && (
                 <CaptionOverlay
                   segments={ecs.segments}
-                  currentTime={currentTime}
+                  currentTime={player.currentTime}
                   style={resolvedStyle}
-                  containerWidth={videoBoxSize.width}
-                  containerHeight={videoBoxSize.height}
+                  containerWidth={player.videoBoxSize.width}
+                  containerHeight={player.videoBoxSize.height}
                 />
               )}
             </div>
@@ -1576,14 +778,14 @@ export default function Editor(): JSX.Element {
               min={0}
               max={1000}
               step={1}
-              value={duration ? Math.round((currentTime / duration) * 1000) : 0}
-              onChange={(e) => seekTo((Number(e.target.value) / 1000) * duration)}
+              value={player.duration ? Math.round((player.currentTime / player.duration) * 1000) : 0}
+              onChange={(e) => player.seekTo((Number(e.target.value) / 1000) * player.duration)}
               style={{ width: "100%", accentColor: theme.accent }}
             />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
                 <div
-                  onClick={togglePlay}
+                  onClick={player.togglePlay}
                   className="amee-icon-btn"
                   style={{
                     width: "36px",
@@ -1598,7 +800,7 @@ export default function Editor(): JSX.Element {
                     fontSize: "13px",
                   }}
                 >
-                  {isPlaying ? "❚❚" : "▶"}
+                  {player.isPlaying ? "❚❚" : "▶"}
                 </div>
                 <div
                   style={{
@@ -1607,34 +809,34 @@ export default function Editor(): JSX.Element {
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {formatTime(currentTime)} / {formatTime(duration)}
+                  {formatTime(player.currentTime)} / {formatTime(player.duration)}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <div
-                  onClick={() => seekTo(currentTime - 1)}
+                  onClick={() => player.seekTo(player.currentTime - 1)}
                   className="amee-icon-btn"
                   style={smallIconBtnStyle(mode)}
                 >
                   «
                 </div>
                 <div
-                  onClick={() => seekTo(currentTime + 1)}
+                  onClick={() => player.seekTo(player.currentTime + 1)}
                   className="amee-icon-btn"
                   style={smallIconBtnStyle(mode)}
                 >
                   »
                 </div>
-                <div onClick={toggleMute} className="amee-icon-btn" style={smallIconBtnStyle(mode)}>
-                  <VolumeIcon muted={muted || volume === 0} />
+                <div onClick={player.toggleMute} className="amee-icon-btn" style={smallIconBtnStyle(mode)}>
+                  <VolumeIcon muted={player.muted || player.volume === 0} />
                 </div>
                 <input
                   type="range"
                   min={0}
                   max={1}
                   step={0.01}
-                  value={muted ? 0 : volume}
-                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                  value={player.muted ? 0 : player.volume}
+                  onChange={(e) => player.handleVolumeChange(Number(e.target.value))}
                   style={{ width: "80px", accentColor: theme.accent }}
                 />
               </div>
@@ -1643,42 +845,5 @@ export default function Editor(): JSX.Element {
         </div>
       </div>
     </div>
-  );
-}
-
-function VolumeIcon({ muted }: { muted: boolean }): JSX.Element {
-  if (muted) {
-    return (
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M11 5L6 9H2v6h4l5 4V5z" />
-        <line x1="23" y1="9" x2="17" y2="15" />
-        <line x1="17" y1="9" x2="23" y2="15" />
-      </svg>
-    );
-  }
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M11 5L6 9H2v6h4l5 4V5z" />
-      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-    </svg>
   );
 }

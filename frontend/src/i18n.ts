@@ -42,8 +42,12 @@ export interface Strings {
   dragHere: string;
   orClick: string;
   upTo4k: string;
-  upTo2gb: string;
-  upTo10min: string;
+  // Match the backend's real enforced limits (services/projects.py::_MAX_UPLOAD_BYTES,
+  // workers/tasks.py::_MAX_VIDEO_DURATION_SECONDS, api-contract.md §15) -- these used to say
+  // "2GB"/"10 min", which contradicted the actual 100MB/1min caps the backend now rejects
+  // uploads against. See lib/limits.ts for the matching project-count cap.
+  upTo100mb: string;
+  upTo1min: string;
 
   videoLanguageLabel: string;
   autoDetect: string;
@@ -198,8 +202,8 @@ export const STR: Record<Lang, Strings> = {
     dragHere: "Перетащите видео сюда",
     orClick: "или нажмите, чтобы выбрать файл",
     upTo4k: "до 4K",
-    upTo2gb: "до 2 ГБ",
-    upTo10min: "до 10 минут",
+    upTo100mb: "до 100 МБ",
+    upTo1min: "до 1 минуты",
 
     videoLanguageLabel: "Язык видео",
     autoDetect: "Автоопределение",
@@ -351,8 +355,8 @@ export const STR: Record<Lang, Strings> = {
     dragHere: "Drag video here",
     orClick: "or click to choose a file",
     upTo4k: "up to 4K",
-    upTo2gb: "up to 2GB",
-    upTo10min: "up to 10 min",
+    upTo100mb: "up to 100MB",
+    upTo1min: "up to 1 min",
 
     videoLanguageLabel: "Video language",
     autoDetect: "Auto detect",
