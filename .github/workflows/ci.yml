@@ -63,12 +63,16 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: install ffmpeg
-        # azure.archive.ubuntu.com (the runner's default mirror) occasionally stalls for minutes
-        # per retry - archive.ubuntu.com answers fine in the same log, so cap the per-request
-        # timeout instead of letting `apt-get update` eat the whole job's 20-minute budget.
+        # azure.archive.ubuntu.com (the runner's default mirror) has been unreachable, and a
+        # capped per-request timeout still isn't enough - noble alone points apt at ~20 index
+        # files (main/updates/backports/security x Packages/Translation/Components) on that one
+        # dead host, so even a 10s-per-request cap adds up to minutes. archive.ubuntu.com answers
+        # every one of those instantly in the same log, so skip the dead mirror entirely instead
+        # of waiting it out.
         timeout-minutes: 5
         run: |
-          sudo apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
+          sudo grep -rl 'azure.archive.ubuntu.com' /etc/apt/ | xargs -r sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g'
+          sudo apt-get update
           sudo apt-get install -y ffmpeg
 
       - run: pip install -e "backend[dev]"
