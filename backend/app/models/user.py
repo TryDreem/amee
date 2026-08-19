@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,4 +35,13 @@ class UserModel(Base):
     # reads it yet. Added now rather than retrofitted later onto a live table.
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # The quota model's counter (api-contract.md §15) - incremented exactly once, by the
+    # transcribe job itself (app/workers/tasks.py), the moment it reaches `done`. Never
+    # decremented: deleting a project does not free a slot, and a job that fails (duration cap,
+    # no speech detected, any other error) never increments it. Deliberately not derived from
+    # `COUNT(*) WHERE owner_id` on `projects` - that count changes on delete, and this one must
+    # not, so it needs to be its own persisted value rather than a live query.
+    projects_uploaded_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )

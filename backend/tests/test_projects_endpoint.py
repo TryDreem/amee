@@ -6,8 +6,10 @@ import pytest
 from httpx import ASGITransport
 
 from app.db import async_session_factory
+from app.integrations.session_cookie import sign_user_id
 from app.main import app
 from app.repositories import style as style_repo
+from app.repositories import user as user_repo
 
 
 async def test_create_list_get_project_roundtrip(sample_video: Path) -> None:
@@ -131,19 +133,21 @@ async def test_create_project_rejects_oversized_file(
 async def test_create_project_enforces_the_per_owner_quota(
     sample_video: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Shrink the cap rather than uploading 5 real videos - the quota check itself (a live
-    COUNT(*) WHERE owner_id) is the thing under test, not the specific number 5."""
+    """The quota is User.projects_uploaded_count, not a live count of the caller's current
+    projects - a bare upload never touches it (only a transcribe job reaching `done` does, see
+    test_transcribe_task.py), so simulating "already used N slots" means bumping the counter
+    directly rather than uploading N real videos."""
     monkeypatch.setattr("app.services.projects._MAX_PROJECTS_PER_OWNER", 2)
-    async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        for _ in range(2):
-            with sample_video.open("rb") as f:
-                ok = await client.post(
-                    "/api/v1/projects", files={"file": ("sample.mp4", f, "video/mp4")}
-                )
-            assert ok.status_code == 201
+    async with async_session_factory() as session:
+        owner = await user_repo.create_guest(session)
+        await user_repo.increment_projects_uploaded(session, owner.id)
+        await user_repo.increment_projects_uploaded(session, owner.id)
 
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"amee_session": sign_user_id(owner.id)},
+    ) as client:
         with sample_video.open("rb") as f:
             over_cap = await client.post(
                 "/api/v1/projects", files={"file": ("sample.mp4", f, "video/mp4")}
@@ -152,17 +156,42 @@ async def test_create_project_enforces_the_per_owner_quota(
         body = over_cap.json()
         assert body["error"]["details"][0]["field"] == "quota"
 
-        # Same client -> same guest cookie -> deleting one frees a slot immediately (a live
-        # count, not a running counter that would need its own decrement).
-        listing = await client.get("/api/v1/projects")
-        first_id = listing.json()["items"][0]["id"]
-        await client.delete(f"/api/v1/projects/{first_id}")
 
+async def test_deleting_a_transcribed_project_does_not_free_a_quota_slot(
+    sample_video: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole point of a persisted counter instead of a live COUNT(*) on projects: upload,
+    transcribe successfully, delete, repeat must not be a way around the cap."""
+    monkeypatch.setattr("app.services.projects._MAX_PROJECTS_PER_OWNER", 1)
+    async with async_session_factory() as session:
+        owner = await user_repo.create_guest(session)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies={"amee_session": sign_user_id(owner.id)},
+    ) as client:
         with sample_video.open("rb") as f:
-            after_delete = await client.post(
+            created = await client.post(
                 "/api/v1/projects", files={"file": ("sample.mp4", f, "video/mp4")}
             )
-        assert after_delete.status_code == 201
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        # Simulates what the transcribe job itself does on success - test_transcribe_task.py
+        # covers that path directly. This project's transcription counted toward the cap.
+        async with async_session_factory() as session:
+            await user_repo.increment_projects_uploaded(session, owner.id)
+
+        delete_response = await client.delete(f"/api/v1/projects/{project_id}")
+        assert delete_response.status_code == 204
+
+        with sample_video.open("rb") as f:
+            blocked = await client.post(
+                "/api/v1/projects", files={"file": ("sample.mp4", f, "video/mp4")}
+            )
+    assert blocked.status_code == 422
+    assert blocked.json()["error"]["details"][0]["field"] == "quota"
 
 
 async def test_create_project_with_unsupported_language_returns_422(

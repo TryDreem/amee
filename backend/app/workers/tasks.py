@@ -23,6 +23,7 @@ from app.integrations.whisperx import TranscribedWord
 from app.repositories import ecs as ecs_repo
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
+from app.repositories import user as user_repo
 from app.schemas.ecs import ECS, Segment
 from app.schemas.export import ExportRequestBody
 from app.schemas.job import JobProgress, JobStatus
@@ -255,6 +256,11 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
         await job_repo.update_status(
             session, job_id, status=JobStatus.done, progress=None
         )
+        # Quota model's counter (api-contract.md §15) - incremented here and only here: the
+        # transcribe job actually reaching `done`, not the upload that started it. A job that
+        # fails above (duration cap, no speech detected, any other error) already `return`ed
+        # before this point, so it never reaches this line.
+        await user_repo.increment_projects_uploaded(session, project.owner_id)
 
 
 async def _run_job(

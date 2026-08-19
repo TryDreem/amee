@@ -106,17 +106,6 @@ async def list_page(
     return list(page.scalars().all()), total.scalar_one()
 
 
-async def count_by_owner(session: AsyncSession, owner_id: uuid.UUID) -> int:
-    """A live count, not a running counter column — deleting a project frees a quota slot
-    immediately, with no separate decrement to keep in sync (services/projects.py's quota check)."""
-    result = await session.execute(
-        select(func.count())
-        .select_from(ProjectModel)
-        .where(ProjectModel.owner_id == owner_id)
-    )
-    return result.scalar_one()
-
-
 async def update_media(
     session: AsyncSession,
     project_id: uuid.UUID,

@@ -11,6 +11,7 @@ from app.repositories import job as job_repo
 from app.repositories import project as project_repo
 from app.repositories import raw_transcript as raw_transcript_repo
 from app.repositories import style as style_repo
+from app.repositories import user as user_repo
 from app.schemas.common import ErrorDetail
 from app.schemas.job import JobStatus, JobType
 from app.schemas.project import Project, ProjectPage, ProjectSort
@@ -25,14 +26,20 @@ from app.services.language import SUPPORTED_LANGUAGE_CODES
 # the transcribe job instead.
 _ALLOWED_UPLOAD_EXTENSIONS = {".mp4", ".mov"}
 
-# Quota model (still-open per architecture.md §14.12 / CLAUDE.md's "still open" list) — the
+# Quota model (resolved — contract §13/§15; only payment/pricing is still open, arch §14.12) — the
 # human's chosen numbers. 100MB is a business-layer tightening under §2.7's stated 2GB ceiling,
 # not a change to it. The matching duration cap (1 minute) is deliberately NOT enforced here:
 # checking it would need a synchronous ffmpeg probe on this request path, which would reopen
 # arch §2.8's own explicit decision to move probing off of it. It's enforced instead inside the
 # transcribe job (app/workers/tasks.py), where the probe already runs.
 _MAX_UPLOAD_BYTES = 100 * 1024**2  # 100MB
-_MAX_PROJECTS_PER_OWNER = 5
+
+# Checked against User.projects_uploaded_count (app/models/user.py), not a live
+# project_repo.count_by_owner - that count used to drop when a project was deleted, letting
+# someone dodge the cap by upload-transcribe-delete-repeat. The counter only increments when a
+# transcribe job actually reaches `done` (app/workers/tasks.py), so a failed or never-attempted
+# transcription never counts against it, but a successful one counts forever, deletion or not.
+_MAX_PROJECTS_PER_OWNER = 3
 
 # Public (not `_`-prefixed): the route advertises the default in its own
 # signature, and tests assert against the cap, so both are part of this
@@ -123,8 +130,8 @@ async def create_project(
                 field="language", issue=f"unsupported language code: {language}"
             )
         )
-    existing_count = await project_repo.count_by_owner(session, owner_id)
-    if existing_count >= _MAX_PROJECTS_PER_OWNER:
+    owner = await user_repo.get(session, owner_id)
+    if owner is not None and owner.projects_uploaded_count >= _MAX_PROJECTS_PER_OWNER:
         details.append(
             ErrorDetail(
                 field="quota",

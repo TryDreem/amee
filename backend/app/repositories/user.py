@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import UserModel
@@ -92,3 +92,18 @@ async def touch_last_seen(session: AsyncSession, user: UserModel) -> UserModel:
     await session.commit()
     await session.refresh(user)
     return user
+
+
+async def increment_projects_uploaded(
+    session: AsyncSession, owner_id: uuid.UUID
+) -> None:
+    """Called exactly once, from the transcribe job itself (app/workers/tasks.py), the moment it
+    reaches `done` - never from the upload route, and never on a job that fails. `UPDATE ... SET
+    projects_uploaded_count = projects_uploaded_count + 1` rather than load-mutate-save: avoids a
+    read-modify-write race if a user somehow has two transcribe jobs finishing at once."""
+    await session.execute(
+        update(UserModel)
+        .where(UserModel.id == owner_id)
+        .values(projects_uploaded_count=UserModel.projects_uploaded_count + 1)
+    )
+    await session.commit()

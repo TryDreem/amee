@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-# "tiny" + CPU + int8: small enough to run without a GPU, which is what MVP
-# scale (arch §1.2) actually needs — swap via a bigger model name later if
-# transcription quality demands it, without touching the interface below.
+# "large-v3-turbo" + CPU + int8: the higher-accuracy end of WhisperX's model lineup, still runs
+# without a GPU, which is what MVP scale (arch §1.2) actually needs — swap the model name if the
+# quality/latency tradeoff ever needs revisiting, without touching the interface below.
 _MODEL_NAME = "large-v3-turbo"
 _DEVICE = "cpu"
 _COMPUTE_TYPE = "int8"

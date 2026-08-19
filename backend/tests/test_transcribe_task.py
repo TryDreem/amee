@@ -16,6 +16,7 @@ from app.models.project import ProjectModel
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
 from app.repositories import raw_transcript as raw_transcript_repo
+from app.repositories import user as user_repo
 from app.schemas.job import JobStatus, JobType
 from app.workers.celery_app import celery_app
 from app.workers.tasks import transcribe_task
@@ -76,6 +77,42 @@ async def _create_queued_job(video_path: Path) -> uuid.UUID:
         return job.id
 
 
+async def _create_queued_job_with_real_owner(
+    video_path: Path,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Same shape as _create_queued_job above, but with a real `users` row - needed only by the
+    projects_uploaded_count tests below, which have to look the owner back up afterward.
+    _create_queued_job's plain owner_id=uuid.uuid4() has no backing row, so
+    increment_projects_uploaded would silently match zero rows against it."""
+    async with async_session_factory() as session:
+        owner = await user_repo.create_guest(session)
+        project_id = uuid.uuid4()
+        _, video_url = storage.save_video(
+            project_id, "sample.mp4", video_path.read_bytes()
+        )
+        project = await project_repo.create(
+            session,
+            project_id=project_id,
+            owner_id=owner.id,
+            name="Transcribe task test",
+            video_url=video_url,
+        )
+        job = await job_repo.create(
+            session,
+            project_id=project.id,
+            owner_id=project.owner_id,
+            job_type=JobType.transcribe,
+        )
+        return job.id, owner.id
+
+
+async def _get_projects_uploaded_count(owner_id: uuid.UUID) -> int:
+    async with async_session_factory() as session:
+        owner = await user_repo.get(session, owner_id)
+        assert owner is not None
+        return owner.projects_uploaded_count
+
+
 async def _get_job(job_id: uuid.UUID) -> JobModel:
     async with async_session_factory() as session:
         job = await job_repo.get(session, job_id)
@@ -130,6 +167,40 @@ def test_transcribe_task_transitions_queued_to_done(
     assert project.thumbnail_url is not None
     # sample_video is 240p — no proxy needed, preview equals the source.
     assert project.preview_video_url == project.video_url
+
+
+def test_transcribe_task_success_increments_projects_uploaded_count(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """Quota model's counter (api-contract.md §15) - incremented exactly here, by the job
+    reaching `done`, never by the upload itself."""
+    job_id, owner_id = asyncio.run(_create_queued_job_with_real_owner(sample_video))
+
+    with patch(
+        "app.services.raw_transcript.transcribe_video", return_value=_FAKE_TRANSCRIPTION
+    ):
+        transcribe_task.delay(str(job_id))
+
+    assert asyncio.run(_get_job(job_id)).status == JobStatus.done
+    assert asyncio.run(_get_projects_uploaded_count(owner_id)) == 1
+
+
+def test_transcribe_task_failure_does_not_increment_projects_uploaded_count(
+    eager_celery: None, sample_video: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The duration-cap failure path specifically (same mechanism as
+    test_transcribe_task_rejects_video_over_the_duration_cap) - a job that never reaches `done`
+    must never touch the quota counter, exactly the "не было что транскрибировать" case."""
+    monkeypatch.setattr("app.workers.tasks._MAX_VIDEO_DURATION_SECONDS", 0)
+    job_id, owner_id = asyncio.run(_create_queued_job_with_real_owner(sample_video))
+
+    with patch(
+        "app.services.raw_transcript.transcribe_video", return_value=_FAKE_TRANSCRIPTION
+    ):
+        transcribe_task.delay(str(job_id))
+
+    assert asyncio.run(_get_job(job_id)).status == JobStatus.failed
+    assert asyncio.run(_get_projects_uploaded_count(owner_id)) == 0
 
 
 def test_transcribe_task_generates_proxy_above_1080p(

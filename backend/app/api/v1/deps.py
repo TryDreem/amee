@@ -19,13 +19,13 @@ async def get_current_user_id(
     response: Response,
     session: AsyncSession = Depends(get_db),
 ) -> uuid.UUID:
-    """The one place "who is making this request" is decided. Every route that used to import
-    `PLACEHOLDER_OWNER_ID` (app/constants.py) takes `Depends(get_current_user_id)` instead.
+    """The one place "who is making this request" is decided. Every route that needs the caller's
+    identity takes `Depends(get_current_user_id)`.
 
     No valid cookie, or a cookie pointing at a since-deleted user, silently mints a fresh guest
     and sets a new cookie on the response — guest identity is automatic, never an explicit user
-    action (docs/api-contract.md §15, proposed). This never 401s: a session, guest or real,
-    always exists once this dependency has run once for a given browser."""
+    action (docs/api-contract.md §15). This never 401s: a session, guest or real, always exists
+    once this dependency has run once for a given browser."""
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     candidate_id = verify_cookie(cookie) if cookie else None
     if candidate_id is not None:
