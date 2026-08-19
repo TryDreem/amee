@@ -34,7 +34,7 @@ a number of things are built the way they are. The full, binding technical speci
 ## What it does
 
 1. **Upload** a video (`.mp4`/`.mov`, H.264/HEVC, up to 4K, up to 100MB, up to 1 minute) — quota-limited
-   to 5 projects per user.
+   to 3 successfully transcribed projects per user; the count survives deleting a project.
 2. **Transcribe** it — WhisperX produces a word-level transcript (every word gets its own start/end
    timestamp, not just a sentence-level guess), and the words are grouped into readable caption
    phrases automatically.
@@ -540,15 +540,12 @@ rather than left to be discovered:
   value and deliberately has no keyframe at all).
 - **No document versioning / optimistic concurrency.** Last-write-wins on every save. Fine for one
   editor per project; a real problem the moment two people can edit the same project at once.
-- **No payments.** Authentication (guest sessions + Google OAuth) and a quota model (5 projects /
-  100MB / 1 minute per user, plus per-IP and per-user rate limits) are both real and enforced now —
-  see [API surface](#api-surface) and `docs/api-contract.md` §15. There's no pricing tier beyond
-  the free quota.
-- **No per-project authorization check.** `POST .../transcribe`, `POST .../export`,
-  `POST .../export-srt`, and `DELETE /projects/{id}` don't verify that the calling session's
-  `owner_id` matches the target project's — anyone who knows (or guesses) a project id can
-  currently act on it. Rate limiting and quota are enforced per-caller; whether a caller may touch
-  *this specific* project is not yet checked anywhere.
+- **No payments.** Authentication (guest sessions + Google OAuth) and a quota model (3 successfully
+  transcribed projects / 100MB / 1 minute per user, plus per-IP and per-user rate limits) are both
+  real and enforced now — see [API surface](#api-surface) and `docs/api-contract.md` §15. The
+  project count is a persistent counter, not a live `COUNT(*)` — it survives deleting a project, so
+  upload-transcribe-delete-repeat isn't a way around the cap. There's no pricing tier beyond the
+  free quota.
 - **Retokenization algorithm is unspecified.** When a user edits a whole phrase's text at once, how
   the new word list's timestamps get redistributed across the original time budget is left as an
   implementation detail, not a fixed algorithm.

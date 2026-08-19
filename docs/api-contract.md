@@ -114,16 +114,18 @@ Video width/height/duration, a thumbnail, and (conditionally) a preview proxy ar
 **Validation:** rejects the upload — format not mp4/mov, file size over 100MB (a business-layer
 tightening under architecture doc §2.7's 2GB ceiling, not a change to it — §15), `language`
 present and not one of WhisperX's supported ISO 639-1 codes (architecture doc §2.9), or the caller
-already owns 5 projects (`error.details[0].field: "quota"` — §15's quota model). Resolution/codec
-checks still require a probe and still happen later (arch §2.8), not here.
+has already used 3 slots (`User.projects_uploaded_count` — `error.details[0].field: "quota"` —
+§15's quota model). Resolution/codec checks still require a probe and still happen later (arch
+§2.8), not here.
 **422** with `error.details` identifying which limit was exceeded (§1's envelope). **429** if the
 per-IP upload rate limit is exceeded (§1, §15).
 
 The 1-minute duration cap (§15) is deliberately **not** checked here — it's enforced
 asynchronously inside the transcribe job instead (a synchronous probe on this request path would
 reopen architecture doc §2.8's own decision to move probing off of it). A video over the cap
-uploads successfully, occupies a quota slot, and fails at `POST .../transcribe` time with
-`Job.status: "failed"` and a clear `error` message.
+uploads successfully but fails at `POST .../transcribe` time with `Job.status: "failed"` and a
+clear `error` message — and because the quota counter only increments on a job that reaches
+`done`, a failed transcription never consumes a slot.
 
 
 **201** →
@@ -707,17 +709,22 @@ set on success, or to `{frontend}/?auth_error={reason}` on any failure (`cancell
   "name": "string | null",
   "avatar_url": "string | null",
   "is_guest": "boolean",
-  "created_at": "ISO8601 string"
+  "created_at": "ISO8601 string",
+  "projects_uploaded_count": "number"
 }
 ```
 
 ### Quota model (resolved §13 item 12)
 Per-owner, enforced at `POST /projects` (§4) except duration:
-- **5 projects** — a live count, not a running counter; deleting a project frees a slot
-  immediately.
+- **3 successfully transcribed projects** — `User.projects_uploaded_count`, a persistent counter
+  incremented exactly once, by the transcribe job itself, the moment it reaches `done`. Never
+  decremented: deleting a project does not free a slot, so upload-transcribe-delete-repeat isn't a
+  way around the cap. A bare upload doesn't touch it, and neither does a job that fails (duration
+  cap, no speech detected, any other error) — only a successful transcription counts.
 - **100MB per file** — a business-layer limit under architecture doc §2.7's 2GB ceiling.
 - **1-minute duration** — enforced inside the transcribe job, not at upload (§4's note); the job
-  fails with a clear `error` message if the probed duration exceeds the cap.
+  fails with a clear `error` message if the probed duration exceeds the cap, and (per the point
+  above) never counts against the quota either.
 
 No payment/pricing model — quota only, free tier.
 
@@ -729,7 +736,9 @@ Three independent fixed-window (Redis `INCR`+`EXPIRE`) counters, all fail-open o
   .../export-srt`.
 
 The per-user figure was not independently specified — it defaults to the same number as the
-per-IP upload limit and the project quota rather than an unrelated invented one.
+per-IP upload limit (5/hour) rather than an unrelated invented one. No longer the same number as
+the project quota (3) — the two were only coincidentally equal before the quota model changed to
+a persisted counter.
 
 `request.client.host` only for the IP-keyed limiters — no `X-Forwarded-For` parsing. Correct
 behind this app's actual single-VPS deployment target; would need revisiting behind a reverse
@@ -740,12 +749,14 @@ proxy or load balancer.
 forbids combining a wildcard origin with `allow_credentials=True`, and a credentialed
 cross-origin session cookie needs the latter).
 
-### Known gap — not covered by this section
-None of the routes above, nor `POST .../transcribe`, `POST .../export`, `POST .../export-srt`, or
-`DELETE /projects/{id}`, check that the calling session's `owner_id` actually matches
-`project.owner_id`. Any caller who knows (or guesses) a `project_id` can currently act on any
-project regardless of who owns it. Flagged here rather than silently left implicit; not yet
-decided whether/how to close it.
+### Ownership check (resolved — was "Known gap")
+Every project/job-scoped route (GET/PUT ecs, GET/PUT style, GET raw-transcript, GET/DELETE
+project, POST open/transcribe/export/export-srt/reset-to-raw/cancel, GET job) now checks that
+the calling session's owner_id matches the resource's before doing anything else — a mismatch
+reads as 404, identical to not-found, so a non-owner learns nothing about whether the id exists.
+Two shared dependencies (require_project_owner, require_job_owner — app/api/v1/deps.py). The one
+deliberate exception is POST .../recalculate-groups: it's stateless and never looks project_id up
+at all (contract §10), so there's no object to leak.
 
 
 ---

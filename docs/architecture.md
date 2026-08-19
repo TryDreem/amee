@@ -96,7 +96,7 @@ Because service-layer functions are written to take only serializable input (ids
  
 ### 2.4 Forward compatibility: auth and payments
  
-- **Authentication:** every entity (project, transcript, caption document, export job) carries an `owner_id` / `user_id` field from the very first schema, even though in the MVP it always resolves to a single local placeholder user. This avoids a schema migration later — adding real authentication becomes "add a middleware that resolves a real user and stop hardcoding the placeholder," not "add ownership to every table."
+- **Authentication:** every entity (project, transcript, caption document, export job) carries an `owner_id` / `user_id` field from the very first schema — resolved (api-contract.md §15): `owner_id` is now the real per-session/per-account id (silent guest issuance, Google OAuth as the only real sign-in). Confirms the original bet: adding real auth was "add a middleware that resolves a real user and stop hardcoding the placeholder," not a schema migration.
 - **Payments:** not implemented in the MVP, but the layered architecture anticipates it: a quota/subscription check is expected to sit at the service-layer boundary, immediately before expensive operations are kicked off (most obviously, export). Because the service layer is already the single choke point for orchestration, inserting this check later doesn't require touching the API layer or the data layer.
  
 ### 2.5 Export outputs (MVP)

@@ -42,7 +42,7 @@ Listed in `docs/architecture.md` §14 and `docs/api-contract.md` §13. Short lis
 - `Word.id` reuse vs regeneration at retokenization
 - UI confirmation before Recalculate Groups
 - document versioning / optimistic concurrency (none in MVP; last-write-wins)
-- auth mechanism, payment/quota model
+- payment/pricing model (quota itself and auth mechanism are resolved — api-contract §13/§15)
 - preset+delta **wire shape** (api-contract §8 marks it as inferred, not confirmed)
 - upload vs. transcribe as two calls (api-contract §4, flagged)
 - export persisting `ecs`+`style` as a side effect (api-contract §12, flagged)

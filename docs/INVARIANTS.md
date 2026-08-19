@@ -33,7 +33,7 @@ Used by: the `amee-arch-check` skill, the `arch-reviewer` subagent, and PR revie
 | D6 | Word order within a segment matches ascending `start`. Validated, not assumed. | arch §4.2 |
 | D7 | Segment membership (which words in which segment, and segment order) is **authored user data**. Never silently recomputed as a side effect of anything. | arch §4.2, §5.2 |
 | D8 | ECS and `CaptionStyleSpec` are read/written as **whole documents**. `PUT` only. Introducing `PATCH` or a per-word endpoint violates the save semantics. | arch §4.2, §6, contract §1 |
-| D9 | Every entity except `Preset` carries `owner_id` from the first schema. MVP resolves it to one placeholder UUID. | arch §2.4, contract §1 |
+| D9 | Every entity except `Preset` carries `owner_id` from the first schema — now the real per-session/per-account id (guest or Google), not a placeholder. | arch §2.4, contract §1, §15 |
 | D10 | All ids are UUIDv4 strings, mintable by the frontend without a server round trip. | contract §1 |
 | D11 | `Segment.overrides` is the **one deliberate exception** to Data never carrying Style (cross-ref S1) — a per-segment style override, gated by `CaptionStyleSpec.perPhraseStyle`. Addressed by the segment's own `id`, never array index (index shifts on delete/split/merge). | arch §4.2 |
 | D12 | `Project.updated_at` is touched only by `PUT /ecs` and `PUT /style` — not `recalculate-groups`/`reset-to-raw`, even though both mutate ECS, because the current frontend never calls either. Revisit this list if that changes. | contract §4 |
@@ -139,7 +139,7 @@ described — nothing produces it anymore.)
 5. Document versioning (arch §14.3)
 6. Autosave (arch §14.4 — excluded from MVP by design, not by omission)
 7. Per-word link back to Raw Transcript (arch §14.7 — cheap now, expensive later; a conscious call, not a default)
-8. Payment/quota model (arch §14.12) · Auth mechanism (arch §14.13)
+8. Payment/pricing model (arch §14.12 — quota itself is resolved, contract §13/§15: 5 projects/100MB/1min, free tier; no pricing chosen)
 9. Preset+delta **wire shape** — contract §8 marks it inferred, awaiting confirmation
 10. Upload vs. transcribe as two calls (contract §4, self-flagged)
 11. Export bundling + side-effect persistence (contract §12, self-flagged)
