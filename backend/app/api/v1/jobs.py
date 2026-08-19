@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_job_owner
 from app.db import get_db
 from app.schemas.job import Job
 from app.services import jobs as job_service
@@ -13,7 +14,8 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 @router.get(
     "/{job_id}",
     response_model=Job,
-    responses={404: {"description": "Job not found"}},
+    responses={404: {"description": "Job not found, or not owned by the caller"}},
+    dependencies=[Depends(require_job_owner)],
 )
 async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_db)) -> Job:
     job = await job_service.get_job(session, job_id)

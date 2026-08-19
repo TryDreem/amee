@@ -4,18 +4,31 @@ import httpx
 from httpx import ASGITransport
 
 from app.db import async_session_factory
+from app.integrations.session_cookie import sign_user_id
 from app.integrations.whisperx import TranscribedWord
 from app.main import app
 from app.repositories import project as project_repo
+from app.repositories import user as user_repo
 from app.services import ecs as ecs_service
 from app.services import style as style_service
 
 
-async def _make_transcribed_project() -> uuid.UUID:
+async def _make_owner() -> uuid.UUID:
+    async with async_session_factory() as session:
+        user = await user_repo.create_guest(session)
+    return user.id
+
+
+def _cookies(owner_id: uuid.UUID) -> dict[str, str]:
+    return {"amee_session": sign_user_id(owner_id)}
+
+
+async def _make_transcribed_project() -> tuple[uuid.UUID, dict[str, str]]:
+    owner_id = await _make_owner()
     async with async_session_factory() as session:
         project = await project_repo.create(
             session,
-            owner_id=uuid.uuid4(),
+            owner_id=owner_id,
             name="PUT ecs test",
             video_url="/files/projects/z/source.mp4",
         )
@@ -31,20 +44,23 @@ async def _make_transcribed_project() -> uuid.UUID:
             owner_id=project.owner_id,
             words=[TranscribedWord(text="hi", start=0.0, end=0.3)],
         )
-        return project.id
+        return project.id, _cookies(owner_id)
 
 
 async def test_get_ecs_not_found_before_transcription() -> None:
+    owner_id = await _make_owner()
     async with async_session_factory() as session:
         project = await project_repo.create(
             session,
-            owner_id=uuid.uuid4(),
+            owner_id=owner_id,
             name="ECS endpoint test",
             video_url="/files/projects/z/source.mp4",
         )
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies=_cookies(owner_id),
     ) as client:
         response = await client.get(f"/api/v1/projects/{project.id}/ecs")
 
@@ -52,11 +68,25 @@ async def test_get_ecs_not_found_before_transcription() -> None:
         assert response.json()["error"]["code"] == "not_found"
 
 
+async def test_get_ecs_owned_by_someone_else_is_not_found() -> None:
+    """The IDOR/BOLA fix (require_project_owner) - a real project id that isn't the caller's own
+    must read exactly like a nonexistent one."""
+    project_id, _ = await _make_transcribed_project()
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(f"/api/v1/projects/{project_id}/ecs")
+
+    assert response.status_code == 404
+
+
 async def test_get_ecs_returns_persisted_segments() -> None:
+    owner_id = await _make_owner()
     async with async_session_factory() as session:
         project = await project_repo.create(
             session,
-            owner_id=uuid.uuid4(),
+            owner_id=owner_id,
             name="ECS endpoint test 2",
             video_url="/files/projects/z/source.mp4",
         )
@@ -68,7 +98,9 @@ async def test_get_ecs_returns_persisted_segments() -> None:
         )
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies=_cookies(owner_id),
     ) as client:
         response = await client.get(f"/api/v1/projects/{project.id}/ecs")
 
@@ -80,12 +112,12 @@ async def test_get_ecs_returns_persisted_segments() -> None:
 
 
 async def test_put_ecs_valid_document_roundtrip() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     seg_id = str(uuid.uuid4())
     w1, w2 = str(uuid.uuid4()), str(uuid.uuid4())
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/ecs",
@@ -109,23 +141,26 @@ async def test_put_ecs_valid_document_roundtrip() -> None:
 
     # Persisted, not just echoed.
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         get_response = await client.get(f"/api/v1/projects/{project_id}/ecs")
     assert get_response.json() == body
 
 
 async def test_put_ecs_not_found_before_transcription() -> None:
+    owner_id = await _make_owner()
     async with async_session_factory() as session:
         project = await project_repo.create(
             session,
-            owner_id=uuid.uuid4(),
+            owner_id=owner_id,
             name="PUT ecs not-transcribed test",
             video_url="/files/projects/z/source.mp4",
         )
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        cookies=_cookies(owner_id),
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project.id}/ecs", json={"segments": []}
@@ -134,9 +169,11 @@ async def test_put_ecs_not_found_before_transcription() -> None:
     assert response.status_code == 404
 
 
-async def _put_and_get_details(project_id: uuid.UUID, segments: list[dict]) -> list:
+async def _put_and_get_details(
+    project_id: uuid.UUID, cookies: dict[str, str], segments: list[dict]
+) -> list:
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/ecs", json={"segments": segments}
@@ -148,9 +185,10 @@ async def _put_and_get_details(project_id: uuid.UUID, segments: list[dict]) -> l
 
 
 async def test_put_ecs_rejects_empty_text() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     details = await _put_and_get_details(
         project_id,
+        cookies,
         [
             {
                 "id": str(uuid.uuid4()),
@@ -164,9 +202,10 @@ async def test_put_ecs_rejects_empty_text() -> None:
 
 
 async def test_put_ecs_rejects_start_not_less_than_end() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     details = await _put_and_get_details(
         project_id,
+        cookies,
         [
             {
                 "id": str(uuid.uuid4()),
@@ -180,9 +219,10 @@ async def test_put_ecs_rejects_start_not_less_than_end() -> None:
 
 
 async def test_put_ecs_rejects_overlapping_words_in_segment() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     details = await _put_and_get_details(
         project_id,
+        cookies,
         [
             {
                 "id": str(uuid.uuid4()),
@@ -197,9 +237,10 @@ async def test_put_ecs_rejects_overlapping_words_in_segment() -> None:
 
 
 async def test_put_ecs_rejects_overlapping_segments() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     details = await _put_and_get_details(
         project_id,
+        cookies,
         [
             {
                 "id": str(uuid.uuid4()),
@@ -219,9 +260,9 @@ async def test_put_ecs_rejects_overlapping_segments() -> None:
 
 
 async def test_put_ecs_rejects_empty_segment() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     details = await _put_and_get_details(
-        project_id, [{"id": str(uuid.uuid4()), "words": []}]
+        project_id, cookies, [{"id": str(uuid.uuid4()), "words": []}]
     )
     assert len(details) == 1
     assert "words" not in details[0]["field"]
@@ -230,10 +271,11 @@ async def test_put_ecs_rejects_empty_segment() -> None:
 async def test_put_ecs_rejects_duplicate_word_ids() -> None:
     # Contract §7: ids unique within the document (V9). Without the check
     # this was a DB primary-key IntegrityError - a 500, not a 422.
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     dup = str(uuid.uuid4())
     details = await _put_and_get_details(
         project_id,
+        cookies,
         [
             {
                 "id": str(uuid.uuid4()),
@@ -248,10 +290,11 @@ async def test_put_ecs_rejects_duplicate_word_ids() -> None:
 
 
 async def test_put_ecs_rejects_duplicate_segment_ids() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     dup = str(uuid.uuid4())
     details = await _put_and_get_details(
         project_id,
+        cookies,
         [
             {
                 "id": dup,
@@ -271,11 +314,11 @@ async def test_put_ecs_rejects_duplicate_segment_ids() -> None:
 
 
 async def test_put_ecs_with_segment_override_roundtrip() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     seg_id = str(uuid.uuid4())
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/ecs",
@@ -306,16 +349,17 @@ async def test_put_ecs_with_segment_override_roundtrip() -> None:
 
     # Persisted, not just echoed.
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         get_response = await client.get(f"/api/v1/projects/{project_id}/ecs")
     assert get_response.json() == body
 
 
 async def test_put_ecs_rejects_segment_override_out_of_bounds() -> None:
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     details = await _put_and_get_details(
         project_id,
+        cookies,
         [
             {
                 "id": str(uuid.uuid4()),
@@ -331,13 +375,13 @@ async def test_put_ecs_rejects_segment_override_out_of_bounds() -> None:
 
 async def test_put_ecs_bumps_project_updated_at() -> None:
     """D12: PUT /ecs is one of the two actions sort=updated cares about."""
-    project_id = await _make_transcribed_project()
+    project_id, cookies = await _make_transcribed_project()
     async with async_session_factory() as session:
         before = await project_repo.get(session, project_id)
     assert before is not None
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/ecs",

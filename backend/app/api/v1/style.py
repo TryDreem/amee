@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_project_owner
 from app.db import get_db
 from app.schemas.style import CaptionStyleSpec, CaptionStyleSpecPutBody
 from app.services import style as style_service
@@ -17,7 +18,8 @@ router = APIRouter(prefix="/projects", tags=["style"])
     # from the preset's base values should appear, not null placeholders
     # for every unset field.
     response_model_exclude_none=True,
-    responses={404: {"description": "Project not found"}},
+    responses={404: {"description": "Project not found, or not owned by the caller"}},
+    dependencies=[Depends(require_project_owner)],
 )
 async def get_style(
     project_id: uuid.UUID, session: AsyncSession = Depends(get_db)
@@ -33,9 +35,10 @@ async def get_style(
     response_model=CaptionStyleSpec,
     response_model_exclude_none=True,
     responses={
-        404: {"description": "Project not found"},
+        404: {"description": "Project not found, or not owned by the caller"},
         422: {"description": "Bounds validation failed against resolved preset"},
     },
+    dependencies=[Depends(require_project_owner)],
 )
 async def put_style(
     project_id: uuid.UUID,

@@ -10,10 +10,12 @@ from httpx import ASGITransport
 from app.db import async_session_factory
 from app.integrations import storage
 from app.integrations.ffmpeg import probe_video
+from app.integrations.session_cookie import sign_user_id
 from app.integrations.whisperx import TranscribedWord
 from app.main import app
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
+from app.repositories import user as user_repo
 from app.schemas.job import JobStatus, JobType
 from app.services import ecs as ecs_service
 from app.services import style as style_service
@@ -34,8 +36,11 @@ def eager_celery() -> Iterator[None]:
         celery_app.conf.task_eager_propagates = original_propagates
 
 
-async def _create_transcribed_project(video_path: Path) -> uuid.UUID:
+async def _create_transcribed_project(
+    video_path: Path,
+) -> tuple[uuid.UUID, dict[str, str]]:
     async with async_session_factory() as session:
+        owner = await user_repo.create_guest(session)
         project_id = uuid.uuid4()
         _, video_url = storage.save_video(
             project_id, "sample.mp4", video_path.read_bytes()
@@ -43,7 +48,7 @@ async def _create_transcribed_project(video_path: Path) -> uuid.UUID:
         project = await project_repo.create(
             session,
             project_id=project_id,
-            owner_id=uuid.uuid4(),
+            owner_id=owner.id,
             name="Export fields test",
             video_url=video_url,
         )
@@ -65,12 +70,14 @@ async def _create_transcribed_project(video_path: Path) -> uuid.UUID:
             owner_id=project.owner_id,
             words=[TranscribedWord(text="hi", start=0.0, end=0.3)],
         )
-        return project.id
+        return project.id, {"amee_session": sign_user_id(owner.id)}
 
 
-async def _get_project_json(project_id: uuid.UUID) -> dict[str, object]:
+async def _get_project_json(
+    project_id: uuid.UUID, cookies: dict[str, str]
+) -> dict[str, object]:
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.get(f"/api/v1/projects/{project_id}")
     assert response.status_code == 200
@@ -78,9 +85,9 @@ async def _get_project_json(project_id: uuid.UUID) -> dict[str, object]:
 
 
 def test_latest_export_fields_are_null_before_any_export(sample_video: Path) -> None:
-    project_id = asyncio.run(_create_transcribed_project(sample_video))
+    project_id, cookies = asyncio.run(_create_transcribed_project(sample_video))
 
-    body = asyncio.run(_get_project_json(project_id))
+    body = asyncio.run(_get_project_json(project_id, cookies))
 
     assert body["export_job_ids"] == []
     assert body["latest_export_job_id"] is None
@@ -93,7 +100,7 @@ def test_latest_export_url_is_null_while_export_is_processing(
     """Only a *done* export job's result counts - a queued/processing one
     has no `result` yet, so `latest_export_url` must not surface a stale or
     partial value."""
-    project_id = asyncio.run(_create_transcribed_project(sample_video))
+    project_id, cookies = asyncio.run(_create_transcribed_project(sample_video))
 
     async def _create_job() -> uuid.UUID:
         async with async_session_factory() as session:
@@ -107,7 +114,7 @@ def test_latest_export_url_is_null_while_export_is_processing(
 
     job_id = asyncio.run(_create_job())
 
-    body = asyncio.run(_get_project_json(project_id))
+    body = asyncio.run(_get_project_json(project_id, cookies))
 
     assert body["export_job_ids"] == [str(job_id)]
     assert body["latest_export_job_id"] == str(job_id)
@@ -117,7 +124,7 @@ def test_latest_export_url_is_null_while_export_is_processing(
 def test_latest_export_fields_populate_once_export_completes(
     eager_celery: None, sample_video: Path
 ) -> None:
-    project_id = asyncio.run(_create_transcribed_project(sample_video))
+    project_id, cookies = asyncio.run(_create_transcribed_project(sample_video))
 
     async def _create_job() -> uuid.UUID:
         async with async_session_factory() as session:
@@ -132,7 +139,7 @@ def test_latest_export_fields_populate_once_export_completes(
     job_id = asyncio.run(_create_job())
     export_task.delay(str(job_id))
 
-    body = asyncio.run(_get_project_json(project_id))
+    body = asyncio.run(_get_project_json(project_id, cookies))
 
     assert body["latest_export_job_id"] == str(job_id)
     assert (
@@ -147,7 +154,7 @@ def test_export_srt_jobs_never_count_as_the_latest_export(
     """contract §4: latest_export_job_id/url are always `type: "export"`,
     never `"export_srt"` - an SRT-only run isn't "the export" a project-list
     card means by "Exported"."""
-    project_id = asyncio.run(_create_transcribed_project(sample_video))
+    project_id, cookies = asyncio.run(_create_transcribed_project(sample_video))
 
     async def _create_srt_job() -> uuid.UUID:
         async with async_session_factory() as session:
@@ -168,7 +175,7 @@ def test_export_srt_jobs_never_count_as_the_latest_export(
 
     asyncio.run(_create_srt_job())
 
-    body = asyncio.run(_get_project_json(project_id))
+    body = asyncio.run(_get_project_json(project_id, cookies))
 
     assert body["export_job_ids"] == []
     assert body["latest_export_job_id"] is None
@@ -178,7 +185,7 @@ def test_export_srt_jobs_never_count_as_the_latest_export(
 def test_export_job_ids_lists_multiple_exports_newest_first(
     eager_celery: None, sample_video: Path
 ) -> None:
-    project_id = asyncio.run(_create_transcribed_project(sample_video))
+    project_id, cookies = asyncio.run(_create_transcribed_project(sample_video))
 
     async def _create_job() -> uuid.UUID:
         async with async_session_factory() as session:
@@ -195,7 +202,7 @@ def test_export_job_ids_lists_multiple_exports_newest_first(
     second_job_id = asyncio.run(_create_job())
     export_task.delay(str(second_job_id))
 
-    body = asyncio.run(_get_project_json(project_id))
+    body = asyncio.run(_get_project_json(project_id, cookies))
 
     assert body["export_job_ids"] == [str(second_job_id), str(first_job_id)]
     assert body["latest_export_job_id"] == str(second_job_id)

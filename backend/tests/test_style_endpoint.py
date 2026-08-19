@@ -11,7 +11,7 @@ from app.repositories import project as project_repo
 _DEFAULT_PRESET_ID = "c1a1a1a1-0000-4000-8000-000000000001"
 
 
-async def _create_project(sample_video: Path) -> str:
+async def _create_project(sample_video: Path) -> tuple[str, dict[str, str]]:
     async with httpx.AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -20,17 +20,21 @@ async def _create_project(sample_video: Path) -> str:
                 "/api/v1/projects",
                 files={"file": ("sample.mp4", f, "video/mp4")},
             )
+        # The guest cookie POST /projects minted, so every later client in the same test acts as
+        # the same owner - a fresh cookie-less client would mint a different guest and get 404
+        # from require_project_owner (app/api/v1/deps.py).
+        cookies = {"amee_session": client.cookies["amee_session"]}
     project_id: str = response.json()["id"]
-    return project_id
+    return project_id, cookies
 
 
 async def test_get_style_returns_default_preset_immediately(
     sample_video: Path,
 ) -> None:
-    project_id = await _create_project(sample_video)
+    project_id, cookies = await _create_project(sample_video)
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.get(f"/api/v1/projects/{project_id}/style")
 
@@ -49,11 +53,26 @@ async def test_get_style_not_found_for_missing_project() -> None:
     assert response.status_code == 404
 
 
-async def test_put_style_roundtrip(sample_video: Path) -> None:
-    project_id = await _create_project(sample_video)
+async def test_get_style_owned_by_someone_else_is_not_found(
+    sample_video: Path,
+) -> None:
+    """The IDOR/BOLA fix (require_project_owner) - a real project id that isn't the caller's own
+    must read exactly like a nonexistent one."""
+    project_id, _ = await _create_project(sample_video)
 
     async with httpx.AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(f"/api/v1/projects/{project_id}/style")
+
+    assert response.status_code == 404
+
+
+async def test_put_style_roundtrip(sample_video: Path) -> None:
+    project_id, cookies = await _create_project(sample_video)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/style",
@@ -72,10 +91,10 @@ async def test_put_style_roundtrip(sample_video: Path) -> None:
 async def test_put_style_out_of_bounds_returns_422_with_details(
     sample_video: Path,
 ) -> None:
-    project_id = await _create_project(sample_video)
+    project_id, cookies = await _create_project(sample_video)
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/style",
@@ -106,10 +125,10 @@ async def test_put_style_not_found_for_missing_project() -> None:
 async def test_put_style_with_new_override_fields_roundtrip(
     sample_video: Path,
 ) -> None:
-    project_id = await _create_project(sample_video)
+    project_id, cookies = await _create_project(sample_video)
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/style",
@@ -147,7 +166,7 @@ async def test_put_style_with_new_override_fields_roundtrip(
 
     # Persisted, not just echoed.
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         get_response = await client.get(f"/api/v1/projects/{project_id}/style")
     assert get_response.json() == body
@@ -156,10 +175,10 @@ async def test_put_style_with_new_override_fields_roundtrip(
 async def test_put_style_outline_alpha_out_of_fixed_range_returns_422(
     sample_video: Path,
 ) -> None:
-    project_id = await _create_project(sample_video)
+    project_id, cookies = await _create_project(sample_video)
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/style",
@@ -178,13 +197,13 @@ async def test_put_style_outline_alpha_out_of_fixed_range_returns_422(
 
 async def test_put_style_bumps_project_updated_at(sample_video: Path) -> None:
     """D12: PUT /style is the other action sort=updated cares about."""
-    project_id = await _create_project(sample_video)
+    project_id, cookies = await _create_project(sample_video)
     async with async_session_factory() as session:
         before = await project_repo.get(session, uuid.UUID(project_id))
     assert before is not None
 
     async with httpx.AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", cookies=cookies
     ) as client:
         response = await client.put(
             f"/api/v1/projects/{project_id}/style",

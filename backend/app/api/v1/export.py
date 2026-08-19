@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import enforce_user_action_limit
+from app.api.v1.deps import enforce_user_action_limit, require_project_owner
 from app.db import get_db
 from app.schemas.export import ExportRequestBody
 from app.schemas.job import Job
@@ -17,10 +17,14 @@ router = APIRouter(prefix="/projects", tags=["export"])
     response_model=Job,
     status_code=202,
     responses={
+        404: {"description": "Project not found, or not owned by the caller"},
         422: {"description": "Validation failed (shared with PUT /ecs, PUT /style)"},
         429: {"description": "Per-user action rate limit exceeded"},
     },
-    dependencies=[Depends(enforce_user_action_limit)],
+    dependencies=[
+        Depends(enforce_user_action_limit),
+        Depends(require_project_owner),
+    ],
 )
 async def export_project(
     project_id: uuid.UUID,
@@ -38,10 +42,14 @@ async def export_project(
     response_model=Job,
     status_code=202,
     responses={
+        404: {"description": "Project not found, or not owned by the caller"},
         422: {"description": "Validation failed (request body is not persisted)"},
         429: {"description": "Per-user action rate limit exceeded"},
     },
-    dependencies=[Depends(enforce_user_action_limit)],
+    dependencies=[
+        Depends(enforce_user_action_limit),
+        Depends(require_project_owner),
+    ],
 )
 async def export_project_srt(
     project_id: uuid.UUID,
@@ -59,9 +67,10 @@ async def export_project_srt(
     response_model=Job,
     status_code=202,
     responses={
-        404: {"description": "Project or job not found"},
+        404: {"description": "Project or job not found, or not owned by the caller"},
         409: {"description": ("Job isn't type export, or isn't queued/processing")},
     },
+    dependencies=[Depends(require_project_owner)],
 )
 async def cancel_export(
     project_id: uuid.UUID,

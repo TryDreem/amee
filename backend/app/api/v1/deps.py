@@ -1,12 +1,14 @@
 import uuid
 
-from fastapi import Depends, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.exceptions import RateLimitedError
 from app.integrations import rate_limit
 from app.integrations.session_cookie import sign_user_id, verify_cookie
+from app.repositories import job as job_repo
+from app.repositories import project as project_repo
 from app.repositories import user as user_repo
 
 SESSION_COOKIE_NAME = "amee_session"
@@ -39,6 +41,41 @@ async def get_current_user_id(
         samesite="lax",
     )
     return user.id
+
+
+async def require_project_owner(
+    project_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
+) -> uuid.UUID:
+    """Closes the IDOR/BOLA gap flagged in docs/api-contract.md §15's "Known gap": every
+    project-scoped route used to resolve its resource by UUID alone, with the calling session
+    never entering the picture — anyone who knew or guessed a project_id could read, edit, export,
+    or delete a project regardless of who owned it. This is the one place that check happens now;
+    every project-scoped route takes `Depends(require_project_owner)` instead of duplicating the
+    check inline.
+
+    404, not 403, on a mismatch — same as "doesn't exist": telling a non-owner that a project *does*
+    exist but isn't theirs would itself leak information a UUID-only URL isn't supposed to carry.
+    Returns `project_id` (not the loaded row) since callers already have it from the path and only
+    needed the side effect of this check having passed."""
+    project = await project_repo.get(session, project_id)
+    if project is None or project.owner_id != owner_id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project_id
+
+
+async def require_job_owner(
+    job_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+    owner_id: uuid.UUID = Depends(get_current_user_id),
+) -> uuid.UUID:
+    """Same as require_project_owner above, for the one route addressed by job_id alone
+    (`GET /jobs/{id}`) rather than nested under a project_id path segment."""
+    job = await job_repo.get(session, job_id)
+    if job is None or job.owner_id != owner_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job_id
 
 
 # --- Rate limiting (Part B §7) ---

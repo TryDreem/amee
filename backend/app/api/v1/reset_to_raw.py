@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_project_owner
 from app.db import get_db
 from app.schemas.recalculate import PolymorphicJobResponse
 from app.schemas.reset import ResetToRawResult
@@ -16,8 +17,11 @@ router = APIRouter(prefix="/projects", tags=["reset-to-raw"])
     responses={
         200: {"model": ResetToRawResult},
         202: {"model": PolymorphicJobResponse},
-        404: {"description": "Not transcribed yet"},
+        404: {
+            "description": "Not transcribed yet, not found, or not owned by the caller"
+        },
     },
+    dependencies=[Depends(require_project_owner)],
 )
 async def reset_to_raw(
     project_id: uuid.UUID, session: AsyncSession = Depends(get_db)

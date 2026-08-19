@@ -3,7 +3,11 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import enforce_upload_ip_limit, get_current_user_id
+from app.api.v1.deps import (
+    enforce_upload_ip_limit,
+    get_current_user_id,
+    require_project_owner,
+)
 from app.db import get_db
 from app.schemas.project import Project, ProjectPage, ProjectSort
 from app.services import projects as project_service
@@ -65,7 +69,8 @@ async def list_projects(
 @router.get(
     "/{project_id}",
     response_model=Project,
-    responses={404: {"description": "Project not found"}},
+    responses={404: {"description": "Project not found, or not owned by the caller"}},
+    dependencies=[Depends(require_project_owner)],
 )
 async def get_project(
     project_id: uuid.UUID, session: AsyncSession = Depends(get_db)
@@ -79,7 +84,8 @@ async def get_project(
 @router.post(
     "/{project_id}/open",
     status_code=204,
-    responses={404: {"description": "Project not found"}},
+    responses={404: {"description": "Project not found, or not owned by the caller"}},
+    dependencies=[Depends(require_project_owner)],
 )
 async def open_project(
     project_id: uuid.UUID, session: AsyncSession = Depends(get_db)
@@ -93,9 +99,10 @@ async def open_project(
     "/{project_id}",
     status_code=204,
     responses={
-        404: {"description": "Project not found"},
+        404: {"description": "Project not found, or not owned by the caller"},
         409: {"description": "A transcribe job is still queued/processing"},
     },
+    dependencies=[Depends(require_project_owner)],
 )
 async def delete_project(
     project_id: uuid.UUID, session: AsyncSession = Depends(get_db)
