@@ -402,7 +402,7 @@ async def render_frames(
             # Unwrapped from the ExceptionGroup TaskGroup raises: callers (and P8's cancel path)
             # match on the plain exception type, not on group membership.
             raise FrameRenderCancelled() from None
-        except* Exception as group:
+        except* Exception as group:  # noqa: BLE001 - unwrapped and re-raised below, not swallowed
             # Also unwrapped, for a different reason: `_run_job` stores `str(exc)` as the job's
             # error and the UI shows it verbatim, so leaving the group intact surfaced
             # "unhandled errors in a TaskGroup (1 sub-exception)" to the user and threw away the

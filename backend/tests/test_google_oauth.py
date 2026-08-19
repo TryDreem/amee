@@ -48,9 +48,11 @@ def test_authorize_url_carries_the_state_and_redirect_uri() -> None:
 
 
 def test_authorize_url_without_configuration_raises_google_oauth_error() -> None:
-    with patch.dict("os.environ", {}, clear=True):
-        with pytest.raises(GoogleOAuthError, match="AMEE_GOOGLE_CLIENT_ID"):
-            authorize_url(redirect_uri="http://x/cb", state="s")
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        pytest.raises(GoogleOAuthError, match="AMEE_GOOGLE_CLIENT_ID"),
+    ):
+        authorize_url(redirect_uri="http://x/cb", state="s")
 
 
 async def test_exchange_code_returns_the_profile() -> None:
@@ -103,18 +105,19 @@ async def test_exchange_code_wraps_transport_failures() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom")
 
-    with _mocked_transport(handler):
-        with pytest.raises(GoogleOAuthError, match="request to Google failed"):
-            await exchange_code(code="c", redirect_uri="http://x/cb")
+    with (
+        _mocked_transport(handler),
+        pytest.raises(GoogleOAuthError, match="request to Google failed"),
+    ):
+        await exchange_code(code="c", redirect_uri="http://x/cb")
 
 
 async def test_exchange_code_rejects_a_non_200_from_google() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(400, json={"error": "invalid_grant"})
 
-    with _mocked_transport(handler):
-        with pytest.raises(GoogleOAuthError):
-            await exchange_code(code="expired", redirect_uri="http://x/cb")
+    with _mocked_transport(handler), pytest.raises(GoogleOAuthError):
+        await exchange_code(code="expired", redirect_uri="http://x/cb")
 
 
 async def test_exchange_code_rejects_a_profile_with_no_sub() -> None:
@@ -126,6 +129,8 @@ async def test_exchange_code_rejects_a_profile_with_no_sub() -> None:
             return httpx.Response(200, json={"access_token": "at"})
         return httpx.Response(200, json={"email": "a@example.com"})
 
-    with _mocked_transport(handler):
-        with pytest.raises(GoogleOAuthError, match="missing the `sub`"):
-            await exchange_code(code="c", redirect_uri="http://x/cb")
+    with (
+        _mocked_transport(handler),
+        pytest.raises(GoogleOAuthError, match="missing the `sub`"),
+    ):
+        await exchange_code(code="c", redirect_uri="http://x/cb")

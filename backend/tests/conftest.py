@@ -8,9 +8,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
 import pytest
-from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+
+from alembic import command
 
 # Redirect to an isolated database on the same Postgres server *before*
 # app.db (imported below, transitively via app.main) creates its
@@ -79,10 +80,11 @@ def _migrate_test_database() -> None:
 _create_test_database_if_missing()
 _migrate_test_database()
 
-from app.db import Base, async_session_factory  # noqa: E402
-from app.integrations.redis import redis_client  # noqa: E402
-from app.main import app  # noqa: E402
-from redis import asyncio as _redis_lib  # noqa: E402
+from redis import asyncio as _redis_lib
+
+from app.db import Base, async_session_factory
+from app.integrations.redis import redis_client
+from app.main import app
 
 
 @pytest.fixture

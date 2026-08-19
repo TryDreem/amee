@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -88,7 +88,7 @@ async def update_avatar(
 
 
 async def touch_last_seen(session: AsyncSession, user: UserModel) -> UserModel:
-    user.last_seen_at = datetime.now(timezone.utc)
+    user.last_seen_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(user)
     return user

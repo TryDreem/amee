@@ -12,15 +12,15 @@ transaction by default, so autocommit_block() is the documented escape
 hatch for this specific piece of DDL.
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a8c65bfa0cb9"
-down_revision: Union[str, Sequence[str], None] = "f1284aa843af"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "f1284aa843af"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

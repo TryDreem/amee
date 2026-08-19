@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "f3a52d8b16c7"
@@ -55,8 +56,9 @@ def _patch_base(patch: dict[str, Any]) -> None:
     """Merges into `base` rather than replacing it — every other field of PresetBase has to survive
     untouched, and a preset row is only ever valid when it is complete."""
     op.execute(
-        sa.text("UPDATE presets SET base = base || CAST(:patch AS jsonb) WHERE id = :preset_id")
-        .bindparams(patch=json.dumps(patch), preset_id=_ONE_WORD_HOOK_ID)
+        sa.text(
+            "UPDATE presets SET base = base || CAST(:patch AS jsonb) WHERE id = :preset_id"
+        ).bindparams(patch=json.dumps(patch), preset_id=_ONE_WORD_HOOK_ID)
     )
 
 

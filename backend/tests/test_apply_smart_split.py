@@ -9,7 +9,7 @@ import pytest
 from app.db import async_session_factory
 from app.integrations import storage
 from app.integrations.llm_split import LlmSplitError
-from app.integrations.whisperx import Transcription, TranscribedWord
+from app.integrations.whisperx import TranscribedWord, Transcription
 from app.models.job import JobModel
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo

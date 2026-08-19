@@ -23,8 +23,9 @@ import uuid
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "b7f2c419ad30"
 down_revision: str | Sequence[str] | None = "c3d9b471e2a4"

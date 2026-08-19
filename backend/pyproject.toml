@@ -51,6 +51,17 @@ packages = ["app"]
 [tool.ruff]
 target-version = "py312"
 
+[tool.ruff.lint]
+ignore = [
+  # FastAPI's own dependency-injection idiom is `param: X = Depends(get_db)` - the call in the
+  # default is the framework contract, not a bug. flake8-bugbear's B008 doesn't special-case it.
+  "B008",
+  # Would rewrite every generic splitter/llm_split function (`def f(words: list[T]) -> ...`) to
+  # PEP 695 `def f[T](...)` syntax. Pure style, not adopted anywhere else in the codebase yet -
+  # not worth a mechanical rewrite of architecture-sensitive files for this alone.
+  "UP047",
+]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

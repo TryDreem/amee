@@ -247,7 +247,7 @@ async def test_killing_the_process_group_actually_stops_ffmpeg(tmp_path: Path) -
     window to be killed mid-render, not a fixture so trivial it finishes
     before the signal arrives."""
     slow_source = tmp_path / "slow.mp4"
-    subprocess.run(
+    subprocess.run(  # noqa: ASYNC221 - one-off test fixture setup, not app code; blocking here is harmless
         [
             "ffmpeg",
             "-y",

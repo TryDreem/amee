@@ -10,7 +10,7 @@ import pytest
 
 from app.db import async_session_factory
 from app.integrations import storage
-from app.integrations.whisperx import Transcription, TranscribedWord
+from app.integrations.whisperx import TranscribedWord, Transcription
 from app.models.job import JobModel
 from app.models.project import ProjectModel
 from app.repositories import job as job_repo

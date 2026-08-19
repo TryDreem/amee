@@ -13,17 +13,18 @@ gain no default (arch §2.8 — null until the transcribe job's probe branch
 finishes).
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
+
 # revision identifiers, used by Alembic.
 revision: str = "c86103ed75d6"
-down_revision: Union[str, Sequence[str], None] = "a0aea5e4f727"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "a0aea5e4f727"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 # job_type/job_status/job_progress Postgres ENUM types already exist (from
 # earlier migrations) and survive a DROP TABLE jobs — create_type=False so

@@ -240,7 +240,7 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
                     progress=JobProgress.generating_preview,
                 )
         await asyncio.gather(task_b, task_d)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - job boundary: any failure here must land the job as `failed`, not crash the worker
         for task in started:
             if not task.done():
                 task.cancel()
@@ -282,7 +282,7 @@ async def _run_job(
 
     try:
         result = await do_work(project_id, job_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - job boundary: any failure here must land the job as `failed`, not crash the worker
         # Harmless no-ops for _do_srt_export (never wrote any of these keys
         # to begin with) - cheap enough not to warrant a type check here,
         # and guarantees a crashed/cancelled export never leaves a stale

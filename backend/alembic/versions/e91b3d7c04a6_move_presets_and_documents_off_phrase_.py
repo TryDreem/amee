@@ -24,6 +24,7 @@ import uuid
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "e91b3d7c04a6"

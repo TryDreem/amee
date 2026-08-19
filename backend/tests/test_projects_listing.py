@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from httpx import ASGITransport
@@ -11,7 +11,7 @@ from app.repositories import project as project_repo
 from app.repositories import user as user_repo
 from app.services.projects import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 
-_BASE = datetime(2026, 1, 1, tzinfo=timezone.utc)
+_BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 async def _make_owner() -> uuid.UUID:
