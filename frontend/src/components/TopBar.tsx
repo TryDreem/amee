@@ -16,17 +16,19 @@ interface TopBarProps {
   // h_exportBadgeShow, same flex row as h_onMenuToggle). Editor doesn't use TopBar at all, so
   // this stays optional rather than every caller having to pass `undefined`.
   beforeMenu?: ReactNode;
-  // Auth plan Part A §2/§8 -- Home already computes this from a real GET /projects for
-  // ProjectGrid; the account popover's N/5 line reuses the same number, no new fetch.
-  projectCount: number;
 }
 
-export default function TopBar({ prefs, onUpdatePrefs, beforeMenu, projectCount }: TopBarProps): JSX.Element {
+export default function TopBar({ prefs, onUpdatePrefs, beforeMenu }: TopBarProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const auth = useAuth();
+  // The account popover's "N/3" line — the quota model's own counter (api-contract.md §15), not
+  // a live count of the caller's current projects, so it survives project deletion the same way
+  // the backend's enforcement does. 0 while auth is still loading / for a session with no User
+  // resolved yet.
+  const projectCount = auth.user?.projects_uploaded_count ?? 0;
 
   const mode = UI_MODES[prefs.mode];
   const isLight = prefs.mode === "light";

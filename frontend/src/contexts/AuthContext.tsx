@@ -34,6 +34,11 @@ interface AuthContextValue {
   dismissTooltip: () => void;
   startGoogleOAuth: () => void;
   logout: () => Promise<void>;
+  // Re-fetches /auth/me in place, without a full reload -- unlike logout(), nothing about
+  // "who's signed in" changes here, so there's no other state that needs resetting. The one
+  // known caller is projects_uploaded_count: it only changes server-side once a transcription
+  // finishes, and nothing pushes that change to an already-mounted tab on its own.
+  refresh: () => Promise<void>;
   photoBusy: boolean;
   photoError: string | null;
   updateAvatar: (file: File) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -48,9 +53,16 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
 
+  const refresh = useCallback(async () => {
+    // getCurrentUser() never throws (see api/auth.ts) -- a network hiccup just leaves `user` as
+    // it was rather than clearing a real session out from under the account UI.
+    const next = await getCurrentUser();
+    if (next) {
+      setUser(next);
+    }
+  }, []);
+
   useEffect(() => {
-    // getCurrentUser() never throws (see api/auth.ts) -- status always reaches "ready", so this
-    // is safe against both today's authless backend (always null) and a real one later.
     void getCurrentUser().then((u) => {
       setUser(u);
       setStatus("ready");
@@ -103,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     dismissTooltip,
     startGoogleOAuth,
     logout,
+    refresh,
     photoBusy,
     photoError,
     updateAvatar,

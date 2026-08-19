@@ -22,6 +22,7 @@ export const userFixture: User = {
   avatar_url: null,
   is_guest: false,
   created_at: "2026-07-08T09:00:00Z",
+  projects_uploaded_count: 1,
 };
 
 const TRANSCRIBE_JOB_ID = "6a1c1e9c-2b4a-3d8f-8f21-abc123456700";

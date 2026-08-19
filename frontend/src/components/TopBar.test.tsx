@@ -2,8 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { User } from "../api/auth";
 import { googleOAuthUrl } from "../api/auth";
 import { AuthProvider } from "../contexts/AuthContext";
+import { PROJECT_CAP } from "../lib/limits";
 import { userFixture } from "../mocks/fixtures";
 import { server } from "../mocks/server";
 import type { Prefs } from "../theme";
@@ -12,10 +14,20 @@ import TopBar from "./TopBar";
 const prefs: Prefs = { theme: "mono", mode: "dark", lang: "en" };
 const USER_EMAIL = userFixture.email ?? "";
 
-function renderTopBar(projectCount = 2) {
+const guestFixture: User = {
+  id: "c0000000-0000-4000-8000-000000000002",
+  email: null,
+  name: null,
+  avatar_url: null,
+  is_guest: true,
+  created_at: "2026-07-08T09:00:00Z",
+  projects_uploaded_count: 2,
+};
+
+function renderTopBar() {
   return render(
     <AuthProvider>
-      <TopBar prefs={prefs} onUpdatePrefs={vi.fn()} projectCount={projectCount} />
+      <TopBar prefs={prefs} onUpdatePrefs={vi.fn()} />
     </AuthProvider>
   );
 }
@@ -61,11 +73,16 @@ function spyOnLocationReload(): ReturnType<typeof vi.fn> {
 }
 
 describe("TopBar account UI, logged out", () => {
-  it("auto-opens the tooltip once, shows the N/5 line, and outside-click closes it", async () => {
-    renderTopBar(2);
+  it(`auto-opens the tooltip once, shows the N/${PROJECT_CAP} line from the guest's own usage, and outside-click closes it`, async () => {
+    // The default MSW handler answers 401 for /auth/me (deliberate test simplification, see
+    // mocks/handlers.ts) -- the real backend never 401s here, a guest session always resolves to
+    // a real User (api-contract.md §15), quota counter included. Override it here specifically
+    // because this test asserts on that counter.
+    server.use(http.get("*/api/v1/auth/me", () => HttpResponse.json(guestFixture), { once: true }));
+    renderTopBar();
 
     expect(await screen.findByText("You haven't registered yet")).toBeInTheDocument();
-    expect(screen.getByText("2/5 projects uploaded")).toBeInTheDocument();
+    expect(screen.getByText(`2/${PROJECT_CAP} projects uploaded`)).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("account-backdrop"));
 
@@ -111,15 +128,16 @@ describe("TopBar account UI, logged out", () => {
 });
 
 describe("TopBar account UI, logged in", () => {
-  it("shows the account dropdown with name/email and a red N/5 at the cap, and logging out reloads the page", async () => {
-    server.use(http.get("*/api/v1/auth/me", () => HttpResponse.json(userFixture), { once: true }));
+  it(`shows the account dropdown with name/email and a red N/${PROJECT_CAP} at the cap, and logging out reloads the page`, async () => {
+    const atCapUser: User = { ...userFixture, projects_uploaded_count: PROJECT_CAP };
+    server.use(http.get("*/api/v1/auth/me", () => HttpResponse.json(atCapUser), { once: true }));
 
-    renderTopBar(5);
+    renderTopBar();
     // Logged in: the logged-out tooltip never auto-opens; the dropdown only opens on click.
     fireEvent.click(screen.getByTitle("Account"));
     expect(await screen.findByText("Demo User")).toBeInTheDocument();
     expect(screen.getByText(USER_EMAIL)).toBeInTheDocument();
-    const cap = screen.getByText("5/5 projects uploaded");
+    const cap = screen.getByText(`${PROJECT_CAP}/${PROJECT_CAP} projects uploaded`);
     expect(cap).toHaveStyle({ color: "#ef4444" });
 
     const reload = spyOnLocationReload();

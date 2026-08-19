@@ -101,10 +101,12 @@ export const handlers = [
     HttpResponse.json({ ...exportJobFixture, status: "cancelled" }, { status: 202 })
   ),
 
-  // Auth (plan Part A) -- no real /auth/* routes exist on the backend yet, so the default here
-  // is "logged out" (401), matching what the real backend actually returns today. Tests
-  // exercising the logged-in dropdown override this via server.use, same pattern as every other
-  // per-test override in this file.
+  // Auth -- default fixture answers "logged out" (401). Not what the real backend returns for
+  // this route (GET /auth/me always 200s with a guest User, never 401 -- api-contract.md §15),
+  // but a deliberate simplification for tests: "logged out" is the common case most tests don't
+  // care about, and getCurrentUser() already treats any failure the same as 401 (api/auth.ts).
+  // Tests exercising the logged-in dropdown override this via server.use, same pattern as every
+  // other per-test override in this file.
   http.get("*/api/v1/auth/me", () => new HttpResponse(null, { status: 401 })),
   http.post("*/api/v1/auth/logout", () => new HttpResponse(null, { status: 204 })),
   http.post("*/api/v1/auth/me/avatar", () => HttpResponse.json(userFixture)),

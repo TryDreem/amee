@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitForElementToBeRemoved } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, waitForElementToBeRemoved } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -100,6 +100,7 @@ describe("Home", () => {
   // leave to -- and nothing left to announce a result with.
   it("keeps watching a transcription after returning to the menu, then announces it in a toast", async () => {
     let pollCount = 0;
+    let authMeCallCount = 0;
     server.use(
       http.get("*/api/v1/jobs/:jobId", () => {
         pollCount += 1;
@@ -107,6 +108,10 @@ describe("Home", () => {
           return HttpResponse.json({ ...transcribeJobFixture, status: "processing", progress: "transcribing" });
         }
         return HttpResponse.json(transcribeJobFixture);
+      }),
+      http.get("*/api/v1/auth/me", () => {
+        authMeCallCount += 1;
+        return new HttpResponse(null, { status: 401 });
       })
     );
 
@@ -121,8 +126,18 @@ describe("Home", () => {
     fireEvent.click(screen.getByText("Return to main menu"));
     expect(await screen.findByText(projectFixture.name)).toBeInTheDocument();
 
+    const callsBeforeDone = authMeCallCount;
+
     // Still polling from the menu -- the toast is the only thing that says so.
     expect(await screen.findByText("Captions are ready", {}, { timeout: 4000 })).toBeInTheDocument();
+
+    // The account UI's "N/3" line only changes server-side once a job reaches "done" - nothing
+    // pushes that to an already-open tab, so Home re-fetches /auth/me itself the moment it
+    // notices (AuthContext.refresh()).
+    await waitFor(() => {
+      expect(authMeCallCount).toBeGreaterThan(callsBeforeDone);
+    });
+
     fireEvent.click(screen.getByText("Open"));
     expect(await screen.findByText("Editor placeholder")).toBeInTheDocument();
   }, 6000);

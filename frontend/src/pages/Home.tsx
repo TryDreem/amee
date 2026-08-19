@@ -10,6 +10,7 @@ import ProjectGrid from "../components/ProjectGrid";
 import SavedToast from "../components/SavedToast";
 import UploadZone from "../components/UploadZone";
 import ProcessingStatus from "../components/ProcessingStatus";
+import { useAuth } from "../contexts/AuthContext";
 import { useExport } from "../contexts/ExportContext";
 import { useTranscribe } from "../contexts/TranscribeContext";
 import { useAmeePrefs } from "../hooks/useAmeePrefs";
@@ -87,6 +88,7 @@ export default function Home(): JSX.Element {
   const transcribeCtx = useTranscribe();
   const job = jobId ? (transcribeCtx.jobsById[jobId] ?? null) : null;
   const pollError = jobId ? (transcribeCtx.pollErrorsById[jobId] ?? null) : null;
+  const auth = useAuth();
 
   // Step 11d: Home's export ring badge (design: h_exportBadge*) reads the same cross-page context
   // Editor writes to (Step 11a) -- unscoped by project, since this page shows exports from every
@@ -127,6 +129,23 @@ export default function Home(): JSX.Element {
   const finishedTranscribeJob = finishedTranscribeRecord
     ? transcribeCtx.jobsById[finishedTranscribeRecord.id]
     : undefined;
+
+  // The account UI's "N/3" line (projects_uploaded_count) only changes server-side once a
+  // transcription actually finishes -- nothing pushes that change to an already-open tab, so it
+  // has to be pulled. Watches every tracked job, not just finishedTranscribeRecord above (that
+  // one deliberately excludes the job the processing screen is already showing, which is exactly
+  // the common case for this). refreshedForJobRef guards against re-firing on every poll tick
+  // once a job has already reached "done" once.
+  const refreshedForJobRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const record of transcribeCtx.records) {
+      const job_ = transcribeCtx.jobsById[record.id];
+      if (job_?.status === "done" && !refreshedForJobRef.current.has(record.id)) {
+        refreshedForJobRef.current.add(record.id);
+        void auth.refresh();
+      }
+    }
+  }, [transcribeCtx.records, transcribeCtx.jobsById, auth]);
 
   function handleExportBadgeClick() {
     if (leadingExportRecord) {
@@ -405,7 +424,6 @@ export default function Home(): JSX.Element {
       <TopBar
         prefs={prefs}
         onUpdatePrefs={update}
-        projectCount={projectPage?.total ?? 0}
         beforeMenu={
           activeExportRecords.length > 0 && (
             <ExportBadge
