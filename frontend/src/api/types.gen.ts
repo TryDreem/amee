@@ -4,6 +4,99 @@
  */
 
 export interface paths {
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Me */
+        get: operations["get_me_api_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Update Avatar */
+        post: operations["update_avatar_api_v1_auth_me_avatar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/google/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Google Start
+         * @description 302s to Google's consent screen. Not a JSON endpoint — the browser navigates here.
+         */
+        get: operations["google_start_api_v1_auth_google_start_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/google/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Google Callback
+         * @description Where Google sends the browser back. Every failure path lands the user back on the
+         *     frontend with a query flag rather than showing them a raw API error page — they arrived here
+         *     by clicking a button in the app, so the app is where they should end up either way.
+         */
+        get: operations["google_callback_api_v1_auth_google_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects": {
         parameters: {
             query?: never;
@@ -252,12 +345,23 @@ export interface components {
     schemas: {
         /** Body_create_project_api_v1_projects_post */
         Body_create_project_api_v1_projects_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /** Name */
             name?: string | null;
             /** Language */
             language?: string | null;
+        };
+        /** Body_update_avatar_api_v1_auth_me_avatar_post */
+        Body_update_avatar_api_v1_auth_me_avatar_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
         };
         /** Bounds */
         Bounds: {
@@ -305,7 +409,7 @@ export interface components {
              */
             perPhraseStyle: boolean;
             /** @default {} */
-            overrides: components["schemas"]["StyleOverrides"];
+            overrides: components["schemas"]["StyleOverrides-Output"];
         };
         /**
          * CaptionStyleSpecPutBody
@@ -323,7 +427,7 @@ export interface components {
              */
             perPhraseStyle: boolean;
             /** @default {} */
-            overrides: components["schemas"]["StyleOverrides"];
+            overrides: components["schemas"]["StyleOverrides-Input"];
         };
         /** ECS */
         ECS: {
@@ -338,7 +442,7 @@ export interface components {
              */
             owner_id: string;
             /** Segments */
-            segments: components["schemas"]["Segment"][];
+            segments: components["schemas"]["Segment-Output"][];
         };
         /**
          * ECSPutBody
@@ -347,7 +451,7 @@ export interface components {
          */
         ECSPutBody: {
             /** Segments */
-            segments: components["schemas"]["Segment"][];
+            segments: components["schemas"]["Segment-Input"][];
         };
         /**
          * ExportRequestBody
@@ -646,7 +750,7 @@ export interface components {
          */
         RecalculateGroupsResult: {
             /** Segments */
-            segments: components["schemas"]["Segment"][];
+            segments: components["schemas"]["Segment-Output"][];
         };
         /**
          * ResetToRawResult
@@ -664,7 +768,7 @@ export interface components {
              */
             owner_id: string;
             /** Segments */
-            segments: components["schemas"]["Segment"][];
+            segments: components["schemas"]["Segment-Output"][];
         };
         /**
          * RevealMode
@@ -690,7 +794,7 @@ export interface components {
          *     never carrying Style (INVARIANTS D11, arch §4.2) — only meaningful when
          *     the project's `CaptionStyleSpec.perPhraseStyle` is true.
          */
-        Segment: {
+        "Segment-Input": {
             /**
              * Id
              * Format: uuid
@@ -698,14 +802,62 @@ export interface components {
             id: string;
             /** Words */
             words: components["schemas"]["Word"][];
-            overrides?: components["schemas"]["StyleOverrides"] | null;
+            overrides?: components["schemas"]["StyleOverrides-Input"] | null;
+        };
+        /**
+         * Segment
+         * @description No `start`/`end` — segment bounds are derived from words, never stored
+         *     (INVARIANTS D5). `overrides` is the one deliberate exception to Data
+         *     never carrying Style (INVARIANTS D11, arch §4.2) — only meaningful when
+         *     the project's `CaptionStyleSpec.perPhraseStyle` is true.
+         */
+        "Segment-Output": {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Words */
+            words: components["schemas"]["Word"][];
+            overrides?: components["schemas"]["StyleOverrides-Output"] | null;
         };
         /**
          * StyleOverrides
          * @description Sparse by design — only fields that differ from the preset's base values
          *     need to be present (contract §8). No `horizontalAlign` (INVARIANTS L5).
          */
-        StyleOverrides: {
+        "StyleOverrides-Input": {
+            /** Fontsize */
+            fontSize?: number | null;
+            /** Fontfamily */
+            fontFamily?: string | null;
+            /** Fontweight */
+            fontWeight?: number | string | null;
+            /** Color */
+            color?: string | null;
+            /** Highlightcolors */
+            highlightColors?: string[] | null;
+            textTransform?: components["schemas"]["TextTransform"] | null;
+            /** Italic */
+            italic?: boolean | null;
+            /** Glow */
+            glow?: boolean | null;
+            outline?: components["schemas"]["OutlineOrShadow"] | null;
+            shadow?: components["schemas"]["OutlineOrShadow"] | null;
+            /** Showpunctuation */
+            showPunctuation?: boolean | null;
+            revealMode?: components["schemas"]["RevealMode"] | null;
+            captionAnimation?: components["schemas"]["CaptionAnimation"] | null;
+            /** Verticalposition */
+            verticalPosition?: number | null;
+            safeArea?: components["schemas"]["SafeArea"] | null;
+        };
+        /**
+         * StyleOverrides
+         * @description Sparse by design — only fields that differ from the preset's base values
+         *     need to be present (contract §8). No `horizontalAlign` (INVARIANTS L5).
+         */
+        "StyleOverrides-Output": {
             /** Fontsize */
             fontSize?: number | null;
             /** Fontfamily */
@@ -736,6 +888,35 @@ export interface components {
          * @enum {string}
          */
         TextTransform: "none" | "uppercase";
+        /**
+         * User
+         * @description Wire shape for GET /auth/me and friends (docs/api-contract.md §15). Matches
+         *     frontend/src/api/auth.ts's hand-authored `User` interface field-for-field on purpose - once
+         *     `make types` runs against this, that hand-authored copy is deleted in favor of the generated
+         *     one with zero call-site changes on the frontend.
+         */
+        User: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Email */
+            email: string | null;
+            /** Name */
+            name: string | null;
+            /** Avatar Url */
+            avatar_url: string | null;
+            /** Is Guest */
+            is_guest: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Projects Uploaded Count */
+            projects_uploaded_count: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -744,10 +925,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
         /** Word */
         Word: {
@@ -772,6 +949,142 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_me_api_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Resolved session pointed at a since-deleted user */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_avatar_api_v1_auth_me_avatar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_update_avatar_api_v1_auth_me_avatar_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Resolved session pointed at a since-deleted user */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unsupported image format or file too large */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    google_start_api_v1_auth_google_start_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    google_callback_api_v1_auth_google_callback_get: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_projects_api_v1_projects_get: {
         parameters: {
             query?: {
@@ -838,6 +1151,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Per-IP upload rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     get_project_api_v1_projects__project_id__get: {
@@ -860,7 +1180,7 @@ export interface operations {
                     "application/json": components["schemas"]["Project"];
                 };
             };
-            /** @description Project not found */
+            /** @description Project not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -896,7 +1216,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project not found */
+            /** @description Project not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -939,7 +1259,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Project not found */
+            /** @description Project not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -977,6 +1297,13 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
+            /** @description Project not found, or not owned by the caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description A transcribe job is already queued/processing/done */
             409: {
                 headers: {
@@ -992,6 +1319,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description Per-user action rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1015,7 +1349,7 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
-            /** @description Job not found */
+            /** @description Job not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1053,7 +1387,7 @@ export interface operations {
                     "application/json": components["schemas"]["RawTranscript"];
                 };
             };
-            /** @description Not transcribed yet */
+            /** @description Not transcribed yet, not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1091,7 +1425,7 @@ export interface operations {
                     "application/json": components["schemas"]["ECS"];
                 };
             };
-            /** @description Not transcribed yet */
+            /** @description Not transcribed yet, not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1133,7 +1467,7 @@ export interface operations {
                     "application/json": components["schemas"]["ECS"];
                 };
             };
-            /** @description Not transcribed yet */
+            /** @description Not transcribed yet, not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1169,7 +1503,7 @@ export interface operations {
                     "application/json": components["schemas"]["CaptionStyleSpec"];
                 };
             };
-            /** @description Project not found */
+            /** @description Project not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1211,7 +1545,7 @@ export interface operations {
                     "application/json": components["schemas"]["CaptionStyleSpec"];
                 };
             };
-            /** @description Project not found */
+            /** @description Project not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1320,7 +1654,7 @@ export interface operations {
                     "application/json": components["schemas"]["PolymorphicJobResponse"];
                 };
             };
-            /** @description Not transcribed yet */
+            /** @description Not transcribed yet, not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1362,8 +1696,22 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
+            /** @description Project not found, or not owned by the caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation failed (shared with PUT /ecs, PUT /style) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Per-user action rate limit exceeded */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1395,8 +1743,22 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
+            /** @description Project not found, or not owned by the caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation failed (request body is not persisted) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Per-user action rate limit exceeded */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1425,7 +1787,7 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
-            /** @description Project or job not found */
+            /** @description Project or job not found, or not owned by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;

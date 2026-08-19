@@ -6,12 +6,17 @@ export type ProjectSort = components["schemas"]["ProjectSort"];
 export type Job = components["schemas"]["Job"];
 export type RawTranscript = components["schemas"]["RawTranscript"];
 export type ECS = components["schemas"]["ECS"];
-export type Segment = components["schemas"]["Segment"];
+// CaptionStyleSpec.overrides has a StyleOverrides() model instance as its default (not `None`),
+// which makes Pydantic v2 emit separate -Input/-Output schema variants for it and, transitively,
+// for every type that references it (Segment included) - the two variants are structurally
+// identical field-for-field, so -Output (the shape a GET response actually has) is used uniformly
+// here for both reading and constructing PUT bodies.
+export type Segment = components["schemas"]["Segment-Output"];
 export type Word = components["schemas"]["Word"];
 export type CaptionStyleSpec = components["schemas"]["CaptionStyleSpec"];
 export type Preset = components["schemas"]["Preset"];
 export type PresetBase = components["schemas"]["PresetBase"];
-export type StyleOverrides = components["schemas"]["StyleOverrides"];
+export type StyleOverrides = components["schemas"]["StyleOverrides-Output"];
 export type OutlineOrShadow = components["schemas"]["OutlineOrShadow"];
 export type RevealMode = components["schemas"]["RevealMode"];
 export type CaptionAnimation = components["schemas"]["CaptionAnimation"];
