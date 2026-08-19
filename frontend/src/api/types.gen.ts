@@ -345,10 +345,7 @@ export interface components {
     schemas: {
         /** Body_create_project_api_v1_projects_post */
         Body_create_project_api_v1_projects_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Name */
             name?: string | null;
@@ -357,10 +354,7 @@ export interface components {
         };
         /** Body_update_avatar_api_v1_auth_me_avatar_post */
         Body_update_avatar_api_v1_auth_me_avatar_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Bounds */
@@ -409,7 +403,7 @@ export interface components {
              */
             perPhraseStyle: boolean;
             /** @default {} */
-            overrides: components["schemas"]["StyleOverrides-Output"];
+            overrides: components["schemas"]["StyleOverrides"];
         };
         /**
          * CaptionStyleSpecPutBody
@@ -427,7 +421,7 @@ export interface components {
              */
             perPhraseStyle: boolean;
             /** @default {} */
-            overrides: components["schemas"]["StyleOverrides-Input"];
+            overrides: components["schemas"]["StyleOverrides"];
         };
         /** ECS */
         ECS: {
@@ -442,7 +436,7 @@ export interface components {
              */
             owner_id: string;
             /** Segments */
-            segments: components["schemas"]["Segment-Output"][];
+            segments: components["schemas"]["Segment"][];
         };
         /**
          * ECSPutBody
@@ -451,7 +445,7 @@ export interface components {
          */
         ECSPutBody: {
             /** Segments */
-            segments: components["schemas"]["Segment-Input"][];
+            segments: components["schemas"]["Segment"][];
         };
         /**
          * ExportRequestBody
@@ -750,7 +744,7 @@ export interface components {
          */
         RecalculateGroupsResult: {
             /** Segments */
-            segments: components["schemas"]["Segment-Output"][];
+            segments: components["schemas"]["Segment"][];
         };
         /**
          * ResetToRawResult
@@ -768,7 +762,7 @@ export interface components {
              */
             owner_id: string;
             /** Segments */
-            segments: components["schemas"]["Segment-Output"][];
+            segments: components["schemas"]["Segment"][];
         };
         /**
          * RevealMode
@@ -794,7 +788,7 @@ export interface components {
          *     never carrying Style (INVARIANTS D11, arch §4.2) — only meaningful when
          *     the project's `CaptionStyleSpec.perPhraseStyle` is true.
          */
-        "Segment-Input": {
+        Segment: {
             /**
              * Id
              * Format: uuid
@@ -802,62 +796,14 @@ export interface components {
             id: string;
             /** Words */
             words: components["schemas"]["Word"][];
-            overrides?: components["schemas"]["StyleOverrides-Input"] | null;
-        };
-        /**
-         * Segment
-         * @description No `start`/`end` — segment bounds are derived from words, never stored
-         *     (INVARIANTS D5). `overrides` is the one deliberate exception to Data
-         *     never carrying Style (INVARIANTS D11, arch §4.2) — only meaningful when
-         *     the project's `CaptionStyleSpec.perPhraseStyle` is true.
-         */
-        "Segment-Output": {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Words */
-            words: components["schemas"]["Word"][];
-            overrides?: components["schemas"]["StyleOverrides-Output"] | null;
+            overrides?: components["schemas"]["StyleOverrides"] | null;
         };
         /**
          * StyleOverrides
          * @description Sparse by design — only fields that differ from the preset's base values
          *     need to be present (contract §8). No `horizontalAlign` (INVARIANTS L5).
          */
-        "StyleOverrides-Input": {
-            /** Fontsize */
-            fontSize?: number | null;
-            /** Fontfamily */
-            fontFamily?: string | null;
-            /** Fontweight */
-            fontWeight?: number | string | null;
-            /** Color */
-            color?: string | null;
-            /** Highlightcolors */
-            highlightColors?: string[] | null;
-            textTransform?: components["schemas"]["TextTransform"] | null;
-            /** Italic */
-            italic?: boolean | null;
-            /** Glow */
-            glow?: boolean | null;
-            outline?: components["schemas"]["OutlineOrShadow"] | null;
-            shadow?: components["schemas"]["OutlineOrShadow"] | null;
-            /** Showpunctuation */
-            showPunctuation?: boolean | null;
-            revealMode?: components["schemas"]["RevealMode"] | null;
-            captionAnimation?: components["schemas"]["CaptionAnimation"] | null;
-            /** Verticalposition */
-            verticalPosition?: number | null;
-            safeArea?: components["schemas"]["SafeArea"] | null;
-        };
-        /**
-         * StyleOverrides
-         * @description Sparse by design — only fields that differ from the preset's base values
-         *     need to be present (contract §8). No `horizontalAlign` (INVARIANTS L5).
-         */
-        "StyleOverrides-Output": {
+        StyleOverrides: {
             /** Fontsize */
             fontSize?: number | null;
             /** Fontfamily */
@@ -925,6 +871,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /** Word */
         Word: {
