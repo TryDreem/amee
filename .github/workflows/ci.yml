@@ -63,7 +63,13 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        # azure.archive.ubuntu.com (the runner's default mirror) occasionally stalls for minutes
+        # per retry - archive.ubuntu.com answers fine in the same log, so cap the per-request
+        # timeout instead of letting `apt-get update` eat the whole job's 20-minute budget.
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
+          sudo apt-get install -y ffmpeg
 
       - run: pip install -e "backend[dev]"
       - name: run migrations
