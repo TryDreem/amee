@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from app.db import async_session_factory
-from app.integrations import browser_render
 from app.integrations import redis as redis_integration
 from app.integrations import storage
 from app.integrations.ffmpeg import (
@@ -342,6 +341,13 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
     generation is a separate job (`_do_srt_export`) that does not persist
     anything (X6); the internal JSON bundle this used to also produce has
     been removed entirely (Step 13)."""
+    # Imported here, not at module level, same reasoning as whisperx.py's own lazy import: a
+    # top-level `from app.integrations import browser_render` would pull Playwright into every
+    # process that imports app.workers.tasks just to reference a task for .delay() - including
+    # the API server itself (services/export.py does exactly that) - even though only this one
+    # function ever actually touches a browser.
+    from app.integrations import browser_render
+
     if await redis_integration.is_export_cancel_requested(str(job_id)):
         raise ExportCancelled()
 

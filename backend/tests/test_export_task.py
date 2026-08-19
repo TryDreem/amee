@@ -173,7 +173,11 @@ def test_export_task_reports_progress_to_redis_and_clears_it_on_done(
         await original_set(job_id_str, percent)
 
     with (
-        patch("app.workers.tasks.browser_render.render_frames", _fake_render_frames),
+        # browser_render is imported lazily inside _do_export now (same reasoning as
+        # whisperx.py's own lazy import - keeps Playwright out of the API server's process,
+        # which imports this module transitively via services/export.py), so the patch target
+        # is the real module, not a module-level name on tasks that no longer exists.
+        patch("app.integrations.browser_render.render_frames", _fake_render_frames),
         patch("app.workers.tasks.burn_in_captions", _fake_burn_in_captions),
         patch(
             "app.workers.tasks.redis_integration.set_export_progress",
