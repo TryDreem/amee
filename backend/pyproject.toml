@@ -16,6 +16,9 @@ dependencies = [
   # a runtime dependency of the export worker, not a dev/test tool. The Chromium binary itself is
   # not on PyPI — `playwright install chromium` fetches it separately (see README).
   "playwright>=1.47",
+  # app/integrations/google_oauth.py calls Google's token/userinfo endpoints with this directly —
+  # a real runtime dependency of the API process, not just the test suite's fastapi.testclient use.
+  "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -24,7 +27,6 @@ dev = [
   "mypy>=1.11",
   "pytest>=8.3",
   "pytest-asyncio>=0.24",
-  "httpx>=0.27",
   # Reads the alpha channel of rendered caption frames. Test-only, but not optional: without a
   # real pixel check, an opaque render surface passes every structural assertion (valid PNG, right
   # dimensions, expected text) and still covers the entire video once composited - which is
