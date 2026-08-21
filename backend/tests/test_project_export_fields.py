@@ -42,7 +42,7 @@ async def _create_transcribed_project(
     async with async_session_factory() as session:
         owner = await user_repo.create_guest(session)
         project_id = uuid.uuid4()
-        _, video_url = storage.save_video(
+        _, video_url = await storage.save_video(
             project_id, "sample.mp4", video_path.read_bytes()
         )
         project = await project_repo.create(

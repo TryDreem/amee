@@ -117,7 +117,7 @@ async def update_avatar(
     if user is None:
         return None
 
-    _, avatar_url = storage.save_avatar(user_id, filename, content)
+    _, avatar_url = await storage.save_avatar(user_id, filename, content)
     updated = await user_repo.update_avatar(session, user, avatar_url=avatar_url)
     return _to_schema(updated)
 

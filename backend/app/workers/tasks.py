@@ -93,7 +93,7 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
             project = await project_repo.get(session, project_id)
         if project is None:
             raise ValueError(f"project {project_id} not found")
-        video_path = storage.resolve_url(project.video_url)
+        video_path = await storage.resolve_url(project.video_url)
         source_video_url = project.video_url
 
         probe_task: asyncio.Task[VideoProbe] = asyncio.create_task(
@@ -368,7 +368,7 @@ async def _do_export(project_id: uuid.UUID, job_id: uuid.UUID) -> dict[str, str]
         if preset is None:
             raise ValueError(f"preset {style.presetId} not found")
 
-    video_path = storage.resolve_url(project.video_url)
+    video_path = await storage.resolve_url(project.video_url)
     video_dest, video_url = storage.video_export_paths(project_id, job_id)
     probe = await probe_video(video_path)
 

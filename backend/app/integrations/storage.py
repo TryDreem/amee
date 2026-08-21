@@ -18,11 +18,13 @@ def project_dir(project_id: UUID) -> Path:
     return storage_dir() / "projects" / str(project_id)
 
 
-def save_video(project_id: UUID, filename: str, content: bytes) -> tuple[Path, str]:
-    """Writes the uploaded video to disk. Returns (disk path, video_url) — the
-    caller needs the disk path for the immediate ffmpeg probe and the URL for
-    the Project record; computing the destination filename twice would be a
-    second place for the two to drift apart."""
+async def save_video(
+    project_id: UUID, filename: str, content: bytes
+) -> tuple[Path, str]:
+    """Writes the uploaded video to disk. Returns (disk path, video_url).
+    Async in anticipation of a non-local backend (a real network write) —
+    today's local-disk body does no actual awaiting, only the signature
+    changed."""
     ext = Path(filename).suffix or ".mp4"
     directory = project_dir(project_id)
     directory.mkdir(parents=True, exist_ok=True)
@@ -31,7 +33,7 @@ def save_video(project_id: UUID, filename: str, content: bytes) -> tuple[Path, s
     return dest, f"/files/projects/{project_id}/{dest.name}"
 
 
-def save_avatar(user_id: UUID, filename: str, content: bytes) -> tuple[Path, str]:
+async def save_avatar(user_id: UUID, filename: str, content: bytes) -> tuple[Path, str]:
     """Writes an uploaded profile photo to disk (POST /auth/me/avatar) — the one storage helper
     in this module keyed by user id rather than project id. Re-upload overwrites in place: any
     previously stored avatar.* file is removed first, so switching .jpg -> .png doesn't leave the
@@ -91,7 +93,7 @@ def srt_export_paths(project_id: UUID, job_id: UUID) -> tuple[Path, str]:
     return dest, f"/files/projects/{project_id}/exports/{job_id}/{dest.name}"
 
 
-def delete_project_files(project_id: UUID) -> None:
+async def delete_project_files(project_id: UUID) -> None:
     """`DELETE /projects/{id}` (contract §4, X8): one recursive delete of
     the whole project directory - source video, thumbnail, preview proxy,
     and every past export all live under this single path (`project_dir`),
@@ -103,7 +105,7 @@ def delete_project_files(project_id: UUID) -> None:
         shutil.rmtree(directory)
 
 
-def resolve_url(url: str) -> Path:
+async def resolve_url(url: str) -> Path:
     """Maps a `/files/...` URL (as returned by save_video, or anything else
     stored this way) back to its real disk path — the only other place
     besides save_video that's allowed to know the mapping."""

@@ -28,7 +28,7 @@ async def _seed_project(owner_id: uuid.UUID, sample_video: Path) -> uuid.UUID:
     """A project plus its style row, so the multi-table reassignment has something to move in
     more than one table."""
     project_id = uuid.uuid4()
-    _, video_url = storage.save_video(
+    _, video_url = await storage.save_video(
         project_id, "sample.mp4", sample_video.read_bytes()
     )
     async with async_session_factory() as session:

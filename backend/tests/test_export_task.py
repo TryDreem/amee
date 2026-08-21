@@ -38,7 +38,7 @@ def eager_celery() -> Iterator[None]:
 async def _create_export_job(video_path: Path) -> uuid.UUID:
     async with async_session_factory() as session:
         project_id = uuid.uuid4()
-        _, video_url = storage.save_video(
+        _, video_url = await storage.save_video(
             project_id, "sample.mp4", video_path.read_bytes()
         )
         project = await project_repo.create(
@@ -98,7 +98,7 @@ def test_export_task_produces_video_only(
     assert finished.result is not None
     assert set(finished.result.keys()) == {"video_url"}
 
-    video_path = storage.resolve_url(finished.result["video_url"])
+    video_path = asyncio.run(storage.resolve_url(finished.result["video_url"]))
     assert video_path.exists() and video_path.stat().st_size > 0
 
 

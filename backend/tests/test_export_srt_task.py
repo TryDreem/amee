@@ -68,7 +68,7 @@ async def _create_srt_job(video_path: Path) -> uuid.UUID:
     them is the point of the "no video dimensions required" test below."""
     async with async_session_factory() as session:
         project_id = uuid.uuid4()
-        _, video_url = storage.save_video(
+        _, video_url = await storage.save_video(
             project_id, "sample.mp4", video_path.read_bytes()
         )
         project = await project_repo.create(
@@ -110,7 +110,7 @@ def test_export_srt_task_produces_srt_without_video_dimensions(
     assert finished.result is not None
     assert set(finished.result.keys()) == {"srt_url"}
 
-    srt_path = storage.resolve_url(finished.result["srt_url"])
+    srt_path = asyncio.run(storage.resolve_url(finished.result["srt_url"]))
     text = srt_path.read_text()
     assert "hello" in text
     assert "world" in text

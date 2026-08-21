@@ -27,7 +27,7 @@ async def _create_project(sample_video: Path) -> tuple[uuid.UUID, dict[str, str]
     async with async_session_factory() as session:
         owner = await user_repo.create_guest(session)
         project_id = uuid.uuid4()
-        _, video_url = storage.save_video(
+        _, video_url = await storage.save_video(
             project_id, "sample.mp4", sample_video.read_bytes()
         )
         project = await project_repo.create(
@@ -116,7 +116,7 @@ async def test_export_srt_does_not_persist_ecs_or_style(sample_video: Path) -> N
     async with async_session_factory() as session:
         owner = await user_repo.create_guest(session)
         project_id = uuid.uuid4()
-        _, video_url = storage.save_video(
+        _, video_url = await storage.save_video(
             project_id, "sample.mp4", sample_video.read_bytes()
         )
         project = await project_repo.create(

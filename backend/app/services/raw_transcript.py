@@ -37,7 +37,7 @@ async def create_raw_transcript(
     if project is None:
         raise ValueError(f"project {project_id} not found")
 
-    video_path = storage.resolve_url(project.video_url)
+    video_path = await storage.resolve_url(project.video_url)
     # WhisperX is a synchronous, CPU-bound call — run it off the event loop
     # so the other three branches of the transcribe job (arch §2.8b-d), all
     # genuinely async ffmpeg subprocesses, can actually run concurrently

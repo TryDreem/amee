@@ -57,7 +57,7 @@ def eager_celery() -> Iterator[None]:
 async def _create_queued_job(video_path: Path) -> uuid.UUID:
     async with async_session_factory() as session:
         project_id = uuid.uuid4()
-        _, video_url = storage.save_video(
+        _, video_url = await storage.save_video(
             project_id, "sample.mp4", video_path.read_bytes()
         )
         project = await project_repo.create(
@@ -87,7 +87,7 @@ async def _create_queued_job_with_real_owner(
     async with async_session_factory() as session:
         owner = await user_repo.create_guest(session)
         project_id = uuid.uuid4()
-        _, video_url = storage.save_video(
+        _, video_url = await storage.save_video(
             project_id, "sample.mp4", video_path.read_bytes()
         )
         project = await project_repo.create(

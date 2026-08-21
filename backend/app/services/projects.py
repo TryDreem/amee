@@ -148,7 +148,7 @@ async def create_project(
     # preview_video_url all start null and are filled in later by the
     # transcribe job.
     project_id = uuid.uuid4()
-    _, video_url = storage.save_video(project_id, filename, content)
+    _, video_url = await storage.save_video(project_id, filename, content)
     model = await project_repo.create(
         session,
         project_id=project_id,
@@ -262,5 +262,5 @@ async def delete_project(session: AsyncSession, project_id: uuid.UUID) -> bool:
     await raw_transcript_repo.delete_by_project(session, project_id)
     await project_repo.delete(session, project_id)
 
-    storage.delete_project_files(project_id)
+    await storage.delete_project_files(project_id)
     return True
