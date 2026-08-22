@@ -93,6 +93,7 @@ export default function AccountDropdown({
           <input
             ref={fileInputRef}
             type="file"
+            data-testid="account-avatar-file-input"
             accept="image/png,image/jpeg,image/webp"
             onChange={(e) => {
               const file = e.target.files?.[0];

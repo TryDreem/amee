@@ -160,4 +160,31 @@ describe("TopBar account UI, logged in", () => {
     expect(await screen.findByText(USER_EMAIL)).toBeInTheDocument();
     expect(screen.queryByTestId("account-avatar-img")).not.toBeInTheDocument();
   });
+
+  it("cache-busts the avatar image after a re-upload, even when the URL string is unchanged", async () => {
+    // storage.py's avatar filenames are content-addressed by extension, so a same-extension
+    // re-upload returns the exact same avatar_url as before - without a cache-busting query
+    // param, the <img> would keep showing the browser's cached copy of the old photo until a
+    // hard reload.
+    const withAvatar: User = { ...userFixture, avatar_url: "/files/users/x/avatar.jpg" };
+    server.use(http.get("*/api/v1/auth/me", () => HttpResponse.json(withAvatar), { once: true }));
+    server.use(
+      http.post("*/api/v1/auth/me/avatar", () => HttpResponse.json(withAvatar), { once: true })
+    );
+    renderTopBar();
+
+    fireEvent.click(screen.getByTitle("Account"));
+    const before = await screen.findByTestId("account-avatar-img");
+    expect(before).toHaveAttribute("src", expect.stringContaining("/files/users/x/avatar.jpg"));
+
+    const file = new File(["new photo bytes"], "new.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByTestId("account-avatar-file-input"), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() => {
+      const after = screen.getByTestId("account-avatar-img");
+      expect(after.getAttribute("src")).toMatch(/\/files\/users\/x\/avatar\.jpg\?t=\d+$/);
+    });
+  });
 });

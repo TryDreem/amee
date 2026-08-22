@@ -94,7 +94,17 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       setPhotoError(null);
       try {
         const next = await apiUpdateAvatar(file);
-        setUser(next);
+        // avatar_url is content-addressed by extension (storage.py), so a same-extension
+        // re-upload returns the exact same URL string as before - the browser then just serves
+        // its cached copy of the old image instead of re-fetching, and the new photo only shows
+        // up after a hard reload. A cache-busting query param forces a fresh fetch right now;
+        // a plain page load still uses the clean URL from the server, so this doesn't grow
+        // unbounded across sessions.
+        setUser(
+          next.avatar_url
+            ? { ...next, avatar_url: `${next.avatar_url}?t=${Date.now()}` }
+            : next
+        );
         return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : "Couldn't update your photo.";
