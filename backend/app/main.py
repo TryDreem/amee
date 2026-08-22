@@ -3,8 +3,7 @@ import os
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 from app.api.v1.router import api_router
 from app.exceptions import DomainValidationError, RateLimitedError
@@ -28,10 +27,38 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api/v1")
 
-# video_url / json_url / etc. (contract §4, §12) point here — storage.py is
-# still the only thing that decides the actual disk layout.
+# video_url / json_url / etc. (contract §4, §12) point here — storage.py is still the only thing
+# that decides the actual disk layout. One route, not an import-time mount-vs-redirect branch:
+# storage.backend()/storage.storage_dir() are both read fresh per request, same "never cached"
+# convention storage.py itself already uses everywhere - a module-level branch or a cached root
+# path would also make this untestable within one test process, since conftest.py imports this
+# module exactly once.
 storage.storage_dir().mkdir(parents=True, exist_ok=True)
-app.mount("/files", StaticFiles(directory=storage.storage_dir()), name="files")
+
+
+@app.get("/files/{path:path}", include_in_schema=False)
+async def get_file(path: str) -> Response:
+    if storage.backend() == "blob":
+        # 302 straight to a signed Blob URL - offloads bandwidth entirely from the
+        # memory-constrained API VM instead of streaming bytes through it. Cache-Control: no-store
+        # matters: a cached redirect surviving past the SAS TTL would 403 from Blob instead of
+        # quietly re-resolving. No existence check first - a missing blob just breaks the
+        # <video>/<img> the same way a 404 would have, and costs one less round trip.
+        sas_url = await storage.public_url(f"/files/{path}")
+        return RedirectResponse(
+            sas_url, status_code=302, headers={"Cache-Control": "no-store"}
+        )
+    # Manual FileResponse instead of StaticFiles: same behavior (StaticFiles.file_response()
+    # just constructs a FileResponse internally - same Range-request support via the unconditional
+    # accept-ranges header, same guessed media_type, no Content-Disposition either way since
+    # neither call passes filename=), but reachable dynamically per-request like the blob branch
+    # above, not fixed once at import time.
+    files_root = storage.storage_dir().resolve()
+    full_path = (files_root / path).resolve()
+    if not full_path.is_relative_to(files_root) or not full_path.is_file():
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(full_path)
+
 
 _STATUS_CODES = {
     404: "not_found",

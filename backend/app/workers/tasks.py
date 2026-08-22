@@ -202,6 +202,9 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
             await extract_thumbnail(
                 video_path, probe.duration_seconds, thumb_path, is_hdr=probe.is_hdr
             )
+            # Before the commit that reveals thumb_url below - a concurrent GET
+            # /projects/{id} can already see it while this job is still `processing`.
+            await storage.publish(thumb_url)
             async with async_session_factory() as session:
                 await project_repo.update_media(
                     session,
@@ -217,7 +220,9 @@ async def _run_transcribe(job_id: uuid.UUID) -> None:
             if probe.height > _PROXY_HEIGHT_THRESHOLD:
                 proxy_dest, preview_url = storage.proxy_path(project_id)
                 await transcode_proxy(video_path, proxy_dest)
+                await storage.publish(preview_url)
             else:
+                # Already published by save_video when the source was uploaded - no re-publish.
                 preview_url = source_video_url
             async with async_session_factory() as session:
                 await project_repo.update_preview(
@@ -309,6 +314,14 @@ async def _run_job(
                 error=None if cancelled else str(exc),
             )
         return
+
+    # One shared publish point for both export flavors (video_url or srt_url) - unlike the
+    # transcribe branches above, nothing reveals either URL to a reader until the `done` update
+    # below, so publishing at the job's single success boundary is enough. This also gets X7 (no
+    # partial output survives a cancel/failure) for free in blob mode: a cancelled/failed export's
+    # already-unlinked local file never reaches this line, so no partial blob is ever created.
+    for url in result.values():
+        await storage.publish(url)
 
     await redis_integration.clear_export_progress(str(job_id))
     await redis_integration.clear_export_pid(str(job_id))

@@ -19,6 +19,10 @@ dependencies = [
   # app/integrations/google_oauth.py calls Google's token/userinfo endpoints with this directly —
   # a real runtime dependency of the API process, not just the test suite's fastapi.testclient use.
   "httpx>=0.27",
+  # app/integrations/storage.py's blob backend (AMEE_STORAGE_BACKEND=blob) — the shared file store
+  # between the API VM and a separate worker VM (arch §2.1). [aio] pulls in aiohttp, required by
+  # azure.storage.blob.aio and not installed by default.
+  "azure-storage-blob[aio]>=12.19",
 ]
 
 [project.optional-dependencies]
