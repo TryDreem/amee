@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.integrations import azure_vm
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
 from app.schemas.job import Job, JobStatus, JobType
@@ -42,4 +43,5 @@ async def start_transcription(
         job_type=JobType.transcribe,
     )
     transcribe_task.delay(str(job.id))
+    azure_vm.fire_and_forget(azure_vm.ensure_vm2_running())
     return await job_service.get_job(session, job.id)

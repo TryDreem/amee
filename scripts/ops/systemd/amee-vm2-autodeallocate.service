@@ -1,0 +1,10 @@
+[Unit]
+Description=Amee VM#2 self-deallocate check (one-shot, triggered by the matching .timer)
+After=network.target
+
+[Service]
+Type=oneshot
+User=azureuser
+WorkingDirectory=/home/azureuser/amee/backend
+EnvironmentFile=/home/azureuser/amee/backend/.env.production
+ExecStart=/home/azureuser/amee/backend/venv/bin/python /home/azureuser/amee/scripts/ops/vm2_self_deallocate.py

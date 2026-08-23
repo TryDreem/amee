@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import DomainValidationError
+from app.integrations import azure_vm
 from app.integrations import redis as redis_integration
 from app.models.project import ProjectModel
 from app.repositories import ecs as ecs_repo
@@ -94,6 +95,7 @@ async def start_export(
         job_type=JobType.export,
     )
     export_task.delay(str(job.id))
+    azure_vm.fire_and_forget(azure_vm.ensure_vm2_running())
     return await job_service.get_job(session, job.id)
 
 
@@ -121,6 +123,7 @@ async def start_export_srt(
         job_type=JobType.export_srt,
     )
     export_srt_task.delay(str(job.id), body.model_dump(mode="json"))
+    azure_vm.fire_and_forget(azure_vm.ensure_vm2_running())
     return await job_service.get_job(session, job.id)
 
 
