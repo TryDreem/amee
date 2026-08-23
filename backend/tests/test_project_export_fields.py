@@ -182,6 +182,51 @@ def test_export_srt_jobs_never_count_as_the_latest_export(
     assert body["latest_export_url"] is None
 
 
+def test_a_later_failed_export_does_not_shadow_an_earlier_successful_download(
+    eager_celery: None, sample_video: Path
+) -> None:
+    """Regression: latest_export_url must reflect the latest *successful*
+    export, not merely the latest by created_at (contract §4). Observed
+    live: a failed retry after a working export made the download icon
+    disappear even though the earlier video was still there.
+
+    latest_export_job_id, by contrast, keeps mirroring latest_transcribe_job_id's
+    "latest attempt, any status" semantics (contract §4) - it still points at the
+    failed retry, so a client can resolve *that* job's status via GET /jobs/{id}."""
+    project_id, cookies = asyncio.run(_create_transcribed_project(sample_video))
+
+    async def _create_job() -> uuid.UUID:
+        async with async_session_factory() as session:
+            job = await job_repo.create(
+                session,
+                project_id=project_id,
+                owner_id=uuid.uuid4(),
+                job_type=JobType.export,
+            )
+            return job.id
+
+    async def _fail_job(job_id: uuid.UUID) -> None:
+        async with async_session_factory() as session:
+            await job_repo.update_status(
+                session, job_id, status=JobStatus.failed, progress=None, error="boom"
+            )
+
+    good_job_id = asyncio.run(_create_job())
+    export_task.delay(str(good_job_id))
+
+    failed_job_id = asyncio.run(_create_job())
+    asyncio.run(_fail_job(failed_job_id))
+
+    body = asyncio.run(_get_project_json(project_id, cookies))
+
+    assert body["export_job_ids"] == [str(failed_job_id), str(good_job_id)]
+    assert body["latest_export_job_id"] == str(failed_job_id)
+    assert (
+        body["latest_export_url"]
+        == f"/files/projects/{project_id}/exports/{good_job_id}/video.mp4"
+    )
+
+
 def test_export_job_ids_lists_multiple_exports_newest_first(
     eager_celery: None, sample_video: Path
 ) -> None:

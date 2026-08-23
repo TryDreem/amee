@@ -64,13 +64,19 @@ async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
     export_job_ids = await job_repo.list_ids_by_project(
         session, model.id, JobType.export
     )
+    # latest_export_url is deliberately NOT just "latest_export_job's url once done": a failed
+    # retry after a successful export must not hide the still-valid earlier download (contract
+    # §4) - it's independently the most recent *successful* export's url, which may belong to an
+    # older job than latest_export_job_id points at.
+    latest_successful_export = await job_repo.get_latest_done_by_project(
+        session, model.id, JobType.export
+    )
     latest_export_url = None
     if (
-        latest_export_job is not None
-        and latest_export_job.status == JobStatus.done
-        and latest_export_job.result is not None
+        latest_successful_export is not None
+        and latest_successful_export.result is not None
     ):
-        latest_export_url = latest_export_job.result.get("video_url")
+        latest_export_url = latest_successful_export.result.get("video_url")
 
     return Project(
         id=model.id,

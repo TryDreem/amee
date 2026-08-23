@@ -77,6 +77,28 @@ async def get_latest_by_project(
     return result.scalars().first()
 
 
+async def get_latest_done_by_project(
+    session: AsyncSession, project_id: uuid.UUID, job_type: JobType
+) -> JobModel | None:
+    """Like `get_latest_by_project`, but only ever returns a `done` job —
+    used for `Project.latest_export_job_id`/`latest_export_url` (contract
+    §4), where a later failed retry must not shadow a still-valid earlier
+    download. `get_latest_by_project` itself stays status-blind on purpose:
+    its other callers (the P2 409 guard, the delete-time active-job check)
+    need to see queued/processing/failed jobs too."""
+    result = await session.execute(
+        select(JobModel)
+        .where(
+            JobModel.project_id == project_id,
+            JobModel.type == job_type,
+            JobModel.status == JobStatus.done,
+        )
+        .order_by(JobModel.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
 async def list_ids_by_project(
     session: AsyncSession, project_id: uuid.UUID, job_type: JobType
 ) -> list[uuid.UUID]:
