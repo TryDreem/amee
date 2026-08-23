@@ -14,6 +14,7 @@ from app.repositories import style as style_repo
 from app.repositories import user as user_repo
 from app.schemas.common import ErrorDetail
 from app.schemas.user import User
+from app.services import projects as projects_service
 
 # A profile photo, not a project master file - deliberately much tighter than
 # _ALLOWED_UPLOAD_EXTENSIONS/_MAX_UPLOAD_BYTES in services/projects.py, which is sized for
@@ -85,6 +86,7 @@ async def sign_in_with_google(
         name=profile.name,
         avatar_url=profile.picture,
     )
+    await projects_service.seed_demo_project(session, created.id)
     return created.id
 
 

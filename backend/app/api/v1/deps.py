@@ -10,6 +10,7 @@ from app.integrations.session_cookie import sign_user_id, verify_cookie
 from app.repositories import job as job_repo
 from app.repositories import project as project_repo
 from app.repositories import user as user_repo
+from app.services import projects as projects_service
 
 SESSION_COOKIE_NAME = "amee_session"
 
@@ -34,6 +35,7 @@ async def get_current_user_id(
             return user.id
 
     user = await user_repo.create_guest(session)
+    await projects_service.seed_demo_project(session, user.id)
     response.set_cookie(
         SESSION_COOKIE_NAME,
         sign_user_id(user.id),

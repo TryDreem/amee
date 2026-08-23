@@ -1,3 +1,4 @@
+import os
 import uuid
 from pathlib import Path
 
@@ -13,8 +14,10 @@ from app.repositories import raw_transcript as raw_transcript_repo
 from app.repositories import style as style_repo
 from app.repositories import user as user_repo
 from app.schemas.common import ErrorDetail
+from app.schemas.ecs import Segment, Word
 from app.schemas.job import JobStatus, JobType
 from app.schemas.project import Project, ProjectPage, ProjectSort
+from app.services import ecs as ecs_service
 from app.services import export as export_service
 from app.services import style as style_service
 from app.services.language import SUPPORTED_LANGUAGE_CODES
@@ -47,6 +50,8 @@ _MAX_PROJECTS_PER_OWNER = 3
 # fixed grid; 50 is the ceiling a client can't argue past (contract §4).
 DEFAULT_PAGE_LIMIT = 8
 MAX_PAGE_LIMIT = 50
+
+_DEMO_PROJECT_NAME = "Demo project"
 
 
 async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
@@ -98,6 +103,92 @@ async def _to_schema(session: AsyncSession, model: ProjectModel) -> Project:
         export_job_ids=export_job_ids,
         latest_export_job_id=latest_export_job.id if latest_export_job else None,
         latest_export_url=latest_export_url,
+    )
+
+
+async def seed_demo_project(session: AsyncSession, owner_id: uuid.UUID) -> None:
+    """Gives a brand-new user (guest mint in app/api/v1/deps.py, or a fresh Google account in
+    app/services/auth.py) one ready-to-explore project immediately, cloned from a human-prepared
+    template - no WhisperX run, no ffmpeg, no file copy. The clone's video/thumbnail/preview URLs
+    point straight at the template project's own files (read-only, shared) - storage.py's layout
+    namespaces everything under the owning project_id, so the clone can never write into, and
+    deleting it can never touch, the template's own files.
+
+    No-op if AMEE_DEMO_PROJECT_ID isn't set (dev/CI have no template to point at) or doesn't
+    resolve to a real, transcribed, styled project - a misconfigured template must never break
+    real signups. Deliberately does not touch User.projects_uploaded_count: that counter is only
+    bumped by a real transcribe job reaching `done` (app/workers/tasks.py), which this function
+    never runs, so the clone naturally never counts against the 3-project quota (contract §13)."""
+    template_id_raw = os.environ.get("AMEE_DEMO_PROJECT_ID")
+    if not template_id_raw:
+        return
+    try:
+        template_id = uuid.UUID(template_id_raw)
+    except ValueError:
+        return
+
+    template = await project_repo.get(session, template_id)
+    if template is None:
+        return
+    template_ecs = await ecs_service.get_ecs(session, template_id)
+    template_style = await style_service.get_style(session, template_id)
+    if template_ecs is None or template_style is None:
+        return
+
+    clone_id = uuid.uuid4()
+    await project_repo.create(
+        session,
+        project_id=clone_id,
+        owner_id=owner_id,
+        name=_DEMO_PROJECT_NAME,
+        video_url=template.video_url,
+        language=template.language,
+    )
+    if (
+        template.video_width is not None
+        and template.video_height is not None
+        and template.video_duration_seconds is not None
+        and template.thumbnail_url is not None
+    ):
+        await project_repo.update_media(
+            session,
+            clone_id,
+            width=template.video_width,
+            height=template.video_height,
+            duration_seconds=template.video_duration_seconds,
+            thumbnail_url=template.thumbnail_url,
+        )
+    if template.preview_video_url is not None:
+        await project_repo.update_preview(
+            session, clone_id, preview_video_url=template.preview_video_url
+        )
+
+    # Fresh Segment/Word ids, not the template's own: INVARIANTS.md V9 only requires uniqueness
+    # *within* a document, but segments.id/ecs_words.id are plain (non-composite) primary keys in
+    # the real schema (app/models/ecs.py) - reusing the template's ids here would collide with the
+    # template's own still-existing rows. Structure (word order/text/timing, segment overrides)
+    # carries over unchanged; only the ids are regenerated.
+    cloned_segments = [
+        Segment(
+            id=uuid.uuid4(),
+            words=[
+                Word(id=uuid.uuid4(), text=w.text, start=w.start, end=w.end)
+                for w in segment.words
+            ],
+            overrides=segment.overrides,
+        )
+        for segment in template_ecs.segments
+    ]
+    await ecs_repo.replace(
+        session, project_id=clone_id, owner_id=owner_id, segments=cloned_segments
+    )
+    await style_repo.create(
+        session,
+        project_id=clone_id,
+        owner_id=owner_id,
+        preset_id=template_style.presetId,
+        per_phrase_style=template_style.perPhraseStyle,
+        overrides=template_style.overrides.model_dump(exclude_none=True),
     )
 
 
