@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { STR } from "../i18n";
 import { resolveTheme, UI_MODES, type Prefs } from "../theme";
 import { AUTO_LANGUAGE_CODE, VIDEO_LANGUAGES } from "../lib/languages";
+import UploadNotice from "./UploadNotice";
 
 interface UploadZoneProps {
   prefs: Prefs;
@@ -10,6 +11,26 @@ interface UploadZoneProps {
   onFileSelected: (file: File, language: string) => void;
   busy: boolean;
   errorMessage: string | null;
+}
+
+// Same one-time-per-tab pattern as AuthContext's account tooltip (sessionStorage, not
+// localStorage -- reopens next session rather than being dismissed forever).
+const UPLOAD_NOTICE_SESSION_KEY = "amee_upload_notice_dismissed";
+
+function readUploadNoticeDismissed(): boolean {
+  try {
+    return sessionStorage.getItem(UPLOAD_NOTICE_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeUploadNoticeDismissed(): void {
+  try {
+    sessionStorage.setItem(UPLOAD_NOTICE_SESSION_KEY, "1");
+  } catch {
+    // Storage full/unavailable (private mode) -- the notice may just reopen next visit.
+  }
 }
 
 export default function UploadZone({
@@ -22,7 +43,13 @@ export default function UploadZone({
   const [dragOver, setDragOver] = useState(false);
   const [language, setLanguage] = useState(AUTO_LANGUAGE_CODE);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [noticeOpen, setNoticeOpen] = useState(() => !readUploadNoticeDismissed());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function dismissNotice() {
+    writeUploadNoticeDismissed();
+    setNoticeOpen(false);
+  }
 
   const mode = UI_MODES[prefs.mode];
   const isLight = prefs.mode === "light";
@@ -46,15 +73,17 @@ export default function UploadZone({
   }
 
   return (
-    <div
-      style={{
-        maxWidth: "1200px",
-        margin: "0 auto",
-        padding: "48px 32px 80px",
-        animation: "homeUploadIn .4s ease both",
-      }}
-    >
+    <>
+      {noticeOpen && <UploadNotice prefs={prefs} strings={L} onClose={dismissNotice} />}
       <div
+        style={{
+          maxWidth: "1200px",
+          margin: "0 auto",
+          padding: "48px 32px 80px",
+          animation: "homeUploadIn .4s ease both",
+        }}
+      >
+        <div
         onClick={onBack}
         className="amee-back-link"
         style={{
@@ -299,6 +328,7 @@ export default function UploadZone({
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

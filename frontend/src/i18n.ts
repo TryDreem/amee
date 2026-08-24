@@ -150,6 +150,14 @@ export interface Strings {
     Colorful: string;
     Script: string;
   };
+
+  footerLinkedinLabel: string;
+  footerGithubLabel: string;
+  footerRights: (year: number) => string;
+
+  uploadNoticeTitle: string;
+  uploadNoticeBody: string;
+  uploadNoticeGotIt: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -306,6 +314,15 @@ export const STR: Record<Lang, Strings> = {
       Colorful: "Цветной",
       Script: "Скрипт",
     },
+
+    footerLinkedinLabel: "LinkedIn",
+    footerGithubLabel: "GitHub",
+    footerRights: (year) => `© ${year} Amee. Все права защищены.`,
+
+    uploadNoticeTitle: "Помни",
+    uploadNoticeBody:
+      "Это демо-проект. Чтобы сэкономить на хостинге, сервер, обрабатывающий видео, отключается, когда им никто не пользуется. Первая загрузка или экспорт может занять до 2 минут — дальше всё будет быстро.",
+    uploadNoticeGotIt: "Понятно",
   },
   en: {
     themeLabel: "Theme",
@@ -459,5 +476,14 @@ export const STR: Record<Lang, Strings> = {
       Colorful: "Colorful",
       Script: "Script",
     },
+
+    footerLinkedinLabel: "LinkedIn",
+    footerGithubLabel: "GitHub",
+    footerRights: (year) => `© ${year} Amee. All rights reserved.`,
+
+    uploadNoticeTitle: "Remember",
+    uploadNoticeBody:
+      "This is a demo project. To save on hosting costs, the server that processes videos turns off when nobody's using it. The first upload or export might take up to 2 minutes to start — after that, it's fast.",
+    uploadNoticeGotIt: "Got it",
   },
 };

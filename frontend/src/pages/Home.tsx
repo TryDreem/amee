@@ -5,6 +5,7 @@ import DeleteProjectModal from "../components/DeleteProjectModal";
 import ExportBadge from "../components/ExportBadge";
 import ExportModal from "../components/ExportModal";
 import ExportToast from "../components/ExportToast";
+import Footer from "../components/Footer";
 import TopBar from "../components/TopBar";
 import ProjectGrid from "../components/ProjectGrid";
 import SavedToast from "../components/SavedToast";
@@ -437,27 +438,36 @@ export default function Home(): JSX.Element {
       />
 
       {view === "list" && (
-        <>
+        <div
+          style={{
+            minHeight: "calc(100vh - 64px)",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
           {listError && (
             <div role="alert" style={{ padding: "16px 32px", color: "#ef4444" }}>
               {listError}
             </div>
           )}
-          <ProjectGrid
-            prefs={prefs}
-            projects={projectPage?.items ?? []}
-            total={projectPage?.total ?? 0}
-            onCreateClick={() => setView("upload")}
-            searchValue={searchInput}
-            onSearchChange={setSearchInput}
-            sort={sort}
-            onSortChange={setSort}
-            page={page}
-            pageSize={PAGE_SIZE}
-            onPageChange={setPage}
-            onDeleteClick={handleDeleteClick}
-          />
-        </>
+          <div style={{ flex: 1 }}>
+            <ProjectGrid
+              prefs={prefs}
+              projects={projectPage?.items ?? []}
+              total={projectPage?.total ?? 0}
+              onCreateClick={() => setView("upload")}
+              searchValue={searchInput}
+              onSearchChange={setSearchInput}
+              sort={sort}
+              onSortChange={setSort}
+              page={page}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+              onDeleteClick={handleDeleteClick}
+            />
+          </div>
+          <Footer prefs={prefs} strings={L} />
+        </div>
       )}
 
       {view === "upload" && (
