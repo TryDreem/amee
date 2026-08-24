@@ -75,7 +75,7 @@ async def test_no_op_when_demo_project_id_is_unset(
         await projects_service.seed_demo_project(session, owner.id)
 
     async with async_session_factory() as session:
-        page, total = await project_repo.list_page(
+        _, total = await project_repo.list_page(
             session, owner_id=owner.id, limit=10, offset=0
         )
     assert total == 0
