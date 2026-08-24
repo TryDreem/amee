@@ -158,6 +158,10 @@ export interface Strings {
   uploadNoticeTitle: string;
   uploadNoticeBody: string;
   uploadNoticeGotIt: string;
+
+  projectNotFoundTitle: string;
+  projectNotFoundBody: string;
+  loadProjectFailed: string;
 }
 
 export const STR: Record<Lang, Strings> = {
@@ -323,6 +327,10 @@ export const STR: Record<Lang, Strings> = {
     uploadNoticeBody:
       "Это демо-проект. Чтобы сэкономить на хостинге, сервер, обрабатывающий видео, отключается, когда им никто не пользуется. Первая загрузка или экспорт может занять до 2 минут — дальше всё будет быстро.",
     uploadNoticeGotIt: "Понятно",
+
+    projectNotFoundTitle: "Проект не найден",
+    projectNotFoundBody: "Он мог быть удалён, или ссылка устарела.",
+    loadProjectFailed: "Не удалось загрузить проект. Попробуйте обновить страницу.",
   },
   en: {
     themeLabel: "Theme",
@@ -485,5 +493,9 @@ export const STR: Record<Lang, Strings> = {
     uploadNoticeBody:
       "This is a demo project. To save on hosting costs, the server that processes videos turns off when nobody's using it. The first upload or export might take up to 2 minutes to start — after that, it's fast.",
     uploadNoticeGotIt: "Got it",
+
+    projectNotFoundTitle: "Project not found",
+    projectNotFoundBody: "It may have been deleted, or the link is out of date.",
+    loadProjectFailed: "Couldn't load this project. Try refreshing the page.",
   },
 };

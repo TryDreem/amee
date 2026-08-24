@@ -80,6 +80,10 @@ export default function Editor(): JSX.Element {
   const { prefs } = useAmeePrefs();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A 404 (deleted project, stale link, someone else's id) is a distinct, expected outcome, not
+  // a generic failure -- shown as a friendly "not found" screen rather than the raw ApiError text
+  // `error` carries for everything else (network hiccups, 500s).
+  const [notFound, setNotFound] = useState(false);
 
   // Step 6a: left-panel tab. "style" is the default to match the design's own default view.
   const [activeTab, setActiveTab] = useState<"style" | "captions">("style");
@@ -127,9 +131,11 @@ export default function Editor(): JSX.Element {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(
-            err instanceof ApiError ? `${err.status}: ${err.message}` : "Failed to load project."
-          );
+          if (err instanceof ApiError && err.status === 404) {
+            setNotFound(true);
+          } else {
+            setError(L.loadProjectFailed);
+          }
         }
       });
     // "Recently opened" is written only by this explicit call, never as a side effect of the
@@ -141,6 +147,11 @@ export default function Editor(): JSX.Element {
     return () => {
       cancelled = true;
     };
+    // Deliberately keyed on `id` alone -- re-running this fetch on every prefs/language change
+    // would refire the GET (and the fire-and-forget open-project call below) for no reason; a
+    // stale `L.loadProjectFailed` closed over across a language switch mid-request is a cosmetic
+    // edge case, not worth restarting the load for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // Close the "⋯" export menu on an outside click or Escape (same dismissal pattern as the
@@ -199,6 +210,33 @@ export default function Editor(): JSX.Element {
       <span>{L.backToProjects}</span>
     </Link>
   );
+
+  if (notFound) {
+    return (
+      <div style={{ minHeight: "100vh", background: mode.pageBg }}>
+        <div style={{ padding: "32px" }}>
+          {backLink}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              textAlign: "center",
+              gap: "8px",
+              marginTop: "80px",
+            }}
+          >
+            <div style={{ fontSize: "19px", fontWeight: 700, color: mode.textMain }}>
+              {L.projectNotFoundTitle}
+            </div>
+            <div style={{ fontSize: "13.5px", color: mode.textFaint3 }}>
+              {L.projectNotFoundBody}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (
