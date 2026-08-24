@@ -1,5 +1,13 @@
 # Amee
 
+**Live:** [amee-app.xyz](https://amee-app.xyz) — a demo project is pre-loaded for every new visitor,
+so there's something to click into immediately, no upload required. Since the processing server
+auto-shuts-down when idle to save on hosting, the very first upload or export of a session may take
+up to ~2 minutes to start; after that it's fast.
+
+Built by [Vladyslav Akulov](https://www.linkedin.com/in/vladyslav-akulov-366838293/) —
+[github.com/TryDreem/amee](https://github.com/TryDreem/amee).
+
 Amee is an auto-subtitle video editor for short-form video. Upload a clip, get word-level
 transcription back, and edit both the caption *content* (text, timing, grouping) and the caption
 *style* (font, color, position, reveal animation) in a live preview — then export a version with
