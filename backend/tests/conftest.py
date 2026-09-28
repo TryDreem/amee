@@ -80,11 +80,11 @@ def _migrate_test_database() -> None:
 _create_test_database_if_missing()
 _migrate_test_database()
 
-from redis import asyncio as _redis_lib  # noqa: E402
+from redis import asyncio as _redis_lib
 
-from app.db import Base, async_session_factory  # noqa: E402
-from app.integrations.redis import redis_client  # noqa: E402
-from app.main import app  # noqa: E402
+from app.db import Base, async_session_factory
+from app.integrations.redis import redis_client
+from app.main import app
 
 
 @pytest.fixture

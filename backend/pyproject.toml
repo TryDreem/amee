@@ -68,6 +68,11 @@ ignore = [
   "UP047",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# tests/conftest.py must set AMEE_DB_URL/AMEE_STORAGE_DIR and run migrations before app.main
+# imports app.db's module-level engine.
+"tests/conftest.py" = ["E402"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
