@@ -1,7 +1,7 @@
 import asyncio
 import os
 import shutil
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,6 +19,15 @@ from azure.storage.blob.aio import BlobServiceClient, ContainerClient
 # leaked URL (e.g. in a browser history) doesn't stay valid indefinitely. Not a env var: purely a
 # tuning knob, same convention as redis.py's _KEY_TTL_SECONDS.
 _SAS_TTL_SECONDS = 60 * 60
+
+UploadContent = bytes | AsyncIterable[bytes]
+BlobUploadContent = bytes | AsyncIterable[bytes]
+
+
+class UploadTooLarge(Exception):
+    def __init__(self, max_bytes: int) -> None:
+        self.max_bytes = max_bytes
+        super().__init__(f"uploaded file exceeds {max_bytes} bytes")
 
 
 def storage_dir() -> Path:
@@ -55,7 +64,7 @@ class _BlobClient(Protocol):
     """The only Azure-shaped surface storage.py needs - small enough that
     tests fake it directly instead of mocking the real SDK."""
 
-    async def upload(self, blob_name: str, data: bytes) -> None: ...
+    async def upload(self, blob_name: str, data: BlobUploadContent) -> None: ...
     async def download(self, blob_name: str) -> bytes: ...
     async def delete_prefix(self, prefix: str) -> None: ...
     def sas_url(self, blob_name: str) -> str: ...  # pure HMAC signing, no network call
@@ -69,7 +78,7 @@ class _AzureBlobClient:
         self._account_name = account_name
         self._account_key = account_key
 
-    async def upload(self, blob_name: str, data: bytes) -> None:
+    async def upload(self, blob_name: str, data: BlobUploadContent) -> None:
         await self._container.upload_blob(name=blob_name, data=data, overwrite=True)
 
     async def download(self, blob_name: str) -> bytes:
@@ -123,23 +132,60 @@ async def _blob_client() -> AsyncIterator[_BlobClient]:
         )
 
 
+async def _content_chunks(content: UploadContent) -> AsyncIterator[bytes]:
+    if isinstance(content, bytes):
+        if content:
+            yield content
+        return
+    async for chunk in content:
+        if chunk:
+            yield chunk
+
+
+async def _limited_chunks(
+    content: UploadContent, *, max_bytes: int | None
+) -> AsyncIterator[bytes]:
+    total = 0
+    async for chunk in _content_chunks(content):
+        total += len(chunk)
+        if max_bytes is not None and total > max_bytes:
+            raise UploadTooLarge(max_bytes)
+        yield chunk
+
+
 async def save_video(
-    project_id: UUID, filename: str, content: bytes
+    project_id: UUID,
+    filename: str,
+    content: UploadContent,
+    *,
+    max_bytes: int | None = None,
 ) -> tuple[Path, str]:
-    """Writes the uploaded video. Returns (disk path, video_url). In blob
-    mode, uploads straight to Blob with no local write at all: the returned
-    Path's caller (services/projects.py) discards it, and nothing on this
-    machine ever reads it back - a local copy here would be pure wasted
-    disk on the API VM."""
+    """Writes the uploaded video. Returns (disk path, video_url).
+
+    The upload route hands us Starlette's already-spooled file as chunks, so
+    this function must not rebuild one giant bytes object on the API VM.
+    Local mode copies into a hidden temp file and atomically publishes it
+    once complete; blob mode lets Azure consume the same chunk stream.
+    """
     ext = Path(filename).suffix or ".mp4"
     dest = project_dir(project_id) / f"source{ext}"
     url = f"/files/projects/{project_id}/{dest.name}"
     if backend() == "blob":
         async with _blob_client() as client:
-            await client.upload(_blob_name(url), content)
+            await client.upload(
+                _blob_name(url), _limited_chunks(content, max_bytes=max_bytes)
+            )
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(content)
+        tmp = dest.parent / f".{dest.name}.{uuid4().hex}.tmp"
+        try:
+            with tmp.open("wb") as output:
+                async for chunk in _limited_chunks(content, max_bytes=max_bytes):
+                    output.write(chunk)
+            os.replace(tmp, dest)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
     return dest, url
 
 

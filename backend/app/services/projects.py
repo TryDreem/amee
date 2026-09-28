@@ -1,5 +1,6 @@
 import os
 import uuid
+from collections.abc import AsyncIterable
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -198,7 +199,8 @@ async def create_project(
     owner_id: uuid.UUID,
     name: str | None,
     filename: str,
-    content: bytes,
+    content: AsyncIterable[bytes],
+    content_size: int | None = None,
     language: str | None = None,
 ) -> Project:
     details: list[ErrorDetail] = []
@@ -211,7 +213,7 @@ async def create_project(
                 "expected .mp4 or .mov",
             )
         )
-    if len(content) > _MAX_UPLOAD_BYTES:
+    if content_size is not None and content_size > _MAX_UPLOAD_BYTES:
         details.append(
             ErrorDetail(
                 field="file",
@@ -245,7 +247,19 @@ async def create_project(
     # preview_video_url all start null and are filled in later by the
     # transcribe job.
     project_id = uuid.uuid4()
-    _, video_url = await storage.save_video(project_id, filename, content)
+    try:
+        _, video_url = await storage.save_video(
+            project_id, filename, content, max_bytes=_MAX_UPLOAD_BYTES
+        )
+    except storage.UploadTooLarge as exc:
+        raise DomainValidationError(
+            [
+                ErrorDetail(
+                    field="file",
+                    issue=f"file exceeds the {exc.max_bytes} byte limit",
+                )
+            ]
+        ) from exc
     model = await project_repo.create(
         session,
         project_id=project_id,

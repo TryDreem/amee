@@ -116,6 +116,11 @@ async def test_create_project_rejects_oversized_file(
 ) -> None:
     # Shrink the 100MB limit rather than uploading a real 100MB file.
     monkeypatch.setattr("app.services.projects._MAX_UPLOAD_BYTES", 10)
+
+    async def fail_if_called(*args: object, **kwargs: object) -> object:
+        raise AssertionError("oversized upload should not be written to storage")
+
+    monkeypatch.setattr("app.services.projects.storage.save_video", fail_if_called)
     async with httpx.AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:

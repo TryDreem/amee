@@ -73,7 +73,14 @@ python_version = "3.12"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["celery.*", "kombu.*", "whisperx", "whisperx.*"]
+module = [
+  "azure.storage.blob",
+  "azure.storage.blob.*",
+  "celery.*",
+  "kombu.*",
+  "whisperx",
+  "whisperx.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

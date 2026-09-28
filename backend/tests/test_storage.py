@@ -23,9 +23,20 @@ class _FakeBlobClient:
     def __init__(self) -> None:
         self.blobs: dict[str, bytes] = {}
         self.download_count = 0
+        self.upload_chunk_counts: dict[str, int] = {}
 
-    async def upload(self, blob_name: str, data: bytes) -> None:
-        self.blobs[blob_name] = data
+    async def upload(self, blob_name: str, data: storage.BlobUploadContent) -> None:
+        if isinstance(data, bytes):
+            self.upload_chunk_counts[blob_name] = 1 if data else 0
+            self.blobs[blob_name] = data
+            return
+        chunks = []
+        chunk_count = 0
+        async for chunk in data:
+            chunk_count += 1
+            chunks.append(chunk)
+        self.upload_chunk_counts[blob_name] = chunk_count
+        self.blobs[blob_name] = b"".join(chunks)
 
     async def download(self, blob_name: str) -> bytes:
         self.download_count += 1
@@ -73,6 +84,39 @@ async def test_save_video_defaults_extension_when_missing(tmp_path: Path) -> Non
 
     assert path.suffix == ".mp4"
     assert url.endswith("/source.mp4")
+
+
+async def test_save_video_writes_stream_chunks_to_local_storage(
+    tmp_path: Path,
+) -> None:
+    project_id = uuid.uuid4()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b"fake "
+        yield b"video "
+        yield b"bytes"
+
+    path, _ = await storage.save_video(project_id, "upload.mp4", chunks())
+
+    assert path.read_bytes() == b"fake video bytes"
+    assert not list(path.parent.glob(".*.tmp"))
+
+
+async def test_save_video_removes_partial_local_temp_file_when_too_large(
+    tmp_path: Path,
+) -> None:
+    project_id = uuid.uuid4()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b"ab"
+        yield b"cd"
+
+    with pytest.raises(storage.UploadTooLarge):
+        await storage.save_video(project_id, "upload.mp4", chunks(), max_bytes=3)
+
+    project_dir = tmp_path / "projects" / str(project_id)
+    assert not (project_dir / "source.mp4").exists()
+    assert not list(project_dir.glob(".*.tmp"))
 
 
 def test_video_export_paths_land_under_job_id(tmp_path: Path) -> None:
@@ -131,6 +175,41 @@ async def test_save_video_uploads_to_blob_with_no_local_write(
     assert url == f"/files/projects/{project_id}/source.mov"
     assert fake_blob.blobs[f"projects/{project_id}/source.mov"] == content
     assert not path.exists()
+
+
+async def test_save_video_uploads_stream_chunks_to_blob(
+    fake_blob: _FakeBlobClient,
+) -> None:
+    project_id = uuid.uuid4()
+    blob_name = f"projects/{project_id}/source.mp4"
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b"fake "
+        yield b"video "
+        yield b"bytes"
+
+    path, url = await storage.save_video(project_id, "upload.mp4", chunks())
+
+    assert url == f"/files/{blob_name}"
+    assert fake_blob.blobs[blob_name] == b"fake video bytes"
+    assert fake_blob.upload_chunk_counts[blob_name] == 3
+    assert not path.exists()
+
+
+async def test_save_video_does_not_commit_blob_when_stream_is_too_large(
+    fake_blob: _FakeBlobClient,
+) -> None:
+    project_id = uuid.uuid4()
+    blob_name = f"projects/{project_id}/source.mp4"
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b"ab"
+        yield b"cd"
+
+    with pytest.raises(storage.UploadTooLarge):
+        await storage.save_video(project_id, "upload.mp4", chunks(), max_bytes=3)
+
+    assert blob_name not in fake_blob.blobs
 
 
 async def test_save_avatar_uploads_to_blob_and_removes_the_stale_extension(

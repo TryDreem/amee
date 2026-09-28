@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,8 @@ from app.schemas.project import Project, ProjectPage, ProjectSort
 from app.services import projects as project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 
 
 @router.post(
@@ -32,13 +35,17 @@ async def create_project(
     session: AsyncSession = Depends(get_db),
     owner_id: uuid.UUID = Depends(get_current_user_id),
 ) -> Project:
-    content = await file.read()
+    async def content_chunks() -> AsyncIterator[bytes]:
+        while chunk := await file.read(_UPLOAD_READ_CHUNK_BYTES):
+            yield chunk
+
     return await project_service.create_project(
         session,
         owner_id=owner_id,
         name=name,
         filename=file.filename or "upload.mp4",
-        content=content,
+        content=content_chunks(),
+        content_size=file.size,
         language=language,
     )
 
